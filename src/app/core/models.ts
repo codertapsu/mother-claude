@@ -1813,6 +1813,16 @@ export interface BrowserFrame {
   what?: string;
 }
 
+/** A data job started or ended (everyone): refetch `GET /api/data/jobs`
+ * (moves, copies, backups, restores, pulls, deletes). Its progress is not
+ * told: whoever follows a running job polls it. */
+export interface JobsFrame {
+  t: 'jobs';
+  id: string;
+  kind: DataJobKind | string;
+  state: DataJobState | string;
+}
+
 /** The client lagged and frames were dropped — refetch and resubscribe. */
 export interface ResyncFrame {
   t: 'resync';
@@ -1843,6 +1853,7 @@ export type ServerFrame =
   | DevicesFrame
   | PairRequestFrame
   | BrowserFrame
+  | JobsFrame
   | ResyncFrame
   | PingFrame
   | PongFrame

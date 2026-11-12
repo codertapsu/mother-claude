@@ -36,10 +36,10 @@ import { RealtimeService } from '../../core/realtime.service';
 import { StorageService } from '../../core/storage.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { DataJobComponent } from '../../shared/data-job.component';
-import { HubTabsComponent } from '../../shared/hub-tabs.component';
 import { IconComponent } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { relativeTime, shortPath } from '../../shared/util';
+import { AccountsHeadComponent } from '../accounts/accounts-head.component';
 import { BackupBrowserComponent, BrowserBring, BrowserTarget } from './backup-browser.component';
 import { FolderPairsComponent } from './folder-pairs.component';
 import { ForceBackupSheetComponent } from './force-backup-sheet.component';
@@ -52,6 +52,8 @@ import { SyncDrag, SyncDragItem, SyncDropTarget, dropText, targetKey } from './s
 
 /** The newest jobs listed. */
 const JOBS_SHOWN = 8;
+/** …of which the page lists the newest (the rest: Recent changes). */
+const JOBS_LISTED = 3;
 
 interface SetRow {
   set: BackupSet;
@@ -67,7 +69,7 @@ interface SetRow {
 }
 
 /**
- * Settings › Backup & sync (docs/BACKUP.md, docs/ACCOUNTS.md §6.6): an
+ * Accounts › Backups (docs/BACKUP.md, docs/ACCOUNTS.md §6.6): an
  * encrypted backup of each Claude account's data in a folder of your
  * choosing — the same folder carries conversations to another laptop. The
  * folder (with iCloud Drive and Google Drive suggested when the Mac has
@@ -91,13 +93,13 @@ interface SetRow {
   selector: 'mc-backup',
   imports: [
     FormsModule,
+    AccountsHeadComponent,
     RouterLink,
     BackupBrowserComponent,
     CopyButtonComponent,
     DataJobComponent,
     FolderPairsComponent,
     ForceBackupSheetComponent,
-    HubTabsComponent,
     IconComponent,
     JobDetailsComponent,
     PassphraseSheetComponent,
@@ -132,7 +134,7 @@ export class BackupComponent {
   /** The lane head over the accounts here: "This Mac", "This PC". */
   protected readonly hereLabel = computed(() => {
     const os = this.hostOs();
-    return os === 'macos' ? tr('This Mac') : os === 'windows' ? tr('This PC') : tr('This machine');
+    return os === 'macos' ? tr('This Mac') : os === 'windows' ? tr('This PC') : tr('This computer');
   });
   /** Where the passphrase is kept: a Mac's Keychain, elsewhere on the
    * computer itself (docs/ACCOUNTS.md D3). */
@@ -231,6 +233,8 @@ export class BackupComponent {
   protected readonly anySet = computed(() =>
     ownSets(this.view()?.sets ?? []).some((s) => s.exists),
   );
+  /** The newest few, listed here (*See all*: Accounts › Recent changes). */
+  protected readonly shownJobs = computed(() => this.jobList().slice(0, JOBS_LISTED));
   protected readonly jobList = computed<JobView[]>(() => {
     const merged = new Map((this.view()?.jobs ?? []).map((j) => [j.id, j]));
     for (const [id, j] of this.live()) merged.set(id, j);

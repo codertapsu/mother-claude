@@ -575,7 +575,7 @@ export class NewSessionComponent {
 
   private fixWhere(): string {
     return this.isDesktop()
-      ? tr('Fix it on the Accounts page (Settings › Accounts).')
+      ? tr('Fix it on the Accounts page.')
       : tr('Fix it on the Accounts page of the desktop app.');
   }
 

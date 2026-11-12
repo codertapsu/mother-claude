@@ -118,12 +118,26 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/accounts/accounts.component').then((m) => m.AccountsComponent),
   },
-  // Backup & sync: a paired phone does everything but the passphrase
+  // How much of each plan is left, how often it is read, the rate limits.
+  {
+    path: 'accounts/usage',
+    loadComponent: () =>
+      import('./pages/accounts/usage-page.component').then((m) => m.UsagePageComponent),
+  },
+  // Backups: a paired phone does everything but the passphrase
   // (docs/BACKUP.md).
   {
-    path: 'backup',
+    path: 'accounts/backups',
     loadComponent: () => import('./pages/backup/backup.component').then((m) => m.BackupComponent),
   },
+  // Every data job, with Undo while it is possible.
+  {
+    path: 'accounts/changes',
+    loadComponent: () =>
+      import('./pages/accounts/changes-page.component').then((m) => m.ChangesPageComponent),
+  },
+  // Backup & sync is Accounts › Backups now (the query and fragment kept).
+  { path: 'backup', redirectTo: 'accounts/backups' },
   {
     path: 'more',
     loadComponent: () => import('./pages/more/more.component').then((m) => m.MoreComponent),

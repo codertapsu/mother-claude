@@ -80,7 +80,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Làm quen với ứng dụng',
         points: [
           'Trên ứng dụng máy tính, thanh bên có phần việc của bạn trước — **Phiên**, **Hộp thư** và **Nhóm** — rồi đến những gì bạn quản lý: **Máy tính**, **Tài khoản** và **Cài đặt**. **Trợ giúp** nằm ở dưới cùng.',
-          'Nơi nào có nhiều trang sẽ hiện chúng thành các thẻ dưới tên của nó: **Phiên** và **Tác tử**; **Nhóm** và **Công suất**; **Máy tính**: **Tổng quan**, **Đồng bộ mã nguồn**, **Hoạt động** và **Tùy chọn**; **Tài khoản** và **Bản sao lưu**. **Cài đặt** mở phần còn lại trong **Các kết nối**: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**.',
+          'Nơi nào có nhiều trang sẽ hiện chúng thành các thẻ dưới tên của nó: **Phiên** và **Tác tử**; **Nhóm** và **Công suất**; **Máy tính**: **Tổng quan**, **Đồng bộ mã nguồn**, **Hoạt động** và **Tùy chọn**; **Tài khoản**: **Tài khoản**, **Mức dùng**, **Bản sao lưu** và **Thay đổi gần đây**. **Cài đặt** mở phần còn lại trong **Các kết nối**: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**.',
           'Trên điện thoại, các thẻ ở dưới cùng là **Phiên**, **Hộp thư**, **Nhóm** và **Thêm**. **Thêm** có **Máy tính**, **Tài khoản**, **Cài đặt** và **Trợ giúp**, mỗi mục kèm một dòng cho biết tình trạng của nó.',
           'Chấm ở cuối thanh bên (ở trên cùng trên điện thoại) cho biết trạng thái kết nối. **Trực tiếp** nghĩa là cập nhật đến ngay khi có.',
           'Nút bên cạnh đổi giao diện giữa tối, sáng và theo hệ thống. **Cài đặt › Hiển thị** còn có ngôn ngữ, màu nhấn và nền.',
@@ -163,7 +163,7 @@ const TOPICS: HelpTopicSource[] = [
     title: 'Cài đặt và cập nhật',
     icon: 'settings',
     group: 'basics',
-    summary: 'Thông báo, giao diện, mức dùng gói, kết nối và cập nhật phần mềm.',
+    summary: 'Thông báo, giao diện, kết nối và cập nhật phần mềm.',
     intro:
       'Cài đặt chứa những gì bạn đặt một lần: thông báo, giao diện và kết nối của thiết bị này, cùng những gì khác hoạt động với Mother Claude. Trong ứng dụng máy tính, Cài đặt còn có cập nhật phần mềm; các quyền macOS nằm trong **Máy tính › Máy Mac này**.',
     keywords: [
@@ -191,7 +191,6 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Các kết nối',
             text: 'Những gì khác hoạt động với Mother Claude, mỗi mục kèm tình trạng và trang riêng của nó: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác** (cả hai trong ứng dụng máy tính), **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**.',
           },
-          { term: 'Mức dùng gói', text: 'Tần suất đọc giới hạn của gói Claude của bạn.' },
           {
             term: 'Kết nối',
             text: 'Máy chủ, cách thiết bị này kết nối, thiết bị có được thực hiện thao tác nguy hiểm không, và cập nhật trực tiếp.',
@@ -227,17 +226,16 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
-        heading: 'Làm mới mức dùng gói',
+        heading: 'Mức dùng gói đã chuyển sang Tài khoản',
         intro:
-          'Trang Phiên hiện giới hạn của gói Claude của bạn (khung 5 giờ hiện tại và các khung theo tuần) cùng thời điểm đặt lại.',
-        steps: [
-          'Mở **Cài đặt** trong ứng dụng máy tính.',
-          'Trong **Mức dùng gói**, mở **Làm mới mức dùng gói**.',
-          'Chọn **Mỗi 3 phút**, **Mỗi 5 phút (khuyên dùng)**, **Mỗi 10 phút** hoặc **Chỉ thủ công**.',
-        ],
-        points: [
-          'Ứng dụng đọc theo nhịp đó khi có phiên đang làm việc, còn lại thì 30 phút một lần, và chỉ khi có bảng điều khiển đang mở. **Làm mới** trong bảng mức dùng gói sẽ đọc ngay.',
-          'Điện thoại hiện cài đặt này; bạn đổi nó trong ứng dụng máy tính.',
+          'Cài đặt không còn mục **Mức dùng gói**. Tần suất đọc mức dùng gói Claude của bạn giờ là **Đọc mức dùng mỗi** trên **Tài khoản › Mức dùng**, cạnh phần cho biết mỗi gói còn lại bao nhiêu.',
+        links: [
+          { label: 'Mở trang Mức dùng', path: '/accounts/usage' },
+          {
+            label: 'Xem “Tần suất đọc mức dùng”',
+            path: '/help/accounts',
+            fragment: 'how-often-usage-is-read',
+          },
         ],
       },
       {
@@ -328,7 +326,7 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           'Hàng trên cùng đếm những gì đang diễn ra: phiên **đang làm việc**, phiên **sẽ tiếp tục**, **tác tử đang chạy**, phiên **cần bạn**, và chi phí từ đầu ngày. Mỗi phần là một lối tắt.',
         points: [
-          'Bên cạnh là mức dùng gói Claude của bạn, cho khung 5 giờ và cả tuần. Chạm vào để xem mọi khung và thời điểm đặt lại.',
+          'Bên cạnh là mức dùng gói Claude của bạn, cho khung 5 giờ và cả tuần. Chạm vào để mở **Tài khoản › Mức dùng**: mọi khung của mọi tài khoản, kèm thời điểm đặt lại.',
           'Chi phí là ước tính, tính từ nửa đêm.',
         ],
       },
@@ -358,7 +356,7 @@ const TOPICS: HelpTopicSource[] = [
           '**Dự án**, cạnh **Phiên** ở trên cùng, liệt kê mọi thư mục dự án có cuộc trò chuyện, trong mọi tài khoản: có bao nhiêu cuộc trò chuyện, bao nhiêu đang chạy, dung lượng và hoạt động gần nhất.',
         points: [
           'Menu của một dự án mở thư mục của nó trên ổ đĩa (ứng dụng máy tính), sao chép đường dẫn, di chuyển hay sao chép dự án, hoặc xóa nó.',
-          'Dự án đã xóa nằm trong **Đã xóa gần đây** trong bảy ngày, kèm **Hoàn tác**.',
+          'Dự án đã xóa nằm trong **Đã xóa gần đây** trong bảy ngày, kèm **Hoàn tác**. Mục này hiện ba lần xóa mới nhất; **Xem tất cả** mở mọi lần xóa trên **Tài khoản › Thay đổi gần đây**.',
         ],
       },
       {
@@ -455,7 +453,10 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Mô hình và mức dùng',
             text: 'Mô hình, chế độ quyền, mức nỗ lực, ultracode, suy nghĩ, chế độ nhanh, chi phí và token.',
           },
-          { term: 'Mức dùng gói', text: 'Gói của tài khoản mà phiên đang dùng.' },
+          {
+            term: 'Mức dùng gói',
+            text: 'Gói của tài khoản mà phiên đang dùng, kèm **Làm mới**. Trong ứng dụng máy tính, **Đổi trong Tài khoản › Mức dùng** để đặt tần suất đọc mức dùng.',
+          },
           {
             term: 'Từ đây bạn có thể',
             text: 'Những gì dùng được với phiên này, và nút khắc phục từng giới hạn.',
@@ -750,8 +751,8 @@ const TOPICS: HelpTopicSource[] = [
             text: 'Một bản sao giữ trên máy tính khác đang chờ một điều chỉ bạn thay đổi được ở đó, chẳng hạn quyền **Di chuyển** của nó.',
           },
           {
-            term: 'Sao lưu hay di chuyển thất bại',
-            text: 'Trong ngày qua: **Thử lại** chạy lại một lần sao lưu; **Chi tiết** mở danh sách của nó.',
+            term: 'Sao lưu, di chuyển hay xóa thất bại',
+            text: 'Trong ngày qua: **Thử lại** chạy lại một lần sao lưu; **Chi tiết** mở đúng loại thay đổi đó trên **Tài khoản › Thay đổi gần đây**.',
           },
           {
             term: 'Chưa bị thu hồi ở mọi nơi',
@@ -976,7 +977,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Điện thoại làm được gì',
         points: [
-          'Các thẻ ở dưới cùng là **Phiên** (có thẻ **Tác tử**), **Hộp thư**, **Nhóm** (có **Công suất**) và **Thêm**: **Máy tính**, **Tài khoản** (có **Bản sao lưu**), **Cài đặt** và **Trợ giúp**.',
+          'Các thẻ ở dưới cùng là **Phiên** (có thẻ **Tác tử**), **Hộp thư**, **Nhóm** (có **Công suất**) và **Thêm**: **Máy tính**, **Tài khoản** (có **Mức dùng**, **Bản sao lưu** và **Thay đổi gần đây**), **Cài đặt** và **Trợ giúp**.',
           'Xem mọi phiên, trả lời yêu cầu duyệt, câu hỏi và kế hoạch, gửi tin nhắn và ảnh, bắt đầu phiên và tiếp tục phiên.',
           'Ghép nối thiết bị, thay đổi quyền truy cập từ xa và cài đặt plugin chỉ làm được trong ứng dụng máy tính.',
           'Thao tác nguy hiểm cần được cấp quyền cho thiết bị này trong ứng dụng máy tính (**Cài đặt › Điện thoại & thiết bị**, trong **Thiết bị đã ghép nối**).',

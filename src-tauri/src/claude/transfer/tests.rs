@@ -1768,3 +1768,47 @@ fn a_file_copied_to_a_share_that_cannot_flush_the_drive_is_placed() {
     assert_eq!(created.size, 16);
     assert_eq!(std::fs::read(&to).unwrap(), std::fs::read(&from).unwrap());
 }
+
+/// A job's start and every change of its state reach the dashboards as
+/// `{t:"jobs", id, kind, state}`; its progress and other fields do not.
+#[test]
+fn a_job_tells_its_start_and_each_change_of_its_state() {
+    let (tx, mut rx) = broadcast::channel(16);
+    let jobs = Jobs::new(tx);
+    let mut next = || {
+        rx.try_recv()
+            .ok()
+            .map(|e| serde_json::to_value(&*e).unwrap())
+    };
+    drop(jobs.start("tr_1", "backup", 3, 30));
+    assert_eq!(
+        next(),
+        Some(
+            serde_json::json!({ "t": "jobs", "id": "tr_1", "kind": "backup", "state": "running" })
+        )
+    );
+    jobs.update("tr_1", |v| v.account = Some("acc_work".into()));
+    jobs.update("tr_1", |v| v.files_done = 2);
+    assert_eq!(next(), None, "progress is not told");
+    jobs.update("tr_1", |v| {
+        v.state = JobState::Failed;
+        v.error = Some("The folder is offline.".into());
+    });
+    assert_eq!(
+        next(),
+        Some(serde_json::json!({ "t": "jobs", "id": "tr_1", "kind": "backup", "state": "failed" }))
+    );
+    // A job it does not know changes nothing and tells nobody.
+    jobs.update("tr_2", |v| v.state = JobState::Done);
+    assert_eq!(next(), None);
+    assert!(jobs.get("tr_2").is_none());
+}
+
+/// Without a bus (the engine on its own) jobs work the same, told nowhere.
+#[test]
+fn jobs_without_a_bus_tell_nobody() {
+    let jobs = Jobs::default();
+    drop(jobs.start("tr_3", "move", 1, 1));
+    jobs.update("tr_3", |v| v.state = JobState::Done);
+    assert_eq!(jobs.get("tr_3").map(|v| v.state), Some(JobState::Done));
+}

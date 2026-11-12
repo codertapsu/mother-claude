@@ -145,7 +145,7 @@ const TOPICS: HelpTopicSource[] = [
           'Tài khoản được ghép theo tên trên từng máy tính, không phân biệt chữ hoa chữ thường, và tài khoản Mặc định với tài khoản Mặc định. Một phiên được chuyển sang tài khoản cùng tên, và chỉ chạy được ở nơi tài khoản đó đã đăng nhập.',
           'Máy khác chỉ thấy tên, loại và trạng thái đăng nhập của các tài khoản của bạn: không bao giờ thấy token, email hay thư mục.',
           'Thư mục dùng chung là một thư mục trên mỗi máy tính, chẳng hạn `~/development/projects` trên máy Mac và `D:\\development\\projects` trên Windows: một dự án nằm trong nó ở máy này là cùng dự án đó, ở cùng vị trí, trên máy kia.',
-          'Phần thiết lập đề xuất thư mục dùng chung dựa trên remote git của các dự án: nhấn **Dùng** để nhận một thư mục, hoặc **Thêm thư mục** để thêm thư mục của riêng bạn. Các cặp thư mục từ **Sao lưu & đồng bộ** được giữ lại.',
+          'Phần thiết lập đề xuất thư mục dùng chung dựa trên remote git của các dự án: nhấn **Dùng** để nhận một thư mục, hoặc **Thêm thư mục** để thêm thư mục của riêng bạn. Các cặp thư mục từ **Tài khoản › Bản sao lưu** được giữ nguyên.',
           'Dự án chỉ một máy có sẽ hiện **Sao chép sang …** hoặc **Sao chép về đây**. Dự án không có remote git thì không thể chuyển cùng mã nguồn.',
           '**Đăng nhập trên …**, **Thêm trên …** và **Sao chép sang …** là những việc được nhờ máy đó: người ở máy đó sẽ xác nhận, trong **Hộp thư** của máy ấy.',
         ],

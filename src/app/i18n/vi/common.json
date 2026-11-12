@@ -31,7 +31,6 @@
   "New session": "Phiên mới",
   "Teams": "Nhóm",
   "Accounts": "Tài khoản",
-  "Backup & sync": "Sao lưu & đồng bộ",
   "Remote": "Từ xa",
   "Browser": "Trình duyệt",
   "API": "API",
@@ -103,5 +102,10 @@
   "Phone & devices": "Điện thoại & thiết bị",
   "Sessions started elsewhere": "Phiên bắt đầu ở nơi khác",
   "Overview": "Tổng quan",
-  "Moves": "Lần chuyển"
+  "Moves": "Lần chuyển",
+  "Usage": "Mức dùng",
+  "Recent changes": "Thay đổi gần đây",
+  "Deleted": "Đã xóa",
+  "See all": "Xem tất cả",
+  "Install": "Cài đặt"
 }

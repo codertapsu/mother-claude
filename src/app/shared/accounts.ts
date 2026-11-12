@@ -229,19 +229,20 @@ export function consentNeeded(e: unknown): CopyConsent | null {
   return from && to ? { from, to } : null;
 }
 
-/** The hooks plugin of an account, in a few words ('' for none to show: a
- * token account uses the Default's). */
-export function hooksPluginText(a: Pick<AccountView, 'kind' | 'hooksPlugin'>): string {
+/** Sessions started elsewhere — the Mother Claude plugin in an account's
+ * directory — in one line ('' for none to show: a token account uses the
+ * Default's). */
+export function elsewhereText(a: Pick<AccountView, 'kind' | 'hooksPlugin'>): string {
   if (a.kind === 'token') return '';
   switch (a.hooksPlugin) {
     case 'installed':
-      return tr('Hooks plugin installed');
+      return tr('Sessions started elsewhere: on');
     case 'off':
-      return tr('Hooks plugin switched off');
+      return tr('Sessions started elsewhere: switched off');
     case 'missing':
-      return tr('Hooks plugin not installed');
+      return tr('Sessions started elsewhere: off');
     case 'unknown':
-      return tr("Hooks plugin: couldn't check");
+      return tr("Sessions started elsewhere: couldn't check");
     default:
       return '';
   }

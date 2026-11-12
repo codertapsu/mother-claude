@@ -182,20 +182,20 @@ describe('AccountsComponent', () => {
     });
     const el = await render();
     const rows = [...el.querySelectorAll('.acct')];
-    // The Default's plugin is foreign control's; a token account has none.
-    expect(text(rows[0])).toContain('Hooks plugin installed');
-    expect(rows[0].querySelector('.hooks')).toBeNull();
-    expect(text(rows[2])).not.toContain('Hooks plugin');
-    expect(text(rows[1])).toContain('Hooks plugin not installed');
-    const install = rows[1].querySelector('.hooks .btn') as HTMLButtonElement;
-    expect(text(install)).toBe('Install hooks plugin');
+    // One line each: the Default's plugin is foreign control's (a link to
+    // it); a token account has none of its own.
+    const line = (row: Element) => row.querySelector('.elsewhere');
+    expect(text(line(rows[0]))).toBe('Sessions started elsewhere: on ›');
+    expect(line(rows[0])?.querySelector('a')?.getAttribute('href')).toBe('/remote#foreign');
+    expect(line(rows[2])).toBeNull();
+    expect(text(line(rows[1]))).toBe('Sessions started elsewhere: off Install');
+    const install = line(rows[1])!.querySelector('.btn') as HTMLButtonElement;
     install.click();
     await flush();
     fixture.detectChanges();
     expect(backend.calls).toContain(`POST /accounts/${MOCK_ACCOUNT_WORK}/hooks/install`);
     const after = el.querySelectorAll('.acct')[1];
-    expect(text(after)).toContain('Hooks plugin installed');
-    expect(text(after.querySelector('.hooks'))).toBe('Uninstall');
+    expect(text(line(after))).toBe('Sessions started elsewhere: on Uninstall');
     expect(text(el.querySelector('.notice.ok'))).toContain('/reload-plugins');
   });
 
@@ -292,8 +292,12 @@ describe('AccountsComponent', () => {
     }));
     const el = await render();
     const rows = [...el.querySelectorAll('.moves mc-data-job')];
-    // Backups live on the Backup & sync page; the newest first.
+    // Backups live on Backups; the newest first, and all of them on Recent
+    // changes.
     expect(rows.map((r) => text(r.querySelector('.jtitle')))).toEqual(['Move', 'Copy']);
+    expect(el.querySelector('.section-head a')?.getAttribute('href')).toBe(
+      '/accounts/changes?show=moves',
+    );
     expect(text(rows[0])).toContain('Undone');
     expect(rows[0].querySelector('.undo')).toBeNull();
     expect(text(rows[1])).toContain('Copied 1 session.');

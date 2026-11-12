@@ -579,7 +579,6 @@
   "It uses its own Claude Code setup in {dir}.": "Nó dùng thiết lập Claude Code riêng trong {dir}.",
   "It uses its own Claude Code setup.": "Nó dùng thiết lập Claude Code riêng.",
   "A session of {name} could not sign in lately: it may need signing in again.": "Một phiên của {name} gần đây không đăng nhập được: có thể cần đăng nhập lại.",
-  "Fix it on the Accounts page (Settings › Accounts).": "Hãy sửa trên trang Tài khoản (Cài đặt › Tài khoản).",
   "Fix it on the Accounts page of the desktop app.": "Hãy sửa trên trang Tài khoản của ứng dụng máy tính.",
   "At most {n} images.": "Tối đa {n} ảnh.",
   "Enter a custom model id, or pick a model from the list.": "Hãy nhập id mô hình tùy chỉnh, hoặc chọn một mô hình trong danh sách.",
@@ -630,5 +629,6 @@
   "Pair this {computer} with it? An introduction pairs nothing on its own: both computers show the same six digits, and each chooses what the other may do.": "Ghép nối {computer} này với máy đó? Riêng lời giới thiệu không ghép nối gì cả: cả hai máy tính hiện cùng sáu chữ số, và mỗi máy chọn những gì máy kia được làm.",
   "{name} suggests its settings": "{name} đề xuất cài đặt của nó",
   "{name} is not revoked everywhere yet": "{name} chưa bị thu hồi ở mọi nơi",
-  "Each one revokes it when it next connects: until then it lets it in.": "Mỗi máy sẽ thu hồi nó khi kết nối lần tới: đến lúc đó máy ấy vẫn cho nó vào."
+  "Each one revokes it when it next connects: until then it lets it in.": "Mỗi máy sẽ thu hồi nó khi kết nối lần tới: đến lúc đó máy ấy vẫn cho nó vào.",
+  "Fix it on the Accounts page.": "Hãy sửa trên trang Tài khoản."
 }

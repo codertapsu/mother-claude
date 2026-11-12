@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 
 import { AccountsService } from '../../core/accounts.service';
 import { ApiService, errorMessage } from '../../core/api.service';
@@ -42,8 +43,9 @@ import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.
 import { SheetComponent } from '../../shared/sheet.component';
 import { relativeTime, shortPath } from '../../shared/util';
 
-/** Recent deletes listed (their Undo lasts seven days). */
-const DELETES_SHOWN = 6;
+/** Recent deletes listed (their Undo lasts seven days; *See all* opens
+ * Accounts › Recent changes). */
+const DELETES_SHOWN = 3;
 
 /** Why Move or copy waits: one request moves one account's projects
  * (English; translated where shown). */
@@ -63,6 +65,7 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    RouterLink,
     AccountChipComponent,
     DataJobComponent,
     DeleteDataSheetComponent,
@@ -189,7 +192,13 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
     }
 
     @if (deletes().length) {
-      <h2>{{ 'Recently deleted' | t }}</h2>
+      <div class="section-head">
+        <h2>{{ 'Recently deleted' | t }}</h2>
+        <span class="spacer"></span>
+        <a class="small" routerLink="/accounts/changes" [queryParams]="{ show: 'deletes' }">{{
+          'See all' | t
+        }}</a>
+      </div>
       <p class="muted small">
         {{
           'Undo puts the conversations back where they were, for seven days after the delete.' | t
@@ -322,6 +331,15 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
         max-width: 14rem;
       }
       .rows,
+      .section-head {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 1.4rem 0 0.55rem;
+      }
+      .section-head h2 {
+        margin: 0;
+      }
       .jobs {
         padding-top: 0;
         padding-bottom: 0;

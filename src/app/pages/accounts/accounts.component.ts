@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 
 import { DEFAULT_ACCOUNT, isAccountColor, needsCopy } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
@@ -28,7 +29,7 @@ import {
   SignInLine,
   TOKEN_NO_USAGE,
   accountKindLabel,
-  hooksPluginText,
+  elsewhereText,
   secretStoreText,
   signInErrorText,
   signInLine,
@@ -36,17 +37,17 @@ import {
 } from '../../shared/accounts';
 import { DataJobComponent } from '../../shared/data-job.component';
 import { CompactMeter, compactPlan } from '../../shared/fleet-summary.component';
-import { HubTabsComponent } from '../../shared/hub-tabs.component';
 import { IconComponent } from '../../shared/icon.component';
 import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
 import { PlanUsageComponent } from '../../shared/plan-usage.component';
 import { Tone, shortPath } from '../../shared/util';
-import { AccountAddSheetComponent } from './account-add-sheet.component';
 import { AccountSheetComponent } from './account-sheet.component';
+import { AccountsHeadComponent } from './accounts-head.component';
 import { IdentityWarningComponent } from './identity-warning.component';
 
-/** Recent moves and copies listed (their Undo lasts seven days). */
-const MOVES_SHOWN = 6;
+/** Recent moves and copies listed (their Undo lasts seven days; *See all*
+ * opens Recent changes). */
+const MOVES_SHOWN = 3;
 
 /** While a sign-in is being watched (or a check runs), ask this often:
  * `accounts` frames bring the change too, but not while polling. */
@@ -112,10 +113,10 @@ interface ProjectRow {
   selector: 'mc-accounts',
   imports: [
     FormsModule,
-    AccountAddSheetComponent,
+    RouterLink,
+    AccountsHeadComponent,
     AccountSheetComponent,
     DataJobComponent,
-    HubTabsComponent,
     IconComponent,
     IdentityWarningComponent,
     MoveDataSheetComponent,
@@ -140,7 +141,6 @@ export class AccountsComponent {
   protected readonly computer = computed(() => tr(machineNoun(this.hostOs())));
 
   protected readonly tokenNoUsage = TOKEN_NO_USAGE;
-  protected readonly adding = signal(false);
   /** The account whose sheet is open. */
   protected readonly managing = signal<string | null>(null);
   private readonly openUsage = signal<ReadonlySet<string>>(new Set());
@@ -186,7 +186,7 @@ export class AccountsComponent {
         usageText: usageLine(usage, now) || tr('not read yet'),
         hasUsage: !!compact,
         action: needs(a),
-        hooks: hooksPluginText(a),
+        hooks: elsewhereText(a),
         ownPlugin: a.kind === 'directory' && !a.isDefault,
       };
     });

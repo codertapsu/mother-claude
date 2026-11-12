@@ -4,6 +4,11 @@ import { ApiService } from './api.service';
 import { JOB_POLL_MS, normalizeJob } from './data-jobs';
 import { tr } from './i18n/i18n';
 import { JobView } from './models';
+import { RealtimeService } from './realtime.service';
+
+/** Frames that come together are read once (a delete of several projects
+ * starts and ends several jobs within moments). */
+const FRAME_DEBOUNCE_MS = 250;
 
 /** Answers in a row that may fail before following a job gives up. */
 const MAX_FAILURES = 4;
@@ -15,7 +20,9 @@ const MAX_FAILURES = 4;
  *
  * {@link recent} is `GET /data/jobs` as last read ({@link loadRecent}), each
  * job followed here replacing its copy: the Inbox finds the ones that failed
- * in it.
+ * in it, *Accounts › Recent changes* lists them. Once read, it is read again
+ * whenever the server says a job started or ended (`{t:'jobs'}`), so both
+ * follow without a reload.
  */
 @Injectable({ providedIn: 'root' })
 export class DataJobsService {
@@ -27,9 +34,21 @@ export class DataJobsService {
   private readonly recentS = signal<readonly JobView[]>([]);
   /** The jobs the server keeps (newest last read), with what followed them. */
   readonly recent = this.recentS.asReadonly();
+  /** Someone reads the recent list: frames read it again. */
+  private wanted = false;
+  private frameTimer?: ReturnType<typeof setTimeout>;
+
+  constructor() {
+    inject(RealtimeService).jobs$.subscribe(() => {
+      if (!this.wanted) return;
+      clearTimeout(this.frameTimer);
+      this.frameTimer = setTimeout(() => void this.loadRecent(), FRAME_DEBOUNCE_MS);
+    });
+  }
 
   /** Read `GET /data/jobs` again (a failure keeps what was read). */
   async loadRecent(): Promise<void> {
+    this.wanted = true;
     try {
       const { jobs } = await this.api.listDataJobs();
       const list = (Array.isArray(jobs) ? jobs : [])
@@ -41,8 +60,9 @@ export class DataJobsService {
     }
   }
 
-  /** A job's newer view replaces (or joins) the recent list. */
-  private note(job: JobView): void {
+  /** A job's newer view replaces (or joins) the recent list (a list that
+   * undid one, a job followed elsewhere). */
+  note(job: JobView): void {
     this.recentS.update((list) =>
       list.some((j) => j.id === job.id)
         ? list.map((j) => (j.id === job.id ? job : j))

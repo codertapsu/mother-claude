@@ -55,13 +55,6 @@
   gap: 0.4rem;
   margin-left: auto;
 }
-.hooks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  margin: 0.15rem 0 0 -0.5rem;
-}
-
 /* The compact plan meter (as on the sessions page). */
 .usage {
   appearance: none;
@@ -253,4 +246,27 @@ h3 {
   border-radius: 50%;
   animation: mc-spin 0.8s linear infinite;
   vertical-align: -0.1rem;
+}
+.intro {
+  margin: -0.25rem 0 0.75rem;
+}
+/* Sessions started elsewhere: the plugin's state and its one action. */
+.elsewhere {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.1rem 0.4rem;
+}
+.elsewhere a {
+  text-decoration: none;
+}
+/* A section's heading with its one action on the right. */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.4rem 0 0.55rem;
+}
+.section-head h2 {
+  margin: 0;
 }

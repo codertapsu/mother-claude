@@ -49,7 +49,7 @@ interface Named {
     @if (foreign().length) {
       <p class="h small">
         {{
-          "Kept another machine's path — no folder pair maps these projects, so Claude Code here lists them only under that path. Pair the folder, then pull again, and they move into the matching project here:"
+          "Kept another computer's path — no folder pair maps these projects, so Claude Code here lists them only under that path. Pair the folder, then pull again, and they move into the matching project here:"
             | t
         }}
       </p>
@@ -58,7 +58,7 @@ interface Named {
           <li class="small">
             <span class="mono path">{{ f.folder }}</span>
             <span class="muted">
-              {{ 'from {host}' | t: { host: f.host || ('another machine' | t) } }}</span
+              {{ 'from {host}' | t: { host: f.host || ('another computer' | t) } }}</span
             >
             <button class="btn small ghost pair" type="button" (click)="offerPair(f)">
               {{ 'Pair a folder…' | t }}
@@ -83,7 +83,7 @@ interface Named {
     @if (pushConflicts().length) {
       <p class="h small">
         {{
-          'Changed here and on another machine, so not backed up — a Pull brings the other copy beside this one:'
+          'Changed here and on another computer, so not backed up — a Pull brings the other copy beside this one:'
             | t
         }}
       </p>
@@ -100,7 +100,7 @@ interface Named {
     }
     @if (newerInSet().length) {
       <p class="h small">
-        {{ 'Newer in the backup (another machine backed them up) — a Pull brings them:' | t }}
+        {{ 'Newer in the backup (another computer backed them up) — a Pull brings them:' | t }}
       </p>
       <ul>
         @for (s of newerInSet(); track s.id) {
@@ -243,7 +243,7 @@ export class JobDetailsComponent {
   protected readonly replacedLabel = computed(() =>
     this.done()?.kind === 'backup'
       ? tr(
-          "The copy here replaced the backup's, which another machine had backed up since this one last had it (or which was newer); the folder keeps the replaced copies seven days:",
+          "The copy here replaced the backup's, which another computer had backed up since this one last had it (or which was newer); the folder keeps the replaced copies seven days:",
         )
       : tr("The backup's copy replaced the one here, which is kept for undo:"),
   );

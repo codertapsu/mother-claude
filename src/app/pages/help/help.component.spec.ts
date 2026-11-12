@@ -156,7 +156,7 @@ describe('HelpComponent', () => {
     const links = topic.sections.flatMap((s) => s.links ?? []);
     const buttons = all('.links a');
     expect(buttons.map(text)).toEqual(links.map((l) => l.label));
-    expect(buttons[0].getAttribute('href')).toBe('/backup');
+    expect(buttons[0].getAttribute('href')).toBe('/accounts/backups');
 
     const notes = topic.sections.flatMap((s) => s.notes ?? []);
     expect(all('.callout[data-tone="amber"]').length).toBe(notes.length);

@@ -265,7 +265,6 @@
   "Checking…": "Đang kiểm tra…",
   "Refresh in {n}s": "Làm mới sau {n} giây",
   "Refresh": "Làm mới",
-  "Change in Settings": "Đổi trong Cài đặt",
   "{amount} used": "đã dùng {amount}",
   "{used} of {limit}": "{used} / {limit}",
   "Not read yet": "Chưa đọc",
@@ -325,10 +324,6 @@
   "The browser couldn't be opened: copy the link and open it yourself.": "Không mở được trình duyệt: hãy sao chép liên kết và tự mở nó.",
   "The sign-in showed a link Mother Claude does not open: cancel it and start again.": "Lượt đăng nhập hiện một liên kết mà Mother Claude không mở: hãy hủy và bắt đầu lại.",
   "This build can't run the sign-in itself: sign in in a terminal, or paste a token.": "Bản dựng này không tự chạy đăng nhập được: hãy đăng nhập trong terminal, hoặc dán một token.",
-  "Hooks plugin installed": "Đã cài plugin hooks",
-  "Hooks plugin switched off": "Plugin hooks đang tắt",
-  "Hooks plugin not installed": "Chưa cài plugin hooks",
-  "Hooks plugin: couldn't check": "Plugin hooks: không kiểm tra được",
   "It runs in {app}: its account can't change while it runs there.": "Phiên chạy trong {app}: không đổi được tài khoản khi nó còn chạy ở đó.",
   "It runs in another app: its account can't change while it runs there.": "Phiên chạy trong một ứng dụng khác: không đổi được tài khoản khi nó còn chạy ở đó.",
   "Now on {name}: the conversation moved to its folder.": "Giờ đang ở {name}: cuộc trò chuyện đã được chuyển sang thư mục của tài khoản đó.",
@@ -672,7 +667,6 @@
   "Can't follow it any more: {error}": "Không theo dõi được nữa: {error}",
   "Deleting conversations needs dangerous actions for this device, granted on the computer in Remote › Devices.": "Xóa cuộc trò chuyện cần quyền thao tác nguy hiểm cho thiết bị này, được cấp trên máy tính trong Từ xa › Thiết bị.",
   "Move or copy data": "Chuyển hoặc sao chép dữ liệu",
-  "There is nowhere to move it yet: add an account with a folder of its own on the Accounts page, or a storage on Backup & sync.": "Chưa có nơi nào để chuyển đến: hãy thêm một tài khoản có thư mục riêng ở trang Tài khoản, hoặc một kho lưu trữ ở Sao lưu & đồng bộ.",
   "From": "Từ",
   "To": "Đến",
   "Where each one is": "Nơi từng mục đang ở",
@@ -748,5 +742,6 @@
   "How it works ›": "Cách hoạt động ›",
   "More actions": "Thao tác khác",
   "Blocks:": "Chặn:",
-  "Works, but worse:": "Vẫn chạy, nhưng kém hơn:"
+  "Works, but worse:": "Vẫn chạy, nhưng kém hơn:",
+  "There is nowhere to move it yet: add an account with a folder of its own on the Accounts page, or a storage on Accounts › Backups.": "Chưa có nơi nào để chuyển đến: hãy thêm một tài khoản có thư mục riêng ở trang Tài khoản, hoặc một kho lưu trữ ở Tài khoản › Bản sao lưu."
 }

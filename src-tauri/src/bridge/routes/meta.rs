@@ -262,10 +262,10 @@ pub async fn auth(
             .is_some_and(|a| a.kind == crate::claude::accounts::AccountKind::Token);
         body["login_hint"] = json!(if token {
             "This is a token account: give it a new token on the Mother Claude desktop \
-             (Settings → Accounts)."
+             (Accounts)."
         } else {
             "POST /auth/login, or sign the account in on the Mother Claude desktop \
-             (Settings → Accounts)."
+             (Accounts)."
         });
         if let Some(a) = state.accounts.get(&account) {
             body["account"] = json!({ "id": a.id, "name": a.name });

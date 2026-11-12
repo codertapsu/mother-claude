@@ -147,10 +147,12 @@ export const PLACES: readonly NavPlace[] = [
     icon: 'user',
     group: 'care',
     help: 'accounts',
-    sections: ['accounts', 'backup'],
+    sections: ['accounts'],
     tabs: [
-      { path: '/accounts', label: 'Accounts' },
-      { path: '/backup', label: 'Backups' },
+      { path: '/accounts', label: 'Accounts', exact: true },
+      { path: '/accounts/usage', label: 'Usage' },
+      { path: '/accounts/backups', label: 'Backups' },
+      { path: '/accounts/changes', label: 'Recent changes' },
     ],
   },
   {
@@ -252,7 +254,7 @@ export const LINK_ONLY: readonly string[] = [
  * §10.1, §10.3), with the rest of the path, the query and the fragment —
  * links from before the redesign keep working. Redirects stay for good.
  */
-export const REDIRECTED: readonly string[] = ['good-to-know', 'machines'];
+export const REDIRECTED: readonly string[] = ['good-to-know', 'machines', 'backup'];
 
 /** The first segment of a URL's path (`/teams/tm_1?x#y` → `teams`). */
 export function sectionOf(url: string): string {

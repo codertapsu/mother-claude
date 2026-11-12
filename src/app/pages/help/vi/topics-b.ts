@@ -9,9 +9,9 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
     icon: 'user',
     group: 'data',
     summary:
-      'Chạy phiên bằng nhiều tài khoản Claude, và đổi sang tài khoản khác khi một tài khoản chạm giới hạn.',
+      'Chạy phiên bằng nhiều tài khoản Claude, xem mỗi gói còn lại bao nhiêu, và đổi sang tài khoản khác khi một tài khoản chạm giới hạn.',
     intro:
-      'Mother Claude có thể chạy phiên bằng nhiều tài khoản Claude cùng lúc. Khi một tài khoản chạm giới hạn, bạn làm tiếp bằng tài khoản khác. Tài khoản nằm ở **Cài đặt › Tài khoản**; khi chỉ có tài khoản Mặc định, ứng dụng không hiện nhãn hay ô chọn tài khoản nào.',
+      'Mother Claude có thể chạy phiên bằng nhiều tài khoản Claude cùng lúc. Khi một tài khoản chạm giới hạn, bạn làm tiếp bằng tài khoản khác. **Tài khoản** có bốn thẻ: **Tài khoản**, **Mức dùng**, **Bản sao lưu** và **Thay đổi gần đây**. Khi chỉ có tài khoản Mặc định, ứng dụng không hiện nhãn hay ô chọn tài khoản nào.',
     keywords: [
       'gói đăng ký',
       'giới hạn',
@@ -22,6 +22,10 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       'nhiều tài khoản',
       'thư mục',
       'cho phép sao chép',
+      'mức dùng gói',
+      'hạn mức',
+      'giới hạn tốc độ',
+      'plugin hooks',
     ],
     sections: [
       {
@@ -44,6 +48,31 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Chọn tài khoản token để dùng chung mọi thứ, hoặc tài khoản thư mục để tách hẳn công việc và việc cá nhân.',
         ],
         links: [{ label: 'Mở Tài khoản', path: '/accounts' }],
+      },
+      {
+        heading: 'Tài khoản, từng thẻ một',
+        terms: [
+          {
+            term: 'Tài khoản',
+            text: 'Mỗi tài khoản với loại, trạng thái đăng nhập, các phiên, mức dùng gói và dòng **Phiên bắt đầu ở nơi khác** của nó; tiếp theo là **Mặc định**, **Theo dự án**, **Sao chép để Tiếp tục trên** và các mục **Chuyển và sao chép** mới nhất (**Xem tất cả** mở **Thay đổi gần đây**).',
+          },
+          {
+            term: 'Mức dùng',
+            text: 'Gói của mỗi tài khoản còn lại bao nhiêu, mức dùng được đọc thường xuyên đến đâu, và các giới hạn tốc độ mà các nhóm gặp.',
+          },
+          {
+            term: 'Bản sao lưu',
+            text: 'Bản sao lưu được mã hóa các cuộc trò chuyện của từng tài khoản, việc kéo về từ các máy tính khác của bạn, kho lưu trữ và cặp thư mục.',
+          },
+          {
+            term: 'Thay đổi gần đây',
+            text: 'Mọi lần di chuyển, sao chép, sao lưu, khôi phục, kéo về và xóa, mới nhất trước, kèm **Hoàn tác** khi còn có thể.',
+          },
+        ],
+        links: [
+          { label: 'Xem “Bản sao lưu”', path: '/help/backup' },
+          { label: 'Xem “Di chuyển, sao chép và xóa”', path: '/help/move-data' },
+        ],
       },
       {
         heading: 'Thêm tài khoản token',
@@ -90,6 +119,16 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         notes: [
           'Token và thông tin đăng nhập chỉ nằm trên máy tính đã tạo ra chúng. Trên máy tính khác, tài khoản cần đăng nhập riêng.',
         ],
+      },
+      {
+        heading: 'Phiên bắt đầu ở nơi khác, theo tài khoản',
+        points: [
+          'Dòng của mỗi tài khoản trên trang **Tài khoản** cho biết Mother Claude có trả lời và nhắn tin được cho các phiên bạn bắt đầu dưới tài khoản đó trong terminal, VS Code hay JetBrains không: **Phiên bắt đầu ở nơi khác: đang bật** hoặc **Phiên bắt đầu ở nơi khác: đang tắt**.',
+          'Dòng của tài khoản Mặc định mở phần điều khiển phiên bên ngoài (trong ứng dụng máy tính).',
+          'Tài khoản thư mục giữ plugin trong thư mục riêng của nó: **Cài đặt** đặt plugin vào đó và **Gỡ cài đặt** gỡ nó ra (trong ứng dụng máy tính).',
+          'Tài khoản token không có dòng này: các phiên của nó dùng plugin của tài khoản Mặc định.',
+        ],
+        links: [{ label: 'Xem “Phiên bắt đầu ở nơi khác”', path: '/help/foreign-sessions' }],
       },
       {
         heading: 'Chọn tài khoản cho từng việc',
@@ -150,7 +189,30 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         points: [
           'Danh sách Phiên và trang của phiên sẽ báo điều này, và gợi ý một tài khoản khác còn dư hạn mức: **Chuyển sang** tài khoản đó, **Tiếp tục trên** tài khoản đó, hoặc **Chọn một tài khoản**.',
           '**Để sau** sẽ ẩn gợi ý cho đến khi giới hạn được đặt lại.',
-          'Mức dùng gói của từng tài khoản hiện ở dòng của nó trên trang **Tài khoản**. Mức dùng của tài khoản token chỉ hiện sau khi đã có phiên chạy bằng tài khoản đó.',
+          'Mức dùng gói của từng tài khoản hiện ở dòng của nó trên trang **Tài khoản**, và đầy đủ ở thẻ **Mức dùng**. Mức dùng của tài khoản token chỉ hiện sau khi đã có phiên chạy bằng tài khoản đó.',
+        ],
+      },
+      {
+        heading: 'Mỗi gói còn lại bao nhiêu',
+        points: [
+          '**Tài khoản › Mức dùng** hiện, trong **Còn lại bao nhiêu**, các khung của từng tài khoản (khung 5 giờ và các khung theo tuần) cùng thời điểm đặt lại, mức dùng thêm nếu có, lúc mức dùng được đọc và số phiên của tài khoản đó đang chạy.',
+          '**Làm mới** đọc lại mức dùng của một tài khoản ngay lúc đó.',
+          'Tài khoản token không tự đọc được gói của nó: mức dùng chỉ hiện sau khi có phiên chạy bằng tài khoản đó.',
+          'Thanh đo mức dùng gói ở đầu trang **Phiên** mở trang này, còn thẻ **Thông tin** của một phiên hiện gói của tài khoản mà phiên đó dùng.',
+          '**Giới hạn tốc độ mà các nhóm gặp** liệt kê các giới hạn tốc độ gần nhất mà Claude báo cho các phiên của nhóm; **Nhóm › Công suất** cho biết những phiên vai trò nào đang chờ một khung thời gian.',
+        ],
+        links: [{ label: 'Mở Mức dùng', path: '/accounts/usage' }],
+      },
+      {
+        heading: 'Tần suất đọc mức dùng',
+        steps: [
+          'Mở **Tài khoản › Mức dùng** trong ứng dụng máy tính.',
+          'Trong **Cách đọc mức dùng**, chọn tần suất ở **Đọc mức dùng mỗi**: **Mỗi 3 phút**, **Mỗi 5 phút (khuyên dùng)**, **Mỗi 10 phút** hoặc **Chỉ thủ công**.',
+        ],
+        points: [
+          'Ứng dụng đọc theo nhịp đó khi có bảng điều khiển đang mở và một phiên đang hoạt động, và 30 phút một lần khi không có gì hoạt động.',
+          'Với **Chỉ thủ công**, mức dùng được đọc khi bạn nhấn **Làm mới**, hoặc bởi một phiên do Mother Claude chạy khi có bảng điều khiển kết nối hay khi chạm giới hạn.',
+          'Điện thoại hiện cài đặt này; bạn đổi nó trong ứng dụng máy tính.',
         ],
       },
       {
@@ -169,8 +231,8 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Trên điện thoại',
         points: [
-          'Điện thoại có thể đổi tên tài khoản, đặt mặc định, cho phép hoặc thu hồi quyền sao chép, di chuyển dữ liệu, chọn tài khoản cho phiên mới, và tiếp tục hoặc chuyển tài khoản cho một phiên.',
-          'Thêm tài khoản, đăng nhập, token và gỡ bỏ thì làm trong ứng dụng máy tính.',
+          'Điện thoại có thể đổi tên tài khoản, đặt mặc định, cho phép hoặc thu hồi quyền sao chép, di chuyển dữ liệu, xem mỗi gói còn lại bao nhiêu, chọn tài khoản cho phiên mới, và tiếp tục hoặc chuyển tài khoản cho một phiên.',
+          'Thêm tài khoản, đăng nhập, token, gỡ bỏ, plugin và tần suất đọc mức dùng thì làm trong ứng dụng máy tính.',
         ],
       },
     ],
@@ -189,6 +251,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       'sao chép',
       'xóa',
       'hoàn tác',
+      'lịch sử',
       'tùy chỉnh',
       'kỹ năng',
       'tệp',
@@ -233,9 +296,21 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
       },
       {
+        heading: 'Thay đổi gần đây',
+        intro:
+          '**Tài khoản › Thay đổi gần đây** liệt kê mọi thay đổi với dữ liệu của bạn, mới nhất trước: các lần di chuyển và sao chép giữa các tài khoản, sao lưu, khôi phục, kéo về và xóa, mỗi mục kèm kết quả của nó.',
+        points: [
+          'Các nút lọc chỉ hiện một loại: **Tất cả**, **Chuyển và sao chép**, **Bản sao lưu** hoặc **Đã xóa**.',
+          'Danh sách tự cập nhật khi một công việc bắt đầu hoặc kết thúc, từ bất kỳ thiết bị nào, và công việc đang chạy cho biết nó đã làm được đến đâu.',
+          '**Chuyển và sao chép** trên trang **Tài khoản**, **Gần đây** trên trang **Bản sao lưu** và **Đã xóa gần đây** trên **Phiên › Dự án** liệt kê ba mục mới nhất; nút **Xem tất cả** của chúng mở danh sách này ở đúng loại đó.',
+          'Các phiên đã chuyển giữa các máy tính của bạn nằm ở **Máy tính › Hoạt động**.',
+        ],
+        links: [{ label: 'Mở Thay đổi gần đây', path: '/accounts/changes' }],
+      },
+      {
         heading: 'Hoàn tác',
         steps: [
-          'Tìm công việc đó: di chuyển và sao chép ở **Tài khoản › Chuyển và sao chép**, xóa ở **Phiên › Dự án › Đã xóa gần đây**.',
+          'Tìm công việc đó trên **Tài khoản › Thay đổi gần đây**, hoặc trong danh sách ngắn ở nơi bạn đã bắt đầu nó.',
           'Nhấn **Hoàn tác**.',
           'Nhấn **Chạm lần nữa để hoàn tác**.',
         ],
@@ -264,13 +339,13 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
   },
   backup: {
     id: 'backup',
-    title: 'Sao lưu và đồng bộ',
+    title: 'Bản sao lưu',
     icon: 'cloud',
     group: 'data',
     summary:
       'Bản sao lưu được mã hóa trong thư mục bạn chọn, và cuộc trò chuyện của bạn trên máy tính thứ hai.',
     intro:
-      'Mother Claude giữ bản sao mã hóa các cuộc trò chuyện của từng tài khoản trong một thư mục bạn chọn (iCloud Drive, Google Drive, OneDrive, một ổ đĩa). Chỉ cụm mật khẩu của bạn mới mở được bản sao này. Chính thư mục đó đưa cuộc trò chuyện sang máy tính khác. Không có gì tự đồng bộ: bạn tự sao lưu và kéo về, hoặc đặt lịch.',
+      'Mother Claude giữ bản sao mã hóa các cuộc trò chuyện của từng tài khoản trong một thư mục bạn chọn (iCloud Drive, Google Drive, OneDrive, một ổ đĩa), trên **Tài khoản › Bản sao lưu**. Chỉ cụm mật khẩu của bạn mới mở được bản sao này. Chính thư mục đó đưa cuộc trò chuyện sang máy tính khác: sao lưu trên máy này, kéo về trên máy kia. Không có gì tự diễn ra: bạn tự sao lưu và kéo về, hoặc đặt lịch. Việc giữ mã nguồn của một dự án giống nhau trên hai máy tính nằm ở **Máy tính › Đồng bộ mã nguồn**.',
     keywords: [
       'sao lưu',
       'khôi phục',
@@ -301,7 +376,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'iCloud Drive: nhấp chuột phải vào thư mục và chọn **Keep Downloaded** (luôn giữ bản tải về), để kéo về và khôi phục không bao giờ phải chờ. OneDrive: **Always keep on this device** (luôn giữ trên thiết bị này). Google Drive: dùng một thư mục trong My Drive (Drive của tôi).',
           'Về sau, thư mục, cụm mật khẩu và lịch nằm ở mục **Cài đặt** trên cùng trang này. Để ngừng sao lưu, hãy xóa trống ô thư mục rồi lưu.',
         ],
-        links: [{ label: 'Mở Sao lưu & đồng bộ', path: '/backup' }],
+        links: [{ label: 'Mở Bản sao lưu', path: '/accounts/backups' }],
       },
       {
         heading: 'Tổng quan bản sao lưu',
@@ -352,7 +427,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Ở **Cài đặt › Lịch**, chọn tần suất trong **Sao lưu**: từ **Chỉ thủ công** đến **Mỗi 24 giờ**.',
           'Để sao lưu ngay, nhấn **Sao lưu ngay** cạnh **Bản sao lưu của bạn** (mọi tài khoản), hoặc **Sao lưu** trên bản sao lưu của một tài khoản.',
           'Hoặc, trên ứng dụng máy tính, kéo thả một tài khoản từ **Máy Mac này** (hoặc **Máy PC này**) vào phần bản sao lưu: tài khoản đó được sao lưu ngay.',
-          'Xem kết quả ở **Gần đây**.',
+          'Xem kết quả ở **Gần đây** (**Xem tất cả** liệt kê mọi lần sao lưu, khôi phục và kéo về).',
         ],
         points: [
           'Bản sao lưu theo lịch sẽ chờ đến khi không phiên nào của tài khoản đó hoạt động trong mười phút. Phiên mà Claude đang làm việc sẽ bị bỏ qua cho đến khi rảnh; phiên đang rảnh vẫn được sao lưu dù vẫn còn mở.',
@@ -405,13 +480,14 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Hoàn tác một lần kéo về hoặc khôi phục',
         steps: [
-          'Ở **Gần đây**, tìm công việc đó.',
+          'Ở **Gần đây**, tìm công việc đó: **Xem tất cả** mở các công việc cũ hơn trên **Tài khoản › Thay đổi gần đây**.',
           'Nhấn **Hoàn tác**.',
           'Nhấn **Chạm lần nữa để hoàn tác**.',
         ],
         points: [
           'Bạn có thể hoàn tác trong bảy ngày. Bản thân một lần sao lưu thì không có gì để hoàn tác.',
         ],
+        links: [{ label: 'Mở Thay đổi gần đây', path: '/accounts/changes' }],
       },
       {
         heading: 'Kho lưu trữ và bản lưu trữ',
@@ -438,12 +514,12 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Một cặp nối một thư mục ở đây với thư mục chứa cùng các dự án trên máy tính khác, để phiên được kéo về nằm đúng dự án tương ứng ở đây (và ngược lại).',
         steps: [
           'Ở **Cặp thư mục**, nhập thư mục trên máy tính này vào **Thư mục trên …**.',
-          'Chọn **Máy khác**.',
+          'Chọn **Máy tính khác**.',
           'Điền **Thư mục trên máy đó**.',
           'Nhấn **Thêm cặp**.',
         ],
         tips: [
-          'Một máy chỉ hiện ở đây sau khi nó đã sao lưu vào hoặc kéo về từ các bản sao lưu này; **Xem lại** sẽ kiểm tra lại. Báo cáo của một lần kéo về có **Ghép cặp thư mục…** với các ô đã điền sẵn.',
+          'Máy tính khác chỉ hiện ở đây sau khi nó đã sao lưu vào hoặc kéo về từ các bản sao lưu này; **Xem lại** sẽ kiểm tra lại. Báo cáo của một lần kéo về có **Ghép cặp thư mục…** với các ô đã điền sẵn.',
         ],
       },
       {
@@ -797,8 +873,14 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Claude đã từ chối một yêu cầu vì giới hạn tần suất: việc khởi chạy phải chờ đến lúc giới hạn được đặt lại.',
           'Ngân sách theo ngày của dự án đã dùng hết.',
         ],
-        tips: ['Vai trò chờ quá 10 phút sẽ gửi thông báo đẩy.'],
-        links: [{ label: 'Mở Công suất', path: '/capacity' }],
+        tips: [
+          'Vai trò chờ quá 10 phút sẽ gửi thông báo đẩy.',
+          'Các giới hạn tốc độ mà Claude đã báo, và gói của mỗi tài khoản còn lại bao nhiêu, cũng có trên **Tài khoản › Mức dùng**.',
+        ],
+        links: [
+          { label: 'Mở Công suất', path: '/capacity' },
+          { label: 'Mở Mức dùng', path: '/accounts/usage' },
+        ],
       },
       {
         heading: 'Đặt giới hạn',
@@ -1112,7 +1194,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           },
           {
             term: 'Phiên trong terminal không có công cụ Mother Claude',
-            text: 'Hãy cài điều khiển phiên bên ngoài cho tài khoản đó, rồi gõ `/reload-plugins`.',
+            text: 'Hãy cài điều khiển phiên bên ngoài cho tài khoản đó (với tài khoản thư mục, nhấn **Cài đặt** ở dòng của nó trên trang **Tài khoản**), rồi gõ `/reload-plugins`.',
           },
         ],
       },
@@ -1133,7 +1215,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           },
           {
             term: 'Phiên trong terminal của tài khoản token lại hiện là Mặc định',
-            text: 'Hãy cài plugin hooks (trang Tài khoản có nút **Cài plugin hooks**). Tài khoản của phiên sẽ hiện sau lệnh gọi công cụ đầu tiên của nó.',
+            text: 'Hãy cài điều khiển phiên bên ngoài: phiên của tài khoản token dùng plugin của tài khoản Mặc định. Trên trang **Tài khoản**, dòng **Phiên bắt đầu ở nơi khác** của tài khoản Mặc định sẽ mở phần đó. Tài khoản của phiên sẽ hiện sau lệnh gọi công cụ đầu tiên của nó.',
           },
           {
             term: 'Không gỡ bỏ được tài khoản',
@@ -1142,7 +1224,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
       },
       {
-        heading: 'Sao lưu và đồng bộ',
+        heading: 'Bản sao lưu',
         terms: [
           {
             term: 'Mất cụm mật khẩu',

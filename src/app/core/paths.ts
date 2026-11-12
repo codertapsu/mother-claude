@@ -210,7 +210,7 @@ export function folderExample(os: HostOs, kind: FolderExample): string {
 /** The desktop's computer in a sentence, by its system: `this Mac`, `this
  * PC`, `this machine`. */
 export function machineNoun(os: HostOs): string {
-  return os === 'macos' ? 'Mac' : os === 'windows' ? 'PC' : 'machine';
+  return os === 'macos' ? 'Mac' : os === 'windows' ? 'PC' : 'computer';
 }
 
 /** A folder in the home folder, in the desktop's form: `~/x` or `~\x`. */

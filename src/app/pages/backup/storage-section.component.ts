@@ -46,7 +46,7 @@ interface StoreRow {
 }
 
 /**
- * Backup & sync › Storage (docs/ACCOUNTS.md §13.6): the backup folder
+ * Backups › Storage (docs/ACCOUNTS.md §13.6): the backup folder
  * first, then every folder added beside it, each with its sets — *Bring
  * back…* (out of a set into an account) and *Move here…* (from an account
  * into the set; *New set…* into a new one), the conversations archived into a set
@@ -392,7 +392,7 @@ interface StoreRow {
 export class StorageSectionComponent {
   private storage = inject(StorageService);
   private accounts = inject(AccountsService);
-  /** The Backup & sync page's drag and drop, when it is on that page. */
+  /** The Backups page's drag and drop, when it is on that page. */
   protected readonly drag = inject(SyncDrag, { optional: true });
 
   /** The backup folder's suggestions, offered when adding a storage too. */
@@ -484,7 +484,7 @@ export class StorageSectionComponent {
     });
   }
 
-  // ─────────────────────────────── Drag and drop (on the Backup & sync page)
+  // ─────────────────────────────── Drag and drop (on the Backups page)
 
   protected key(store: StorageView, set: StorageSet): string {
     return targetKey(this.target(store, set));

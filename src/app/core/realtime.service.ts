@@ -22,6 +22,7 @@ import {
   ClientFrame,
   FleetFrame,
   HelloFrame,
+  JobsFrame,
   NoticeFrame,
   PairRequestFrame,
   PendingFrame,
@@ -368,6 +369,9 @@ export class RealtimeService {
   readonly pairRequest$: Observable<PairRequestFrame> = this.pairRequestS.asObservable();
   /** The browser extension's state changed: refetch `/api/browser`. */
   readonly browser$: Observable<BrowserFrame> = this.browserS.asObservable();
+  /** A data job started or ended: refetch `/api/data/jobs`. */
+  private readonly jobsS = new Subject<JobsFrame>();
+  readonly jobs$: Observable<JobsFrame> = this.jobsS.asObservable();
   readonly refetch$: Observable<RefetchReason> = this.refetchS.asObservable();
   readonly pollTick$: Observable<void> = this.pollTickS.asObservable();
 
@@ -1072,6 +1076,9 @@ export class RealtimeService {
         break;
       case 'browser':
         this.browserS.next(frame);
+        break;
+      case 'jobs':
+        this.jobsS.next(frame);
         break;
       case 'resync':
         this.resync();

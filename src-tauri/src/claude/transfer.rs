@@ -46,9 +46,11 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::sync::broadcast;
 
 use super::home::{encode_cwd, ClaudeHome};
 use super::paths;
+use crate::server::ws::ServerEvent;
 
 /// A `.claude.json.lock` younger than this means the CLI is writing it.
 const LOCK_FRESH: Duration = Duration::from_secs(10);
@@ -2266,12 +2268,17 @@ struct Job {
 }
 
 /// Running and recent data jobs (in memory; a move's undo survives a restart
-/// in its manifest).
+/// in its manifest). A job's start and every change of its state go out on
+/// the app's bus as `{t:"jobs", id, kind, state}`, so the dashboards' lists
+/// (the Inbox's failures, *Recent changes*) follow without a reload.
 #[derive(Default)]
 pub struct Jobs {
     jobs: Mutex<BTreeMap<String, Arc<Job>>>,
     /// One transfer at a time.
     pub lock: tokio::sync::Mutex<()>,
+    /// Where starts and ends are told (none: nobody listens, as in tests
+    /// of the engine alone).
+    bus: Option<broadcast::Sender<Arc<ServerEvent>>>,
 }
 
 impl std::fmt::Debug for Jobs {
@@ -2285,6 +2292,26 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Jobs {
+    /// Jobs whose starts and ends go out on `bus`.
+    pub fn new(bus: broadcast::Sender<Arc<ServerEvent>>) -> Self {
+        Self {
+            bus: Some(bus),
+            ..Self::default()
+        }
+    }
+
+    /// Tell the dashboards a job started or its state changed (a send never
+    /// blocks; with nobody listening it is dropped).
+    fn tell(&self, v: &JobView) {
+        if let Some(bus) = &self.bus {
+            let _ = bus.send(Arc::new(ServerEvent::Jobs {
+                id: v.id.clone(),
+                kind: v.kind.clone(),
+                state: v.state,
+            }));
+        }
+    }
+
     /// Register a running job.
     pub fn start(&self, id: &str, kind: &str, files_total: u64, bytes_total: u64) -> Arc<Progress> {
         let progress = Arc::new(Progress::default());
@@ -2325,7 +2352,10 @@ impl Jobs {
                 None => break,
             }
         }
+        let started = lock(&job.view).clone();
         jobs.insert(id.to_string(), job);
+        drop(jobs);
+        self.tell(&started);
         progress
     }
 
@@ -2334,10 +2364,21 @@ impl Jobs {
         lock(&self.jobs).get(id).map(|j| j.progress.clone())
     }
 
-    /// Change a job's view.
+    /// Change a job's view; a change of its state is told (its progress
+    /// is not: followers poll it).
     pub fn update(&self, id: &str, f: impl FnOnce(&mut JobView)) {
-        if let Some(job) = lock(&self.jobs).get(id) {
-            f(&mut lock(&job.view));
+        let changed = {
+            let jobs = lock(&self.jobs);
+            let Some(job) = jobs.get(id) else {
+                return;
+            };
+            let mut v = lock(&job.view);
+            let before = v.state;
+            f(&mut v);
+            (v.state != before).then(|| v.clone())
+        };
+        if let Some(v) = changed {
+            self.tell(&v);
         }
     }
 

@@ -33,7 +33,7 @@ import { SheetComponent } from '../../shared/sheet.component';
             }}
             <strong>{{ s.name }}</strong>
             {{
-              'wherever the two differ — also where another machine backed up a newer copy, or one that changed there too.'
+              'wherever the two differ — also where another computer backed up a newer copy, or one that changed there too.'
                 | t
             }}
           </p>
@@ -45,7 +45,7 @@ import { SheetComponent } from '../../shared/sheet.component';
           </p>
           <p>
             {{
-              "The other machine keeps its own copy: its next pull puts this {computer}'s beside it, or replaces it when its copy is where this one came from. A force pull there makes its copy this {computer}'s."
+              "The other computer keeps its own copy: its next pull puts this {computer}'s beside it, or replaces it when its copy is where this one came from. A force pull there makes its copy this {computer}'s."
                 | t: { computer: computer() }
             }}
           </p>

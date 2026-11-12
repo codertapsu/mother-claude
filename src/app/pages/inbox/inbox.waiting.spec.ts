@@ -272,7 +272,7 @@ describe('InboxComponent: everything that waits for you', () => {
     expect(title(backup)).toBe('Backup of Work failed');
     expect(why(backup)).toBe('The backup folder was offline.');
     expect(title(move)).toBe('Move from Default to Work failed');
-    expect(button(move, 'Details')?.getAttribute('href')).toBe('/accounts');
+    expect(button(move, 'Details')?.getAttribute('href')).toBe('/accounts/changes?show=moves');
 
     button(backup, 'Try again')!.click();
     await settle();

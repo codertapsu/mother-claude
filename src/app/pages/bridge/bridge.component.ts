@@ -313,7 +313,7 @@ interface ClaudeLine {
             </select>
             <span class="hint">
               {{
-                "The Claude account conversations run under. Automatic takes the project's account, else the one Settings › Accounts sets for the API. A request can still name another."
+                "The Claude account conversations run under. Automatic takes the project's account, else the one Accounts sets for the API. A request can still name another."
                   | t
               }}
             </span>

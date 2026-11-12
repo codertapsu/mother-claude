@@ -66,6 +66,13 @@ describe('old routes (docs/UI-REDESIGN.md §10.1)', () => {
     expect(await land('/machines/setup?step=2#rail')).toBe('/computers/setup?step=2#rail');
   });
 
+  it('sends Backup & sync to Accounts › Backups, with the query and the fragment', async () => {
+    expect(await land('/backup')).toBe('/accounts/backups');
+    expect(await land('/backup?account=acc_1#storage')).toBe(
+      '/accounts/backups?account=acc_1#storage',
+    );
+  });
+
   it('keeps the links that never move', async () => {
     expect(await land('/pair?c=K7QM-4R2X')).toBe('/pair?c=K7QM-4R2X');
     expect(await land('/session/abc?pending=p1')).toBe('/session/abc?pending=p1');

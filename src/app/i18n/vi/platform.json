@@ -281,7 +281,6 @@
   "Account": "Tài khoản",
   "Automatic — the project's account, else {name}": "Tự động — tài khoản của dự án, nếu không thì {name}",
   "A removed account": "Tài khoản đã bị gỡ bỏ",
-  "The Claude account conversations run under. Automatic takes the project's account, else the one Settings › Accounts sets for the API. A request can still name another.": "Tài khoản Claude dùng để chạy các cuộc trò chuyện. Tự động sẽ lấy tài khoản của dự án, nếu không thì tài khoản được đặt cho API trong Cài đặt › Tài khoản. Yêu cầu vẫn có thể chỉ định tài khoản khác.",
   "Only this account — every conversation runs as {name}; a request naming another account is refused, and other accounts' conversations stay out of reach": "Chỉ tài khoản này — mọi cuộc trò chuyện đều chạy bằng {name}; yêu cầu chỉ định tài khoản khác sẽ bị từ chối, và không truy cập được cuộc trò chuyện của các tài khoản khác",
   "Permissions": "Quyền",
   "Ask me": "Hỏi tôi",
@@ -627,5 +626,6 @@
   "{commits} commits and uncommitted changes, {files} files": "{commits} commit và thay đổi chưa commit, {files} tệp",
   "{commits} commits, {files} files": "{commits} commit, {files} tệp",
   "{computer} (template)": "{computer} (theo mẫu)",
-  "Also in the Inbox, with everything else waiting ›": "Cũng có trong Hộp thư, cùng mọi thứ khác đang chờ ›"
+  "Also in the Inbox, with everything else waiting ›": "Cũng có trong Hộp thư, cùng mọi thứ khác đang chờ ›",
+  "The Claude account conversations run under. Automatic takes the project's account, else the one Accounts sets for the API. A request can still name another.": "Tài khoản Claude dùng để chạy các cuộc trò chuyện. Tự động sẽ lấy tài khoản của dự án, nếu không thì tài khoản được đặt cho API trong Tài khoản. Một yêu cầu vẫn có thể chỉ định tài khoản khác."
 }

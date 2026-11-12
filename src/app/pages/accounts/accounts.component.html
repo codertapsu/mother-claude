@@ -1,20 +1,11 @@
 <div class="page narrow">
-  <div class="page-head">
-    <h1>{{ 'Accounts' | t }}</h1>
-    <span class="spacer"></span>
-    @if (isDesktop()) {
-      <button class="btn primary" type="button" (click)="adding.set(true)">
-        <mc-icon name="plus" [size]="16" /> {{ 'Add account' | t }}
-      </button>
-    }
-  </div>
-  <p class="lede">
+  <mc-accounts-head />
+  <p class="muted small intro">
     {{
       'Run sessions under several Claude accounts at once — and when one reaches its limit, carry on under another.'
         | t
     }}
   </p>
-  <mc-hub-tabs place="accounts" />
 
   @if (!isDesktop()) {
     <p class="notice small phone-note">
@@ -55,50 +46,54 @@
               <span class="muted small">{{ r.email }}</span>
             }
             <mc-identity-warning [account]="r.a" (started)="managing.set(r.a.id)" />
-            <span class="muted small"
-              >{{ liveText(r.live) }}
-              @if (r.hooks) {
-                · {{ r.hooks }}
-              }
-            </span>
-            @if (isDesktop() && r.ownPlugin) {
-              <!-- A directory account's own plugin (the Default's is the
-                   foreign-session control on the Remote page). -->
-              <span class="hooks">
-                @if (r.a.hooksPlugin !== 'installed') {
-                  <button
-                    class="btn small ghost"
-                    type="button"
-                    [disabled]="!!hooksBusy()"
-                    [attr.aria-label]="
-                      'Install the hooks plugin for {name}' | t: { name: r.a.name }
-                    "
-                    (click)="setHooks(r.a, true)"
-                  >
-                    <mc-icon name="plug" [size]="14" />
-                    {{
-                      hooksBusy() === r.a.id + ':install'
-                        ? ('Installing…' | t)
-                        : ('Install hooks plugin' | t)
-                    }}
-                  </button>
-                }
-                @if (r.a.hooksPlugin && r.a.hooksPlugin !== 'missing') {
-                  <button
-                    class="btn small ghost"
-                    type="button"
-                    [disabled]="!!hooksBusy()"
-                    [attr.aria-label]="
-                      'Uninstall the hooks plugin of {name}' | t: { name: r.a.name }
-                    "
-                    (click)="setHooks(r.a, false)"
-                  >
-                    {{
-                      hooksBusy() === r.a.id + ':uninstall'
-                        ? ('Uninstalling…' | t)
-                        : ('Uninstall' | t)
-                    }}
-                  </button>
+            <span class="muted small">{{ liveText(r.live) }}</span>
+            @if (r.hooks) {
+              <!-- The Mother Claude plugin, in one line: the Default's is on
+                   the Remote page, a directory account's in its own
+                   directory. -->
+              <span class="small elsewhere">
+                @if (r.ownPlugin) {
+                  <span class="muted">{{ r.hooks }}</span>
+                  @if (isDesktop()) {
+                    @if (r.a.hooksPlugin !== 'installed') {
+                      <button
+                        class="btn small ghost"
+                        type="button"
+                        [disabled]="!!hooksBusy()"
+                        [attr.aria-label]="
+                          'Install the hooks plugin for {name}' | t: { name: r.a.name }
+                        "
+                        (click)="setHooks(r.a, true)"
+                      >
+                        {{
+                          hooksBusy() === r.a.id + ':install'
+                            ? ('Installing…' | t)
+                            : ('Install' | t)
+                        }}
+                      </button>
+                    }
+                    @if (r.a.hooksPlugin && r.a.hooksPlugin !== 'missing') {
+                      <button
+                        class="btn small ghost"
+                        type="button"
+                        [disabled]="!!hooksBusy()"
+                        [attr.aria-label]="
+                          'Uninstall the hooks plugin of {name}' | t: { name: r.a.name }
+                        "
+                        (click)="setHooks(r.a, false)"
+                      >
+                        {{
+                          hooksBusy() === r.a.id + ':uninstall'
+                            ? ('Uninstalling…' | t)
+                            : ('Uninstall' | t)
+                        }}
+                      </button>
+                    }
+                  }
+                } @else if (isDesktop()) {
+                  <a routerLink="/remote" fragment="foreign">{{ r.hooks }} ›</a>
+                } @else {
+                  <span class="muted">{{ r.hooks }}</span>
                 }
               </span>
             }
@@ -366,7 +361,13 @@
     }
 
     @if (moves().length) {
-      <h2>{{ 'Moves and copies' | t }}</h2>
+      <div class="section-head">
+        <h2>{{ 'Moves and copies' | t }}</h2>
+        <span class="spacer"></span>
+        <a class="small" routerLink="/accounts/changes" [queryParams]="{ show: 'moves' }">{{
+          'See all' | t
+        }}</a>
+      </div>
       <section class="card list moves" [attr.aria-label]="'Recent moves and copies' | t">
         @for (j of moves(); track j.id) {
           <mc-data-job class="mrow" [job]="j" (changed)="moveChanged($event)" />
@@ -396,8 +397,5 @@
   }
 </div>
 
-@if (isDesktop()) {
-  <mc-account-add-sheet [open]="adding()" (closed)="adding.set(false)" />
-}
 <mc-account-sheet [accountId]="managing()" (closed)="managing.set(null)" />
 <mc-move-data-sheet [open]="!!moveStart()" [start]="moveStart()" (closed)="moveClosed()" />

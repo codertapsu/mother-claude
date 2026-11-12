@@ -389,7 +389,6 @@
   "Windows' own long paths setting is off: some tools can't open paths longer than 260 characters.": "Cài đặt đường dẫn dài của Windows đang tắt: một số công cụ không mở được đường dẫn dài hơn 260 ký tự.",
   "With every paired computer, both ways: the connection, a 20 MiB transfer, git and Claude Code, a code round trip, the accounts and the folders. Nothing touches a project.": "Với mọi máy tính đã ghép nối, cả hai chiều: kết nối, truyền 20 MiB, git và Claude Code, một vòng chuyển mã nguồn, tài khoản và thư mục. Không đụng đến dự án nào.",
   "With {name}": "Với {name}",
-  "Your folder pairs from Backup & sync are kept as they are.": "Các cặp thư mục từ Sao lưu & đồng bộ được giữ nguyên.",
   "carries 1 ignored file": "mang theo 1 tệp bị bỏ qua",
   "carries {n} ignored files": "mang theo {n} tệp bị bỏ qua",
   "could not be checked": "không kiểm tra được",
@@ -597,5 +596,6 @@
   "not running": "không chạy",
   "protocol {n}": "giao thức {n}",
   "{name} is asked once; syncing starts when someone there says yes.": "{name} chỉ được hỏi một lần; việc đồng bộ bắt đầu khi có người ở máy đó đồng ý.",
-  "Not set up yet": "Chưa thiết lập"
+  "Not set up yet": "Chưa thiết lập",
+  "Your folder pairs from Backups are kept as they are.": "Các cặp thư mục từ Bản sao lưu được giữ nguyên."
 }

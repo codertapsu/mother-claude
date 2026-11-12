@@ -379,7 +379,7 @@ const REFRESH_ON = new Set(['setup', 'asks', 'roots', 'folders', 'peers', 'accou
           </p>
         }
         <p class="muted small">
-          {{ 'Your folder pairs from Backup & sync are kept as they are.' | t }}
+          {{ 'Your folder pairs from Backups are kept as they are.' | t }}
         </p>
       } @else if (loadingFolders()) {
         <p class="muted small" role="status">{{ 'Looking for projects on every computer…' | t }}</p>

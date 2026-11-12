@@ -106,10 +106,14 @@ describe('the map (core/nav.ts)', () => {
       ['Teams', '/teams'],
       ['Capacity', '/capacity'],
     ]);
+    // Accounts in four tabs (docs/UI-REDESIGN.md §6.6).
     expect(tabsOf('accounts').map((t) => [t.label, t.path])).toEqual([
       ['Accounts', '/accounts'],
-      ['Backups', '/backup'],
+      ['Usage', '/accounts/usage'],
+      ['Backups', '/accounts/backups'],
+      ['Recent changes', '/accounts/changes'],
     ]);
+    expect(tabsOf('accounts')[0].exact).toBe(true);
     // Computers in four tabs (docs/UI-REDESIGN.md §6.5), Code sync counting.
     expect(tabsOf('computers').map((t) => [t.label, t.path])).toEqual([
       ['Overview', '/computers'],
@@ -150,7 +154,7 @@ describe('the map (core/nav.ts)', () => {
     expect(titleOf('agents')).toBe('Sessions');
     expect(titleOf('capacity')).toBe('Teams');
     expect(titleOf('teams')).toBe('Teams');
-    expect(titleOf('backup')).toBe('Accounts');
+    expect(titleOf('accounts')).toBe('Accounts');
     expect(titleOf('computers')).toBe('Computers');
     expect(titleOf('settings')).toBe('Settings');
     expect(titleOf('remote')).toBe('Remote');
@@ -170,7 +174,6 @@ describe('the map (core/nav.ts)', () => {
       'more',
       'computers',
       'accounts',
-      'backup',
       'settings',
       'remote',
       'browser',

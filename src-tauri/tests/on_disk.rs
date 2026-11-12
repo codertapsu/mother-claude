@@ -239,22 +239,43 @@ fn tree(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 
 type Bus = tokio::sync::broadcast::Receiver<std::sync::Arc<mother_claude_lib::state::ServerEvent>>;
 
-/// The notices the desktop was shown so far.
-fn desktop_notices(rx: &mut Bus) -> Vec<String> {
+/// The notices the desktop was shown among `events`.
+fn desktop_notices(
+    events: &[std::sync::Arc<mother_claude_lib::state::ServerEvent>],
+) -> Vec<String> {
     use mother_claude_lib::state::ServerEvent;
+    events
+        .iter()
+        .filter_map(|ev| match &**ev {
+            ServerEvent::DesktopNotice { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Every event on the bus so far.
+fn drain(rx: &mut Bus) -> Vec<std::sync::Arc<mother_claude_lib::state::ServerEvent>> {
     use tokio::sync::broadcast::error::TryRecvError;
     let mut out = Vec::new();
     loop {
         match rx.try_recv() {
-            Ok(ev) => {
-                if let ServerEvent::DesktopNotice { text, .. } = &*ev {
-                    out.push(text.clone());
-                }
-            }
+            Ok(ev) => out.push(ev),
             Err(TryRecvError::Lagged(_)) => continue,
             Err(_) => return out,
         }
     }
+}
+
+/// The `{t:"jobs"}` frames of one data job, as the wire says them.
+fn job_frames(
+    events: &[std::sync::Arc<mother_claude_lib::state::ServerEvent>],
+    job: &str,
+) -> Vec<Value> {
+    events
+        .iter()
+        .filter_map(|ev| serde_json::to_value(&**ev).ok())
+        .filter(|v| v["t"] == "jobs" && v["id"] == job)
+        .collect()
 }
 
 const S1: &str = "11111111-1111-4111-8111-111111111111";
@@ -924,17 +945,28 @@ async fn who_may_delete() {
     assert!(audit
         .iter()
         .any(|e| e.action == "data.delete" && e.device_id.as_deref() == Some(device.as_str())));
-    let notices = desktop_notices(&mut bus);
+    let events = drain(&mut bus);
+    let notices = desktop_notices(&events);
     assert!(
         notices.iter().any(|n| n.contains("\"Kitchen phone\"")
             && n.contains("started to delete 1 conversation(s)")),
         "{notices:?}"
+    );
+    // Its start and its end reached the dashboards: `{t:"jobs"}`, and
+    // nothing more than what `GET /api/data/jobs` says to who may read it.
+    assert_eq!(
+        job_frames(&events, &job),
+        vec![
+            json!({ "t": "jobs", "id": job, "kind": "delete", "state": "running" }),
+            json!({ "t": "jobs", "id": job, "kind": "delete", "state": "done" }),
+        ]
     );
 
     // Undo needs no dangerous right: it only puts files back.
     f.st.devices
         .set_grants(&device, Some(false), Some(false))
         .unwrap();
+    let mut bus = f.st.bus.subscribe();
     let (s, v) = f
         .call(
             "POST",
@@ -945,6 +977,11 @@ async fn who_may_delete() {
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert!(transcript_path(home, &proj, S1).is_file());
+    // An undo changes its state too.
+    assert_eq!(
+        job_frames(&drain(&mut bus), &job),
+        vec![json!({ "t": "jobs", "id": job, "kind": "delete", "state": "undone" })]
+    );
 }
 
 /// §14.3: a conversation open in the API's host runs, so it is skipped; one

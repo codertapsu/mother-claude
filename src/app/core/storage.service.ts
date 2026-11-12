@@ -8,7 +8,7 @@ import { RealtimeService } from './realtime.service';
 /**
  * The storages (docs/ACCOUNTS.md §13): the backup folder and every folder
  * added beside it, each with its sets — for the Move data sheet, the job
- * rows' titles and Backup & sync. Read from `GET /backup` when a view needs
+ * rows' titles and Backups. Read from `GET /backup` when a view needs
  * them (the Backup page hands its own reads over), and changed from the
  * desktop or a paired phone alike.
  */

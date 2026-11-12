@@ -27,7 +27,7 @@ import {
 import { HostOs, folderPathProblem, fullPathText, hostOsOf, isWindowsAbsolute } from './paths';
 
 /**
- * Pure helpers for Backup & sync (`/backup*`, docs/BACKUP.md): the view
+ * Pure helpers for Backups (`/backup*`, docs/BACKUP.md): the view
  * and a set's index read tolerantly, what a restore or pull does with each
  * session in words, which sessions start selected, and the results.
  */

@@ -117,7 +117,7 @@ const TONES: Record<BackupAction, string> = {
               }
             </span>
             <span class="muted small">
-              {{ 'From {host}' | t: { host: s.host || ('another machine' | t) } }}
+              {{ 'From {host}' | t: { host: s.host || ('another computer' | t) } }}
               <mc-time [ms]="s.pushedAt" /> ·
               {{ bytes(s.remoteBytes) }}
             </span>
@@ -305,7 +305,7 @@ export class BackupSessionsComponent {
   protected mappedTitle(s: BackupIndexSession): string {
     const there = s.folder || s.cwd;
     return s.mapped && there
-      ? tr('{folder} on {host}', { folder: there, host: s.host || tr('the other machine') })
+      ? tr('{folder} on {host}', { folder: there, host: s.host || tr('the other computer') })
       : '';
   }
 

@@ -1,12 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  inject,
-  input,
-  output,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { isAccountColor } from '../core/accounts';
@@ -25,7 +17,6 @@ import {
 import { PlanUsageService } from '../core/plan-usage.service';
 import { RealtimeService } from '../core/realtime.service';
 import { IconComponent } from './icon.component';
-import { PlanUsageSheetComponent } from './plan-usage-sheet.component';
 import { Tone, formatCountdown, formatTokens, formatUsd, resetsIn, severityTone } from './util';
 
 /** The fleet summary with the server's rules (`GET /agents` `summary`), from
@@ -163,20 +154,20 @@ export function compactPlan(
  * session ("1 will resume" after working while a session between turns
  * resumes by itself), then the Claude plan's usage ("Session 42% · Week 18%", with the
  * time until the session window resets). Each part is a shortcut (a list
- * filter, the Agents page, the plan-usage sheet). Cost is what was priced
+ * filter, the Agents page, Accounts › Usage). Cost is what was priced
  * since local midnight (each session's `costToday`, not its lifetime cost),
  * falling back to tokens when no session's price is known. Counted like the
  * server's fleet summary ({@link fleetCounts}), so the phone and the fleet
  * agree. The plan part is hidden when the account has no plan usage. With
  * several Claude accounts a switcher in front of it picks whose usage it
- * shows (the Default's until another is picked; the sheet lists them all),
+ * shows (the Default's until another is picked; Usage lists them all),
  * and a second row gives each account with something going on its own
  * counts ({@link fleetByAccount}); tapping one shows its sessions.
  */
 @Component({
   selector: 'mc-fleet-summary',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, PlanUsageSheetComponent, TPipe],
+  imports: [RouterLink, IconComponent, TPipe],
   template: `
     @if (hasSessions() || plan() || multi()) {
       <div class="fleet" role="group" [attr.aria-label]="'Right now' | t">
@@ -235,18 +226,17 @@ export function compactPlan(
               </select>
             </label>
             @if (!plan()) {
-              <button type="button" class="seg" (click)="sheetOpen.set(true)">
+              <a class="seg" routerLink="/accounts/usage">
                 <mc-icon name="gauge" [size]="14" /> {{ 'No plan usage to show' | t }}
-              </button>
+              </a>
             }
           }
           @if (plan(); as p) {
-            <button
-              type="button"
+            <a
               class="seg plan"
+              routerLink="/accounts/usage"
               [attr.data-tone]="p.tone"
               [attr.aria-label]="planLabel()"
-              (click)="sheetOpen.set(true)"
             >
               @for (m of p.meters; track m.key; let first = $first) {
                 <span class="pm">
@@ -261,7 +251,7 @@ export function compactPlan(
               } @empty {
                 <mc-icon name="gauge" [size]="14" /> {{ 'Plan usage' | t }}
               }
-            </button>
+            </a>
           }
         </span>
       </div>
@@ -284,7 +274,6 @@ export function compactPlan(
           }
         </div>
       }
-      <mc-plan-usage-sheet [open]="sheetOpen()" (closed)="sheetOpen.set(false)" />
     }
   `,
   styles: [
@@ -474,7 +463,6 @@ export class FleetSummaryComponent {
   readonly account = input('');
   /** An account's counts were tapped: show its sessions. */
   readonly accountPicked = output<string>();
-  protected readonly sheetOpen = signal(false);
 
   protected readonly hasSessions = computed(() => this.realtime.sessions().length > 0);
   private readonly counts = computed(() => {

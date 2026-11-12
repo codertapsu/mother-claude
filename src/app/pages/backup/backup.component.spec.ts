@@ -636,7 +636,7 @@ describe('BackupComponent', () => {
     expect(what).toContain(
       "This Mac's copy of every session it has replaces the backup's copy of Default wherever the two differ",
     );
-    expect(what).toContain('also where another machine backed up a newer copy');
+    expect(what).toContain('also where another computer backed up a newer copy');
     expect(what).toContain('Sessions only in the backup stay as they are');
     expect(what).toContain('sessions running here are skipped');
     expect(what).toContain('stays in the backup folder for seven days');

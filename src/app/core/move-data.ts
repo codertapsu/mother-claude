@@ -52,7 +52,7 @@ export interface StorageView {
   label: string;
   path: string;
   kind: StorageKind;
-  /** The backup folder: listed first, set on Backup & sync. */
+  /** The backup folder: listed first, set on Accounts › Backups. */
   primary: boolean;
   /** Its folder is there now (a disk can be unplugged). */
   available: boolean;

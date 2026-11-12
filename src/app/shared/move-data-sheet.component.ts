@@ -172,7 +172,7 @@ interface DiskProjects {
         } @else if (!somewhere()) {
           <p class="muted small nowhere">
             {{
-              'There is nowhere to move it yet: add an account with a folder of its own on the Accounts page, or a storage on Backup & sync.'
+              'There is nowhere to move it yet: add an account with a folder of its own on the Accounts page, or a storage on Accounts › Backups.'
                 | t
             }}
           </p>

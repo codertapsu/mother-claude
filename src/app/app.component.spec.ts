@@ -109,7 +109,7 @@ describe('AppComponent: the navigation, from the map', () => {
       ['/capacity', 'Teams'],
       ['/teams/tm_0123456789ab', 'Teams'],
       ['/computers/setup', 'Computers'],
-      ['/backup', 'Accounts'],
+      ['/accounts/backups', 'Accounts'],
       ['/remote', 'Settings'],
       ['/services', 'Settings'],
     ]) {
@@ -131,7 +131,14 @@ describe('AppComponent: the navigation, from the map', () => {
       '/more',
     ]);
     expect(current(barLinks())).toEqual(['Teams']);
-    for (const url of ['/computers/options', '/backup', '/settings', '/api', '/help', '/more']) {
+    for (const url of [
+      '/computers/options',
+      '/accounts/usage',
+      '/settings',
+      '/api',
+      '/help',
+      '/more',
+    ]) {
       await go(url);
       expect(current(barLinks()), url).toEqual(['More']);
     }
@@ -145,7 +152,7 @@ describe('AppComponent: the navigation, from the map', () => {
     expect(title()).toBe('Sessions');
     await go('/computers/sync');
     expect(title()).toBe('Computers');
-    await go('/backup');
+    await go('/accounts/changes');
     expect(title()).toBe('Accounts');
     await go('/remote');
     expect(title()).toBe('Remote');

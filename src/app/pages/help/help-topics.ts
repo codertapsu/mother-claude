@@ -81,7 +81,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Find your way around',
         points: [
           'On the desktop app, the sidebar has your work first — **Sessions**, **Inbox** and **Teams** — then what you look after: **Computers**, **Accounts** and **Settings**. **Help** is at the bottom.',
-          'A place with more than one page shows them as tabs under its name: **Sessions** and **Agents**; **Teams** and **Capacity**; **Computers**: **Overview**, **Code sync**, **Activity** and **Options**; **Accounts** and **Backups**. **Settings** opens the rest under **Connections**: **Phone & devices**, **Sessions started elsewhere**, **Browser**, **HTTP API** and **Claude Code tools**.',
+          'A place with more than one page shows them as tabs under its name: **Sessions** and **Agents**; **Teams** and **Capacity**; **Computers**: **Overview**, **Code sync**, **Activity** and **Options**; **Accounts**: **Accounts**, **Usage**, **Backups** and **Recent changes**. **Settings** opens the rest under **Connections**: **Phone & devices**, **Sessions started elsewhere**, **Browser**, **HTTP API** and **Claude Code tools**.',
           'On a phone, the tabs at the bottom are **Sessions**, **Inbox**, **Teams** and **More**. **More** has **Computers**, **Accounts**, **Settings** and **Help**, each with a line saying how it stands.',
           'The dot at the bottom of the sidebar (at the top on a phone) shows the connection. **Live** means updates arrive as they happen.',
           'The button beside it switches the theme between dark, light and system. **Settings › Appearance** also has the language, the accent colour and the background.',
@@ -164,7 +164,7 @@ const TOPICS: HelpTopicSource[] = [
     title: 'Settings and updates',
     icon: 'settings',
     group: 'basics',
-    summary: 'Notifications, theme, plan usage, connection and software updates.',
+    summary: 'Notifications, theme, connection and software updates.',
     intro:
       'Settings holds what you set once: this device’s notifications, theme and connection, and what else works with Mother Claude. In the desktop app it also has software updates; macOS permissions are under **Computers › This Mac**.',
     keywords: ['preferences', 'theme', 'dark mode', 'light mode', 'update', 'upgrade', 'version'],
@@ -184,7 +184,6 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Connections',
             text: 'What else works with Mother Claude, each with how it stands and its page: **Phone & devices**, **Sessions started elsewhere** (both in the desktop app), **Browser**, **HTTP API** and **Claude Code tools**.',
           },
-          { term: 'Plan usage', text: "How often your Claude plan's limits are read." },
           {
             term: 'Connection',
             text: 'The server, how this device connects, whether it may take dangerous actions, and live updates.',
@@ -217,17 +216,17 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
-        heading: 'Plan usage refresh',
+        id: 'plan-usage-refresh',
+        heading: 'Plan usage moved to Accounts',
         intro:
-          "The Sessions page shows your Claude plan's limits (the current 5-hour window and the weekly ones) with their reset times.",
-        steps: [
-          'Open **Settings** in the desktop app.',
-          'Under **Plan usage**, open **Plan usage refresh**.',
-          'Pick **Every 3 min**, **Every 5 min (recommended)**, **Every 10 min** or **Manually only**.',
-        ],
-        points: [
-          'It reads at that pace while a session works, every 30 minutes otherwise, and only while a dashboard is open. **Refresh** on the plan sheet reads it now.',
-          'A phone shows the setting; it is changed in the desktop app.',
+          "Settings no longer has **Plan usage**. How often your Claude plan's usage is read is **Read usage every** on **Accounts › Usage**, beside how much of each plan is left.",
+        links: [
+          { label: 'Open Usage', path: '/accounts/usage' },
+          {
+            label: 'See How often usage is read',
+            path: '/help/accounts',
+            fragment: 'how-often-usage-is-read',
+          },
         ],
       },
       {
@@ -317,7 +316,7 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           'The row at the top counts what is going on: sessions **working**, sessions that **will resume**, **agents running**, sessions that **need you**, and the cost so far today. Each part is a shortcut.',
         points: [
-          "Beside it, your Claude plan's usage shows the 5-hour window and the week. Tap it for every window and its reset time.",
+          "Beside it, your Claude plan's usage shows the 5-hour window and the week. Tap it to open **Accounts › Usage**: every window of every account, with its reset time.",
           'Costs are estimates, counted since midnight.',
         ],
       },
@@ -347,7 +346,7 @@ const TOPICS: HelpTopicSource[] = [
           '**Projects**, beside **Sessions** at the top, lists every project folder that holds conversations, in every account: how many conversations it has, how many run, their size and the last activity.',
         points: [
           "A project's menu shows its folder on disk (desktop app), copies its path, moves or copies it, or deletes it.",
-          'Deleted projects stay under **Recently deleted** for seven days, with **Undo**.',
+          'Deleted projects stay under **Recently deleted** for seven days, with **Undo**. It shows the newest three; **See all** opens every delete on **Accounts › Recent changes**.',
         ],
       },
       {
@@ -444,7 +443,10 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Model and usage',
             text: 'Model, permission mode, effort, ultracode, thinking, fast mode, cost and tokens.',
           },
-          { term: 'Plan usage', text: "The plan of the session's account." },
+          {
+            term: 'Plan usage',
+            text: "The plan of the session's account, with **Refresh**. In the desktop app, **Change in Accounts › Usage** sets how often it is read.",
+          },
           {
             term: 'From here you can',
             text: 'What works for this session, and the button that fixes each limit.',
@@ -737,8 +739,8 @@ const TOPICS: HelpTopicSource[] = [
             text: 'A copy kept on another computer waits for something only you can change there, such as its **Move** permission.',
           },
           {
-            term: 'A backup or move failed',
-            text: 'In the last day: **Try again** runs a backup again; **Details** opens its list.',
+            term: 'A backup, move or delete failed',
+            text: 'In the last day: **Try again** runs a backup again; **Details** opens its kind on **Accounts › Recent changes**.',
           },
           {
             term: 'Not revoked everywhere yet',
@@ -965,7 +967,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'What a phone can do',
         points: [
-          'The tabs at the bottom are **Sessions** (with **Agents** as a tab), **Inbox**, **Teams** (with **Capacity**) and **More**: **Computers**, **Accounts** (with **Backups**), **Settings** and **Help**.',
+          'The tabs at the bottom are **Sessions** (with **Agents** as a tab), **Inbox**, **Teams** (with **Capacity**) and **More**: **Computers**, **Accounts** (with **Usage**, **Backups** and **Recent changes**), **Settings** and **Help**.',
           'Watch every session, answer approvals, questions and plans, send messages and images, start sessions and continue them.',
           'Pairing devices, changing remote access and installing the plugin happen only in the desktop app.',
           'Dangerous actions need a grant for this device in the desktop app (**Settings › Phone & devices**, under **Paired devices**).',
@@ -1324,7 +1326,7 @@ const TOPICS: HelpTopicSource[] = [
           'An account is matched by its name on each computer, whatever the case of its letters, and the Default by the Default. A session moves to the account of the same name and runs only where it is signed in.',
           "Another computer sees only your accounts' names, kinds and whether they are signed in: never a token, an email or a folder.",
           'A shared folder is one folder on each computer, such as `~/development/projects` on a Mac and `D:\\development\\projects` on Windows: a project under it on one is the same project, at the same place, on the other.',
-          "The setup proposes shared folders from your projects' git remotes: press **Use** to take one, or **Add a folder** to add your own. Your folder pairs from **Backup & sync** are kept.",
+          "The setup proposes shared folders from your projects' git remotes: press **Use** to take one, or **Add a folder** to add your own. Your folder pairs from **Accounts › Backups** are kept.",
           "A project only one computer has offers **Clone it on …** or **Clone it here**. A project with no git remote can't move with its code.",
           '**Sign in on …**, **Add it on …** and **Clone it on …** are asked of that computer: someone there confirms them, in its **Inbox**.',
         ],
@@ -2346,9 +2348,10 @@ const TOPICS: HelpTopicSource[] = [
     title: 'Claude accounts',
     icon: 'user',
     group: 'data',
-    summary: 'Run sessions under several Claude accounts, and switch when one hits its limit.',
+    summary:
+      'Run sessions under several Claude accounts, see how much of each plan is left, and switch when one hits its limit.',
     intro:
-      'Mother Claude can run sessions under several Claude accounts at once. When one reaches its limit, carry on under another. Accounts are under **Settings › Accounts**; while only the Default exists, the app shows no account chips or pickers.',
+      'Mother Claude can run sessions under several Claude accounts at once. When one reaches its limit, carry on under another. **Accounts** has four tabs: **Accounts**, **Usage**, **Backups** and **Recent changes**. While only the Default exists, the app shows no account chips or pickers.',
     keywords: [
       'subscription',
       'limit',
@@ -2359,6 +2362,10 @@ const TOPICS: HelpTopicSource[] = [
       'login',
       'switch',
       'consent',
+      'plan usage',
+      'quota',
+      'rate limit',
+      'hooks plugin',
     ],
     sections: [
       {
@@ -2381,6 +2388,31 @@ const TOPICS: HelpTopicSource[] = [
           'Pick a token account to share everything, and a directory account to keep work and personal fully apart.',
         ],
         links: [{ label: 'Open Accounts', path: '/accounts' }],
+      },
+      {
+        heading: 'Accounts, tab by tab',
+        terms: [
+          {
+            term: 'Accounts',
+            text: 'Each account with its kind, its sign-in, its sessions, its plan usage and its **Sessions started elsewhere** line; then **Defaults**, **Per project**, **Copy for Continue on** and the newest **Moves and copies** (**See all** opens **Recent changes**).',
+          },
+          {
+            term: 'Usage',
+            text: "How much of each account's plan is left, how often it is read, and the rate limits teams hit.",
+          },
+          {
+            term: 'Backups',
+            text: "Encrypted backups of each account's conversations, pulls from your other computers, storages and folder pairs.",
+          },
+          {
+            term: 'Recent changes',
+            text: 'Every move, copy, backup, restore, pull and delete, newest first, with **Undo** while it is possible.',
+          },
+        ],
+        links: [
+          { label: 'See Backups', path: '/help/backup' },
+          { label: 'See Move, copy and delete', path: '/help/move-data' },
+        ],
       },
       {
         heading: 'Add a token account',
@@ -2427,6 +2459,16 @@ const TOPICS: HelpTopicSource[] = [
         notes: [
           'Tokens and sign-ins stay on the computer that made them. On another computer the account needs its own sign-in.',
         ],
+      },
+      {
+        heading: 'Sessions started elsewhere, by account',
+        points: [
+          "Each account's row on **Accounts** says whether Mother Claude can answer and message the sessions you start under it in a terminal, VS Code or JetBrains: **Sessions started elsewhere: on** or **Sessions started elsewhere: off**.",
+          "The Default's line opens foreign-session control (in the desktop app).",
+          'A directory account keeps the plugin in its own folder: **Install** puts it there and **Uninstall** takes it out (in the desktop app).',
+          "A token account has no line: its sessions use the Default's plugin.",
+        ],
+        links: [{ label: 'See Sessions started elsewhere', path: '/help/foreign-sessions' }],
       },
       {
         heading: 'Choose which account runs what',
@@ -2486,7 +2528,30 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'The Sessions list and the session pages say so, and offer another account that has room: **Switch to** it, **Continue on** it, or **Choose an account**.',
           '**Not now** hides the offer until the limit resets.',
-          "Each account's plan usage shows on its row on **Accounts**. A token account's usage shows once a session has run under it.",
+          "Each account's plan usage shows on its row on **Accounts**, and in full on **Usage**. A token account's usage shows once a session has run under it.",
+        ],
+      },
+      {
+        heading: 'How much of each plan is left',
+        points: [
+          "**Accounts › Usage** shows, under **How much is left**, each account's windows (the 5-hour window and the weekly ones) with their reset times, any extra usage, when they were read and how many of its sessions run.",
+          "**Refresh** reads an account's usage again now.",
+          'A token account cannot read its plan on its own: its usage shows once a session runs under it.',
+          "The plan meter at the top of **Sessions** opens this page, and a session's **Info** tab shows the plan of its account.",
+          '**Rate limits teams hit** lists the last rate limits Claude reported to team sessions; **Teams › Capacity** says which role sessions wait for a window.',
+        ],
+        links: [{ label: 'Open Usage', path: '/accounts/usage' }],
+      },
+      {
+        heading: 'How often usage is read',
+        steps: [
+          'Open **Accounts › Usage** in the desktop app.',
+          'Under **Reading it**, pick how often in **Read usage every**: **Every 3 min**, **Every 5 min (recommended)**, **Every 10 min** or **Manually only**.',
+        ],
+        points: [
+          'It is read at that pace while a dashboard is open and a session is active, and every 30 minutes while nothing is.',
+          'With **Manually only**, it is read when you press **Refresh**, or by a session Mother Claude runs when a dashboard connects or a limit is hit.',
+          'A phone shows the setting; it is changed in the desktop app.',
         ],
       },
       {
@@ -2505,8 +2570,8 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'On a phone',
         points: [
-          'A phone can rename accounts, set the defaults, allow or revoke copies, move data, pick the account of a new session and continue or switch a session.',
-          'Adding, signing in, tokens and removing are done in the desktop app.',
+          'A phone can rename accounts, set the defaults, allow or revoke copies, move data, see how much of each plan is left, pick the account of a new session and continue or switch a session.',
+          'Adding, signing in, tokens, removing, the plugin and how often usage is read are done in the desktop app.',
         ],
       },
     ],
@@ -2525,6 +2590,7 @@ const TOPICS: HelpTopicSource[] = [
       'move',
       'delete',
       'undo',
+      'history',
       'customizations',
       'skills',
       'claude.md',
@@ -2569,9 +2635,21 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
+        heading: 'Recent changes',
+        intro:
+          '**Accounts › Recent changes** lists every change to your data, newest first: moves and copies between accounts, backups, restores, pulls and deletes, each with how it ended.',
+        points: [
+          'The chips show one kind: **All**, **Moves and copies**, **Backups** or **Deleted**.',
+          'It updates by itself when a job starts or ends, from any device, and a running job shows how far it got.',
+          '**Moves and copies** on **Accounts**, **Recent** on **Backups** and **Recently deleted** on **Sessions › Projects** list the newest three; their **See all** opens this list at their kind.',
+          'Sessions moved between your computers are under **Computers › Activity**.',
+        ],
+        links: [{ label: 'Open Recent changes', path: '/accounts/changes' }],
+      },
+      {
         heading: 'Undo',
         steps: [
-          'Find the job: moves and copies under **Accounts › Moves and copies**, deletes under **Sessions › Projects › Recently deleted**.',
+          'Find the job on **Accounts › Recent changes**, or in the short list where you started it.',
           'Press **Undo**.',
           'Press **Tap again to undo**.',
         ],
@@ -2600,15 +2678,16 @@ const TOPICS: HelpTopicSource[] = [
   },
   {
     id: 'backup',
-    title: 'Backup and sync',
+    title: 'Backups',
     icon: 'cloud',
     group: 'data',
     summary:
       'Encrypted backups in a folder you choose, and your conversations on a second computer.',
     intro:
-      "Mother Claude keeps an encrypted copy of each account's conversations in a folder you choose (iCloud Drive, Google Drive, OneDrive, a disk). Only your passphrase opens it. The same folder carries conversations to another computer. Nothing syncs on its own: you back up and pull, or set a schedule.",
+      "Mother Claude keeps an encrypted copy of each account's conversations in a folder you choose (iCloud Drive, Google Drive, OneDrive, a disk), on **Accounts › Backups**. Only your passphrase opens it. The same folder carries conversations to another computer: back up on one, pull on the other. Nothing happens on its own: you back up and pull, or set a schedule. Keeping a project's code the same on two computers is **Computers › Code sync**.",
     keywords: [
       'backup',
+      'backup & sync',
       'restore',
       'pull',
       'sync',
@@ -2638,7 +2717,7 @@ const TOPICS: HelpTopicSource[] = [
           'iCloud Drive: right-click the folder and choose **Keep Downloaded**, so pulls and restores never wait. OneDrive: **Always keep on this device**. Google Drive: use a folder inside My Drive.',
           'Later, the folder, the passphrase and the schedule are under **Settings** on the same page. To stop backing up, empty the folder and save.',
         ],
-        links: [{ label: 'Open Backup & sync', path: '/backup' }],
+        links: [{ label: 'Open Backups', path: '/accounts/backups' }],
       },
       {
         heading: 'Your backups at a glance',
@@ -2689,7 +2768,7 @@ const TOPICS: HelpTopicSource[] = [
           'Under **Settings › Schedule**, pick how often in **Back up**: from **By hand only** to **Every 24 hours**.',
           "To back up now, press **Back up now** beside **Your backups** (every account), or **Back up** on one account's backup.",
           'Or, on the desktop, drag an account from **This Mac** (or **This PC**) onto the backups: it is backed up at once.',
-          'Check the result under **Recent**.',
+          'Check the result under **Recent** (**See all** lists every backup, restore and pull).',
         ],
         points: [
           'A scheduled backup waits until no session of that account has been active for ten minutes. A session Claude is working in is skipped until it is idle; an idle one is backed up even while it stays open.',
@@ -2742,11 +2821,12 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Undo a pull or a restore',
         steps: [
-          'Under **Recent**, find the job.',
+          'Under **Recent**, find the job: **See all** opens older ones on **Accounts › Recent changes**.',
           'Press **Undo**.',
           'Press **Tap again to undo**.',
         ],
         points: ['Undo is possible for seven days. A backup itself has nothing to undo.'],
+        links: [{ label: 'Open Recent changes', path: '/accounts/changes' }],
       },
       {
         heading: 'Storages and archives',
@@ -2773,12 +2853,12 @@ const TOPICS: HelpTopicSource[] = [
           'A pair links a folder here to the folder with the same projects on another computer, so a pulled session lands in the matching project here (and back again).',
         steps: [
           'Under **Folder pairs**, type the folder on this computer in **Folder on …**.',
-          'Pick the **Other machine**.',
+          'Pick the **Other computer**.',
           'Fill in **Its folder**.',
           'Press **Add pair**.',
         ],
         tips: [
-          "A machine shows here once it has backed up to or pulled from these backups; **Look again** checks. A pull's report offers **Pair a folder…** with the fields filled in.",
+          "Another computer shows here once it has backed up to or pulled from these backups; **Look again** checks. A pull's report offers **Pair a folder…** with the fields filled in.",
         ],
       },
       {
@@ -3107,8 +3187,14 @@ const TOPICS: HelpTopicSource[] = [
           'Claude refused a request on a rate limit: starts wait until the reset.',
           "The project's daily budget is spent.",
         ],
-        tips: ['A role waiting longer than 10 minutes sends a push notification.'],
-        links: [{ label: 'Open Capacity', path: '/capacity' }],
+        tips: [
+          'A role waiting longer than 10 minutes sends a push notification.',
+          "The rate limits Claude reported, and how much of each account's plan is left, are also on **Accounts › Usage**.",
+        ],
+        links: [
+          { label: 'Open Capacity', path: '/capacity' },
+          { label: 'Open Usage', path: '/accounts/usage' },
+        ],
       },
       {
         heading: 'Set your limits',
@@ -3412,7 +3498,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'No Mother Claude tools in a terminal session',
-            text: 'Install foreign-session control for that account, then type `/reload-plugins`.',
+            text: 'Install foreign-session control for that account (for a directory account, **Install** on its row on **Accounts**), then type `/reload-plugins`.',
           },
         ],
       },
@@ -3433,7 +3519,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'A terminal session of a token account shows the Default',
-            text: "Install the hooks plugin (Accounts offers **Install hooks plugin**). The session's account shows after its first tool call.",
+            text: "Install foreign-session control: a token account's sessions use the Default's plugin. On **Accounts**, the Default's **Sessions started elsewhere** line opens it. The session's account shows after its first tool call.",
           },
           {
             term: "Can't remove an account",
@@ -3442,7 +3528,8 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
-        heading: 'Backup and sync',
+        id: 'backup-and-sync',
+        heading: 'Backups',
         terms: [
           {
             term: 'Lost passphrase',

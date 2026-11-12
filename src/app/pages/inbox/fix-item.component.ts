@@ -22,13 +22,14 @@ import { capitalize } from '../../shared/util';
 import { askStateText, askTitle } from '../machines/asks-card.component';
 import { checkTexts, revocationText } from '../machines/machines-text';
 
-/** Where a failed job's own list is. */
-const JOB_PAGES: Record<string, string> = {
-  backup: '/backup',
-  restore: '/backup',
-  pull: '/backup',
-  move: '/accounts',
-  copy: '/accounts',
+/** Which of Recent changes' chips lists a failed job (`?show=`). */
+const JOB_LISTS: Record<string, string> = {
+  backup: 'backups',
+  restore: 'backups',
+  pull: 'backups',
+  move: 'moves',
+  copy: 'moves',
+  delete: 'deletes',
 };
 
 /** One thing to fix, said in words. */
@@ -130,8 +131,10 @@ interface FixText {
             <button class="btn small primary" type="button" [disabled]="busy()" (click)="retry()">
               {{ busy() ? ('Starting…' | t) : ('Try again' | t) }}
             </button>
-          } @else if (jobPage(); as page) {
-            <a class="btn small" [routerLink]="page">{{ 'Details' | t }}</a>
+          } @else if (jobList(); as show) {
+            <a class="btn small" routerLink="/accounts/changes" [queryParams]="{ show }">{{
+              'Details' | t
+            }}</a>
           }
           <button class="btn small ghost" type="button" (click)="dismiss()">
             {{ 'Dismiss' | t }}
@@ -189,9 +192,10 @@ export class FixItemComponent {
     if (i.kind !== 'job' || i.job.kind !== 'backup' || !i.job.account) return false;
     return (i.job.result as { force?: unknown } | undefined)?.force !== true;
   });
-  protected readonly jobPage = computed(() => {
+  /** A failed job's list: Accounts › Recent changes, at its kind. */
+  protected readonly jobList = computed(() => {
     const i = this.item();
-    return i.kind === 'job' ? (JOB_PAGES[i.job.kind] ?? null) : null;
+    return i.kind === 'job' ? (JOB_LISTS[i.job.kind] ?? null) : null;
   });
 
   private say(i: FixItem): FixText {

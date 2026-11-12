@@ -17,8 +17,8 @@ import { formatCountdown, formatMinor, relativeTime } from './util';
  * The Claude plan's usage in full: every window the server reports (with
  * its meter and reset time), extra usage, how fresh the numbers are and when
  * the next check is due, and a Refresh button that counts down while the
- * server would refuse. On the desktop it links to the refresh interval in
- * Settings; phones show the interval read-only. Renders nothing until the
+ * server would refuse. On the desktop it links to the refresh interval on
+ * Accounts › Usage; phones show the interval read-only. Renders nothing until the
  * server has reported plan usage. `account` picks whose usage (the Default
  * account's unless it names another).
  */
@@ -80,7 +80,9 @@ import { formatCountdown, formatMinor, relativeTime } from './util';
           <p class="muted small interval">
             {{ interval() }}
             @if (isDesktop()) {
-              <a routerLink="/settings">{{ 'Change in Settings' | t }}</a>
+              <a routerLink="/accounts/usage" fragment="interval">{{
+                'Change in Accounts › Usage' | t
+              }}</a>
             }
           </p>
         }
@@ -134,7 +136,8 @@ export class PlanUsageComponent {
   private realtime = inject(RealtimeService);
   protected readonly isDesktop = inject(AuthService).isDesktop;
 
-  /** Say how often it checks (and link to Settings on the desktop). */
+  /** Say how often it checks (and link to Accounts › Usage on the
+   * desktop). */
   readonly settingsLink = input(true);
   /** Whose plan usage: an account id (the Default's by default). */
   readonly account = input<string>(DEFAULT_ACCOUNT);

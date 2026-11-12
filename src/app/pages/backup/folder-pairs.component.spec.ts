@@ -94,7 +94,7 @@ describe('FolderPairsComponent', () => {
   it('explains itself in a sentence and lists the pairs, this Mac first', async () => {
     const el = await render(paired());
     expect(text(el.querySelector('.lede'))).toBe(
-      'Pair a folder on this Mac with the folder that holds the same projects on another machine: a session pulled from there goes into the matching project here (and back), so Claude Code lists it where you work.',
+      'Pair a folder on this Mac with the folder that holds the same projects on another computer: a session pulled from there goes into the matching project here (and back), so Claude Code lists it where you work.',
     );
     const sides = [...el.querySelectorAll('.prow .side')].map((s) => [
       text(s.querySelector('.who')),
@@ -229,7 +229,7 @@ describe('FolderPairsComponent', () => {
     const el = await render(view({ machines: [] }));
     expect(el.querySelector('form')).toBeNull();
     expect(text(el.querySelector('.none'))).toBe(
-      'Another machine shows here once it has backed up to or pulled from these backups.',
+      'Another computer shows here once it has backed up to or pulled from these backups.',
     );
     button(el, 'Look again')?.click();
     await settle();

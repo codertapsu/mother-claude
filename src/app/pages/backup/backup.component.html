@@ -1,9 +1,7 @@
 <div class="page backup-page">
+  <mc-accounts-head />
   <header class="hero">
     <div class="hero-text">
-      <div class="page-head">
-        <h1>{{ 'Backup & sync' | t }}</h1>
-      </div>
       <p class="lede">
         {{
           "Encrypted backups of each Claude account's data, in a folder you choose. The same folder carries your conversations to your other computers: back up on one, pull on the other."
@@ -19,7 +17,6 @@
       <span class="node"><mc-icon name="layers" [size]="20" /></span>
     </div>
   </header>
-  <mc-hub-tabs place="accounts" />
 
   @if (error()) {
     <p class="notice error small" role="alert">{{ error() }}</p>
@@ -591,9 +588,15 @@
 
     <!-- ─────────────── Recent ─────────────── -->
     @if (jobList().length) {
-      <h2>{{ 'Recent' | t }}</h2>
+      <div class="section-head">
+        <h2>{{ 'Recent' | t }}</h2>
+        <span class="spacer"></span>
+        <a class="small" routerLink="/accounts/changes" [queryParams]="{ show: 'backups' }">{{
+          'See all' | t
+        }}</a>
+      </div>
       <section class="card list jobs" [attr.aria-label]="'Recent backups, restores and pulls' | t">
-        @for (j of jobList(); track j.id) {
+        @for (j of shownJobs(); track j.id) {
           <mc-data-job class="jrow" [job]="j" (changed)="jobChanged($event)">
             <mc-job-details [job]="j" />
           </mc-data-job>

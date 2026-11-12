@@ -28,7 +28,7 @@ import { folderExample, folderPathProblem, machineNoun } from '../../core/paths'
 import { IconComponent } from '../../shared/icon.component';
 
 /**
- * Backup & sync › Folder pairs (docs/BACKUP.md "Folder pairs"): a folder on
+ * Backups › Folder pairs (docs/BACKUP.md "Folder pairs"): a folder on
  * this machine and the folder that holds the same projects on another
  * machine of the backups (`/Users/marcus/dev` and `D:\dev`), so a session
  * pulled from there goes into the matching project here, and back. The pairs
@@ -61,7 +61,7 @@ import { IconComponent } from '../../shared/icon.component';
     <section class="card pairs">
       <p class="muted small lede">
         {{
-          'Pair a folder on this {computer} with the folder that holds the same projects on another machine: a session pulled from there goes into the matching project here (and back), so Claude Code lists it where you work.'
+          'Pair a folder on this {computer} with the folder that holds the same projects on another computer: a session pulled from there goes into the matching project here (and back), so Claude Code lists it where you work.'
             | t: { computer: computer() }
         }}
       </p>
@@ -112,7 +112,7 @@ import { IconComponent } from '../../shared/icon.component';
             />
           </label>
           <label class="field">
-            <span class="field-label">{{ 'Other machine' | t }}</span>
+            <span class="field-label">{{ 'Other computer' | t }}</span>
             <select name="machine" [disabled]="busy()" (change)="pickMachine($event)">
               @for (m of machines(); track m.id) {
                 <option [value]="m.id" [selected]="m.id === machine()">
@@ -146,7 +146,7 @@ import { IconComponent } from '../../shared/icon.component';
       } @else {
         <p class="muted small none">
           {{
-            'Another machine shows here once it has backed up to or pulled from these backups.' | t
+            'Another computer shows here once it has backed up to or pulled from these backups.' | t
           }}
         </p>
       }
@@ -251,7 +251,7 @@ export class FolderPairsComponent {
       case 'windows':
         return tr('This PC');
       default:
-        return tr('This machine');
+        return tr('This computer');
     }
   });
 
@@ -283,14 +283,14 @@ export class FolderPairsComponent {
 
   protected machineLabel(m: PairMachine): string {
     const os = osLabel(m.os);
-    const name = m.name || tr('A machine');
+    const name = m.name || tr('A computer');
     return os ? `${name} (${os})` : name;
   }
 
   protected sideLabel(s: PairSide): string {
     if (s.here) return this.hereLabel();
     const os = osLabel(s.os);
-    const name = s.name || tr('Another machine');
+    const name = s.name || tr('Another computer');
     return os ? `${name} (${os})` : name;
   }
 
@@ -320,7 +320,7 @@ export class FolderPairsComponent {
     const there = otherFolderProblem(other, this.chosenOs(), this.hostOs());
     if (there) {
       this.error.set(
-        tr('On {name}: {problem}', { name: m.name || tr('the other machine'), problem: there }),
+        tr('On {name}: {problem}', { name: m.name || tr('the other computer'), problem: there }),
       );
       return;
     }

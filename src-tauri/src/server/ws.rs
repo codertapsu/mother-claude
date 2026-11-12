@@ -190,6 +190,15 @@ pub enum ServerEvent {
     /// `/api/roots` — or `sync` — refetch `/api/machines/sync`
     /// (docs/PLAN-MACHINES.md).
     Machines { what: String },
+    /// A data job started or ended (everyone): `{t:"jobs", id, kind,
+    /// state}` — a move, copy, backup, restore, pull or delete
+    /// (`claude::transfer::Jobs`). Clients refetch `GET /api/data/jobs`,
+    /// which says the rest to whoever may read it; progress stays a poll.
+    Jobs {
+        id: String,
+        kind: String,
+        state: crate::claude::transfer::JobState,
+    },
     /// A move of a session to or from another computer changed (everyone):
     /// `{t:"move", move}` with the move's whole record as `GET
     /// /api/moves/{id}` answers it (`machines::moves`, docs/PLAN-MACHINES.md
@@ -237,7 +246,8 @@ impl ServerEvent {
             | ServerEvent::PlanUsage { .. }
             | ServerEvent::Accounts { .. }
             | ServerEvent::AccountUsage { .. }
-            | ServerEvent::Browser { .. } => Audience::All,
+            | ServerEvent::Browser { .. }
+            | ServerEvent::Jobs { .. } => Audience::All,
             ServerEvent::Teams(_) | ServerEvent::Machines { .. } | ServerEvent::Move { .. } => {
                 Audience::All
             }
@@ -1525,6 +1535,15 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&stream).unwrap(),
             json!({ "t": "stream", "session": "s", "kind": "text", "delta": "hi" })
+        );
+        assert_eq!(
+            serde_json::to_value(&ServerEvent::Jobs {
+                id: "tr_1".into(),
+                kind: "backup".into(),
+                state: crate::claude::transfer::JobState::Failed,
+            })
+            .unwrap(),
+            json!({ "t": "jobs", "id": "tr_1", "kind": "backup", "state": "failed" })
         );
         assert_eq!(
             serde_json::to_value(&ServerEvent::Resync).unwrap(),

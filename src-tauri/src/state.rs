@@ -202,6 +202,8 @@ impl Inner {
         bridge: BridgeConfig,
     ) -> AppState {
         let (bus, _rx) = broadcast::channel(1024);
+        // Data jobs tell their starts and ends on the bus (`{t:"jobs"}`).
+        let jobs = crate::claude::transfer::Jobs::new(bus.clone());
         let data_dir = auth.config_dir.clone();
         let data_dir = data_dir.as_deref();
         let live = LiveRoster::new();
@@ -245,7 +247,7 @@ impl Inner {
             push: PushService::new(data_dir),
             usage: UsageStore::new(data_dir),
             accounts,
-            jobs: crate::claude::transfer::Jobs::default(),
+            jobs,
             reveal: crate::claude::reveal::Revealer::default(),
             opener: crate::claude::browser::Opener::default(),
             scheduler: crate::orchestration::scheduler::Scheduler::load(data_dir),

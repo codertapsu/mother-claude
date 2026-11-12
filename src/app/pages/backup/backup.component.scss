@@ -581,3 +581,14 @@ section.card {
     max-width: none;
   }
 }
+
+/* A section's heading with its one action on the right. */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.4rem 0 0.55rem;
+}
+.section-head h2 {
+  margin: 0;
+}

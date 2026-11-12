@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 
 import { DataJobsService } from './data-jobs.service';
+import { RealtimeService } from './realtime.service';
 import { FakeBackend, useFakeServer } from './mock/fake-server.testing';
 import { setActiveMock } from './mock/mock-api';
 import { JobView } from './models';
@@ -66,5 +67,29 @@ describe('DataJobsService', () => {
     }));
     await expect(jobs.follow('gone', () => undefined)).rejects.toThrow();
     expect(backend.calls.filter((c) => c === 'GET /data/jobs/gone').length).toBe(4);
+  });
+
+  it('reads the recent list again when a job starts or ends, once someone reads it', async () => {
+    let list = [job({ id: 'j1', state: 'done' })];
+    backend.routes.set('/data/jobs', () => ({ status: 200, body: { jobs: list } }));
+    const frame = (f: object) =>
+      (TestBed.inject(RealtimeService) as unknown as { dispatch(raw: string): void }).dispatch(
+        JSON.stringify(f),
+      );
+    const settle = () => new Promise((r) => setTimeout(r, 320));
+    // Nobody reads it yet: a frame asks nothing.
+    frame({ t: 'jobs', id: 'j0', kind: 'backup', state: 'running' });
+    await settle();
+    expect(backend.calls).toEqual([]);
+
+    await jobs.loadRecent();
+    expect(jobs.recent().map((j) => j.id)).toEqual(['j1']);
+    list = [...list, job({ id: 'j2', kind: 'backup', state: 'failed', error: 'Offline.' })];
+    // Frames that come together are read once.
+    frame({ t: 'jobs', id: 'j2', kind: 'backup', state: 'running' });
+    frame({ t: 'jobs', id: 'j2', kind: 'backup', state: 'failed' });
+    await settle();
+    expect(backend.calls.filter((c) => c === 'GET /data/jobs').length).toBe(2);
+    expect(jobs.recent().map((j) => `${j.id}:${j.state}`)).toEqual(['j1:done', 'j2:failed']);
   });
 });

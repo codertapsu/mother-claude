@@ -3,7 +3,7 @@ import { Injectable, signal } from '@angular/core';
 import { tr } from '../../core/i18n/i18n';
 
 /**
- * What is being dragged on the Backup & sync page:
+ * What is being dragged on the Backups page:
  * - an account on this computer (onto the backups: back it up);
  * - an account's backup (onto its account: pull; onto another: restore into it);
  * - conversations of a backup, from its browser (onto their own account:
