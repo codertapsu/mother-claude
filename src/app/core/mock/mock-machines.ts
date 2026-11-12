@@ -10,6 +10,7 @@ import {
   CodeSettings,
   FoldersView,
   Grants,
+  Introduction,
   MachineAsk,
   MachinesFrame,
   MachinesView,
@@ -18,6 +19,7 @@ import {
   ProjectInput,
   ProjectOptions,
   Readiness,
+  Revocation,
   RootEntry,
   RootsChange,
   RootsView,
@@ -30,6 +32,23 @@ import {
 
 const S = 1000;
 const MIN = 60 * S;
+
+/** What this build can do with other computers (`protocol::CAPABILITIES`). */
+const ALL_CAPABILITIES = [
+  'hello',
+  'setup',
+  'settings',
+  'bulk',
+  'roots',
+  'moves',
+  'ignoredFiles',
+  'run',
+  'tasks',
+  'teamRoles',
+  'sync',
+  'introductions',
+  'revokeEverywhere',
+];
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -72,6 +91,10 @@ export class MockMachines {
   ];
   /** What this computer asked the others. */
   private asked: MachineAsk[] = [];
+  /** Introductions received (Phase 5). */
+  private introductions: Introduction[] = [];
+  /** Computers revoked everywhere (Phase 5). */
+  private revocations: Revocation[] = [];
   /** Projects kept in sync (`?mockmachines=1`: one in sync, one changed
    * on both). */
   private syncPairs: SyncPair[] = [];
@@ -221,12 +244,14 @@ export class MockMachines {
     online: boolean,
     lastSeen: number,
   ): PeerMachine {
+    // BUILD-BOX runs an older build (Phase 5's versions and skew).
+    const older = os === 'linux';
     return {
       id,
       name,
       os,
       osVersion: os === 'windows' ? 'Windows 11 Pro' : 'Ubuntu 26.04',
-      versions: { app: '0.11.0', protocol: 1, claude: '2.1.322' },
+      versions: { app: older ? '0.10.9' : '0.11.0', protocol: 1, claude: '2.1.322' },
       key: '8C21 0E5F A9B3 4D67',
       pairedAt: Date.now() - 3 * 24 * 60 * MIN,
       lastSeen,
@@ -235,10 +260,67 @@ export class MockMachines {
       rttMs: online ? 6.1 : null,
       grants: defaultGrants(),
       theirGrants: defaultGrants(),
-      capabilities: ['hello', 'setup', 'settings', 'bulk', 'moves', 'roots'],
+      capabilities: older
+        ? ['hello', 'setup', 'settings', 'bulk', 'moves', 'roots']
+        : [...ALL_CAPABILITIES],
       relay: { mode: 'public', url: null },
       problem: null,
+      skew: older
+        ? {
+            app: 'older',
+            lacks: ['sync', 'run', 'tasks', 'teamRoles', 'introductions', 'revokeEverywhere'],
+          }
+        : {},
+      pairedWith: [],
     };
+  }
+
+  /** `POST /api/machines/introduce`: both offered. */
+  private introduce(b: Record<string, unknown>): Response {
+    const find = (id: unknown) => this.peers.find((p) => p.id === id);
+    const machine = find(b['machine']);
+    const other = find(b['with']);
+    if (!machine || !other) return err(404, 'machines_unknown', 'Not a paired computer.');
+    if (machine.id === other.id) {
+      return err(422, 'intro_same', 'Choose two different computers.');
+    }
+    const tooOld = [machine, other].find((p) => p.skew?.lacks?.includes('introductions'));
+    if (tooOld) {
+      return err(
+        409,
+        'machine_too_old',
+        `Update Mother Claude on ${tooOld.name} first: it can't be introduced yet.`,
+      );
+    }
+    machine.pairedWith = [...(machine.pairedWith ?? []), other.id];
+    other.pairedWith = [...(other.pairedWith ?? []), machine.id];
+    this.frame();
+    const side = (p: PeerMachine) => ({
+      machine: p.id,
+      name: p.name,
+      state: 'offered',
+      detail: null,
+    });
+    return json({ id: 'in_0123456789abcdef', host: side(other), joiner: side(machine) });
+  }
+
+  /** `POST /api/machines/{id}/revoke-everywhere`. */
+  private revokeEverywhere(peer: PeerMachine): Response {
+    this.peers = this.peers.filter((p) => p.id !== peer.id);
+    this.revocations = [
+      {
+        machine: peer.id,
+        name: peer.name,
+        key: peer.key,
+        at: Date.now(),
+        pending: this.peers
+          .filter((p) => !p.online)
+          .map((p) => ({ id: p.id, name: p.name, online: false, tooOld: false })),
+        done: this.peers.filter((p) => p.online).map((p) => ({ id: p.id, name: p.name })),
+      },
+      ...this.revocations.filter((r) => r.machine !== peer.id),
+    ];
+    return json(this.view());
   }
 
   route(path: string, method: string, body: unknown): Response | null {
@@ -441,6 +523,21 @@ export class MockMachines {
         if (on) this.setupStep = null;
         return json(this.view());
       }
+    }
+    if (method === 'POST' && path === '/machines/introduce') return this.introduce(b);
+    const intro = /^\/machines\/introductions\/([^/]+)$/.exec(path);
+    if (intro && method === 'POST') {
+      const i = this.introductions.find((x) => x.id === intro[1]);
+      if (!i) return err(404, 'intro_unknown', 'No such introduction here.');
+      i.state = b['accept'] === true ? 'accepted' : 'declined';
+      i.detail = i.state === 'declined' ? 'You declined.' : null;
+      return json(this.view());
+    }
+    const everywhere = /^\/machines\/([^/]+)\/revoke-everywhere$/.exec(path);
+    if (everywhere && method === 'POST') {
+      const peer = this.peers.find((p) => p.id === everywhere[1]);
+      if (!peer) return err(404, 'machines_unknown', 'Not a paired computer.');
+      return this.revokeEverywhere(peer);
     }
     const m = /^\/machines\/([^/]+)$/.exec(path);
     if (m) {
@@ -838,6 +935,8 @@ export class MockMachines {
       },
       setupStep: this.setupStep,
       asks: this.asks,
+      introductions: this.introductions,
+      revocations: this.revocations,
     };
   }
 

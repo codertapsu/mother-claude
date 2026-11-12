@@ -26,8 +26,10 @@ import type { DeleteBody } from './delete-data';
 import type {
   AccountsTable,
   AskBody,
+  AutostartView,
   FoldersView,
   Grants,
+  IntroduceResult,
   MachineAsk,
   MachinesSettingsPatch,
   MachinesSettingsView,
@@ -225,6 +227,8 @@ import {
  *             getMachinesSettings() · saveMachinesSettings(patch) ·
  *             answerSettingsOffer(accept) · setMachinesEnabled(enabled) ·
  *             updateMachine(id, patch) · revokeMachine(id) ·
+ *             revokeEverywhere(id) · introduceMachines(machine, with) ·
+ *             answerIntroduction(id, accept) ·
  *             askMachine(machine, body) · answerMachineAsk(id, answer) ·
  *             getSync() · setSync(project, machine, on) · syncNow(id) ·
  *             resolveSync(id, keep) · getRuns() · getRun(id) ·
@@ -235,6 +239,7 @@ import {
  *             getMachineAccounts() · getMachineFolders(fresh?) ·
  *             cloneHere(body) · checkProjectRemote(project) ·
  *             getRoots() · saveRoots(change)
+ *   Startup   getAutostart() · setAutostart(enabled)
  *   Moves     moveSessionPreflight(id, body) · moveSession(id, body) ·
  *             takeOverSession(id, self) · listMoves() · getMove(id) ·
  *             cancelMove(id) · undoMove(id) · retryMove(id)
@@ -1499,6 +1504,38 @@ export class ApiService {
   /** Desktop: forget a paired computer and cut its connections. */
   revokeMachine(id: string): Promise<MachinesView> {
     return this.req<MachinesView>(`/machines/${enc(id)}`, { method: 'DELETE' });
+  }
+
+  /** Desktop: *Revoke everywhere* — revoke it here and ask every other
+   * paired computer to (an offline one when it is back); the view's
+   * `revocations` say which took it. */
+  revokeEverywhere(id: string): Promise<MachinesView> {
+    return this.post<MachinesView>(`/machines/${enc(id)}/revoke-everywhere`, {});
+  }
+
+  /** Desktop: introduce two paired computers to each other — `machine`
+   * dials `with`; each pairs only once its own desktop confirmed. */
+  introduceMachines(machine: string, withMachine: string): Promise<IntroduceResult> {
+    return this.post<IntroduceResult>('/machines/introduce', { machine, with: withMachine });
+  }
+
+  /** Desktop: accept an introduction (this side of the pairing starts) or
+   * decline it (the other computer is told). */
+  answerIntroduction(id: string, accept: boolean): Promise<MachinesView> {
+    return this.post<MachinesView>(`/machines/introductions/${enc(id)}`, { accept });
+  }
+
+  /** *Start Mother Claude when you sign in, in the tray*. */
+  getAutostart(): Promise<AutostartView> {
+    return this.req<AutostartView>('/app/autostart');
+  }
+
+  /** Desktop: switch it (the system's login item). */
+  setAutostart(enabled: boolean): Promise<AutostartView> {
+    return this.req<AutostartView>('/app/autostart', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    });
   }
 
   // ─── Moving a session to another computer (docs/PLAN-MACHINES.md §5.8) ──

@@ -39,6 +39,32 @@
       <mc-machine-asks [asks]="v.asks" [readonly]="!isDesktop()" (answered)="askAnswered()" />
     }
 
+    <!-- ─────────────── Introduced by another computer (plan §5.12) ─────────────── -->
+    @if (v.introductions?.length) {
+      <mc-machine-intros
+        [intros]="v.introductions"
+        [readonly]="!isDesktop()"
+        (answered)="machines.apply($event)"
+        (opened)="introOpen.set(true)"
+      />
+    }
+
+    <!-- ─────────────── Revoked everywhere ─────────────── -->
+    @if (v.revocations?.length) {
+      <section class="card revocations" [attr.aria-label]="'Revoked everywhere' | t">
+        <h2 class="first">{{ 'Revoked everywhere' | t }}</h2>
+        <ul class="plain">
+          @for (r of v.revocations; track r.machine) {
+            <li>
+              <strong>{{ r.name }}</strong>
+              <span class="muted small"> · {{ r.at | relTime }}</span>
+              <span class="small rev-line">{{ revocationLine(r) }}</span>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
     <!-- ─────────────── Off (UX §1.1) ─────────────── -->
     @if (!v.enabled) {
       <section class="card off" [attr.aria-label]="'Machines is off' | t">
@@ -298,6 +324,65 @@
             }}
           </p>
         }
+        <!-- Versions that differ (Phase 5): who updates, and what waits for it. -->
+        @if (p.skew; as s) {
+          @if (s.app === 'older') {
+            <div class="notice warn small skew">
+              <span>{{ olderAppText(p) }}</span>
+              @if (isDesktop()) {
+                <button
+                  type="button"
+                  class="btn small"
+                  [disabled]="busy() === p.id + ':app'"
+                  (click)="askUpdate(p, 'app')"
+                >
+                  {{ 'Ask {name} to update' | t: { name: p.name } }}
+                </button>
+              }
+            </div>
+          } @else if (s.app === 'newer') {
+            <div class="notice warn small skew">
+              <span>{{ newerAppText(p) }}</span>
+              @if (isDesktop()) {
+                <button type="button" class="btn small" (click)="updateHere('app')">
+                  {{ 'Update it' | t }}
+                </button>
+              }
+            </div>
+          }
+          @if (s.claude === 'older') {
+            <div class="notice warn small skew">
+              <span>{{ olderClaudeText(p) }}</span>
+              @if (isDesktop()) {
+                <button
+                  type="button"
+                  class="btn small"
+                  [disabled]="busy() === p.id + ':claudeCode'"
+                  (click)="askUpdate(p, 'claudeCode')"
+                >
+                  {{ 'Ask {name} to update' | t: { name: p.name } }}
+                </button>
+              }
+            </div>
+          } @else if (s.claude === 'newer') {
+            <div class="notice warn small skew">
+              <span>{{ newerClaudeText(p) }}</span>
+              @if (isDesktop()) {
+                <button
+                  type="button"
+                  class="btn small"
+                  [disabled]="busy() === 'claudeCode'"
+                  (click)="updateHere('claudeCode')"
+                >
+                  {{ busy() === 'claudeCode' ? ('Working…' | t) : ('Update it' | t) }}
+                </button>
+              }
+            </div>
+          }
+          @if (s.lacks?.length) {
+            <p class="muted small lacks">{{ lacksText(p) }}</p>
+          }
+        }
 
         <div class="grants">
           <span class="small">{{
@@ -376,9 +461,33 @@
             >
               {{ armed('revoke:' + p.id) ? ('Tap again to revoke' | t) : ('Revoke' | t) }}
             </button>
+            @if (peers().length > 1) {
+              <button
+                type="button"
+                class="btn small"
+                [class.danger]="armed('everywhere:' + p.id)"
+                [disabled]="busy() === p.id"
+                [attr.aria-describedby]="'everywhere-hint-' + p.id"
+                (click)="revokeEverywhere(p)"
+              >
+                {{
+                  armed('everywhere:' + p.id)
+                    ? ('Tap again to revoke everywhere' | t)
+                    : ('Revoke everywhere' | t)
+                }}
+              </button>
+              <span class="visually-hidden" [id]="'everywhere-hint-' + p.id">{{
+                'Revokes it here and on every other computer of yours.' | t
+              }}</span>
+            }
           }
         </div>
       </section>
+    }
+
+    <!-- ─────────────── Pair them with each other (plan §5.12) ─────────────── -->
+    @if (isDesktop() && peers().length > 1) {
+      <mc-introduce-offer [framed]="true" />
     }
 
     <!-- ─────────────── Code sync (plan §5.15) ─────────────── -->
@@ -467,5 +576,6 @@
   @if (isDesktop()) {
     <mc-pair-machine-sheet [open]="pairOpen()" (closed)="pairOpen.set(false)" />
     <mc-join-machine-sheet [open]="joinOpen()" (closed)="joinOpen.set(false)" />
+    <mc-intro-sheet [open]="introOpen()" (closed)="introOpen.set(false)" />
   }
 </div>

@@ -18,6 +18,7 @@ import { MachinesService } from '../../core/machines.service';
 import { NowService } from '../../core/now.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { SheetComponent } from '../../shared/sheet.component';
+import { IntroduceOfferComponent } from './introduce-offer.component';
 import { pairErrorText } from './machines-text';
 import { PairConfirmComponent } from './pair-confirm.component';
 
@@ -30,7 +31,13 @@ import { PairConfirmComponent } from './pair-confirm.component';
 @Component({
   selector: 'mc-pair-machine-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CopyButtonComponent, PairConfirmComponent, SheetComponent, TPipe],
+  imports: [
+    CopyButtonComponent,
+    IntroduceOfferComponent,
+    PairConfirmComponent,
+    SheetComponent,
+    TPipe,
+  ],
   template: `
     <mc-sheet [open]="open()" [title]="title()" (closed)="close()">
       @if (open()) {
@@ -107,6 +114,7 @@ import { PairConfirmComponent } from './pair-confirm.component';
               <p class="notice ok" role="status">
                 {{ 'Paired with {name}.' | t: { name: p.other?.name ?? '' } }}
               </p>
+              <mc-introduce-offer [machine]="p.peerId" [heading]="false" />
               <div class="row acts">
                 <button type="button" class="btn primary" (click)="closed.emit()">
                   {{ 'Done' | t }}
@@ -157,10 +165,11 @@ export class PairSheetComponent {
 
   protected readonly busy = signal(false);
   protected readonly error = signal('');
-  /** This computer's pairing as the one showing the code. */
+  /** This computer's pairing as the one showing the code (an introduced
+   * one has its own sheet). */
   protected readonly pairing = computed(() => {
     const p = this.machines.pairing();
-    return p?.role === 'host' ? p : null;
+    return p?.role === 'host' && !p.intro ? p : null;
   });
   protected readonly selfName = computed(() => this.machines.view()?.self.name ?? '');
   protected readonly title = computed(() =>

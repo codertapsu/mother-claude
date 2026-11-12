@@ -19,6 +19,7 @@ import { TPipe } from '../../core/i18n/t.pipe';
 import { Grants, NearbyMachine, pairingLive } from '../../core/machines';
 import { MachinesService } from '../../core/machines.service';
 import { SheetComponent } from '../../shared/sheet.component';
+import { IntroduceOfferComponent } from './introduce-offer.component';
 import { osName, pairErrorText } from './machines-text';
 import { PairConfirmComponent } from './pair-confirm.component';
 
@@ -36,7 +37,7 @@ const NEARBY_MS = 3000;
 @Component({
   selector: 'mc-join-machine-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, PairConfirmComponent, SheetComponent, TPipe],
+  imports: [FormsModule, IntroduceOfferComponent, PairConfirmComponent, SheetComponent, TPipe],
   template: `
     <mc-sheet [open]="open()" [title]="title()" (closed)="close()">
       @if (open()) {
@@ -132,6 +133,7 @@ const NEARBY_MS = 3000;
               <p class="notice ok" role="status">
                 {{ 'Paired with {name}.' | t: { name: p.other?.name ?? '' } }}
               </p>
+              <mc-introduce-offer [machine]="p.peerId" [heading]="false" />
               <div class="row acts">
                 <button type="button" class="btn primary" (click)="closed.emit()">
                   {{ 'Done' | t }}
@@ -213,9 +215,11 @@ export class JoinSheetComponent {
   protected readonly started = signal(false);
   protected readonly nearby = signal<NearbyMachine[]>([]);
   protected readonly nearbyLoaded = signal(false);
+  /** This computer's pairing as the one that typed the code (an
+   * introduced one has its own sheet). */
   protected readonly pairing = computed(() => {
     const p = this.machines.pairing();
-    return p?.role === 'joiner' ? p : null;
+    return p?.role === 'joiner' && !p.intro ? p : null;
   });
   protected readonly title = computed(() =>
     this.started() &&
