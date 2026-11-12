@@ -52,11 +52,23 @@ pub struct RelaySetting {
     /// The relay's `https://` URL when `mode` is `custom`.
     #[serde(default)]
     pub url: Option<String>,
+    /// Your own relay's certificate, pinned (`custom` only): the SHA-256 of
+    /// the certificate it presents, lowercase hex. Set, that relay is
+    /// accepted with exactly this certificate, whoever signed it — a
+    /// self-signed one too; unset, the usual checks (Mozilla's roots).
+    /// Absent from the file and the wire when unset, as older builds wrote
+    /// it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cert_sha256: Option<String>,
 }
+
+/// What a pinned certificate's SHA-256 looks like when it is not one.
+const BAD_PIN: &str = "A certificate's SHA-256 is 64 hexadecimal digits (colons allowed).";
 
 impl RelaySetting {
     /// Checks a setting before it is saved: a custom relay needs an
-    /// `https://` (or, for a relay on this machine, `http://localhost`) URL.
+    /// `https://` (or, for a relay on this machine, `http://localhost`) URL;
+    /// a pinned certificate, 64 hex digits and an `https://` URL.
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.mode != RelayMode::Custom {
             return Ok(());
@@ -66,24 +78,59 @@ impl RelaySetting {
         };
         let parsed = url::Url::parse(url).map_err(|_| "That is not a valid address.")?;
         let local = matches!(parsed.host_str(), Some("localhost") | Some("127.0.0.1"));
-        if parsed.scheme() == "https" || (parsed.scheme() == "http" && local) {
-            Ok(())
-        } else {
-            Err("Your relay's address must start with https://.")
+        if !(parsed.scheme() == "https" || (parsed.scheme() == "http" && local)) {
+            return Err("Your relay's address must start with https://.");
         }
+        if let Some(pin) = self.cert_sha256.as_deref().filter(|p| !p.trim().is_empty()) {
+            normalize_pin(pin).ok_or(BAD_PIN)?;
+            if parsed.scheme() != "https" {
+                return Err("Pinning a certificate needs an https:// address.");
+            }
+        }
+        Ok(())
     }
 
-    /// The same setting, comparing what matters (a URL only for `custom`).
+    /// The setting as it is kept: the pin as 64 lowercase hex digits, and
+    /// only for `custom` (an empty one is none).
+    pub fn normalized(mut self) -> Self {
+        self.cert_sha256 = match self.mode {
+            RelayMode::Custom => self.cert_sha256.as_deref().and_then(normalize_pin),
+            _ => None,
+        };
+        self
+    }
+
+    /// The pinned certificate's SHA-256 (lowercase hex), `custom` only.
+    pub fn pin(&self) -> Option<String> {
+        (self.mode == RelayMode::Custom)
+            .then(|| self.cert_sha256.as_deref().and_then(normalize_pin))
+            .flatten()
+    }
+
+    /// The same setting, comparing what matters (a URL and a pin only for
+    /// `custom`).
     pub fn same_as(&self, other: &RelaySetting) -> bool {
         self.mode == other.mode
             && (self.mode != RelayMode::Custom
-                || self.url.as_deref().map(normalize_url)
-                    == other.url.as_deref().map(normalize_url))
+                || (self.url.as_deref().map(normalize_url)
+                    == other.url.as_deref().map(normalize_url)
+                    && self.pin() == other.pin()))
     }
 }
 
 fn normalize_url(u: &str) -> String {
     u.trim().trim_end_matches('/').to_ascii_lowercase()
+}
+
+/// A SHA-256 as people copy it (`openssl x509 -fingerprint -sha256` prints
+/// `AB:CD:…`): 64 hex digits, colons and spaces ignored; lowercase.
+fn normalize_pin(p: &str) -> Option<String> {
+    let hex: String = p
+        .chars()
+        .filter(|c| !matches!(c, ':' | ' ' | '\t'))
+        .collect::<String>()
+        .to_ascii_lowercase();
+    (hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then_some(hex)
 }
 
 /// A field read on its own: a value this build cannot read is its default,
@@ -783,7 +830,7 @@ mod tests {
     fn a_custom_relay_needs_an_https_url() {
         let mut r = RelaySetting {
             mode: RelayMode::Custom,
-            url: None,
+            ..Default::default()
         };
         assert!(r.validate().is_err());
         r.url = Some("http://relay.example.com".into());
@@ -795,11 +842,82 @@ mod tests {
         let same = RelaySetting {
             mode: RelayMode::Custom,
             url: Some("HTTP://LOCALHOST:3340".into()),
+            ..Default::default()
         };
         assert!(r.same_as(&same));
         assert!(RelaySetting::default().same_as(&RelaySetting {
             mode: RelayMode::Public,
-            url: Some("ignored".into())
+            url: Some("ignored".into()),
+            cert_sha256: Some("ignored".into()),
         }));
+    }
+
+    #[test]
+    fn a_pinned_certificate_is_64_hex_digits_over_https() {
+        let hex = "ab".repeat(32);
+        let colons = hex
+            .as_bytes()
+            .chunks(2)
+            .map(|c| std::str::from_utf8(c).unwrap().to_ascii_uppercase())
+            .collect::<Vec<_>>()
+            .join(":");
+        let r = RelaySetting {
+            mode: RelayMode::Custom,
+            url: Some("https://relay.example.com".into()),
+            cert_sha256: Some(colons.clone()),
+        };
+        assert!(r.validate().is_ok());
+        assert_eq!(r.pin().as_deref(), Some(hex.as_str()));
+        assert_eq!(
+            r.clone().normalized().cert_sha256.as_deref(),
+            Some(hex.as_str())
+        );
+        // Not a SHA-256.
+        let short = RelaySetting {
+            cert_sha256: Some("abcd".into()),
+            ..r.clone()
+        };
+        assert_eq!(short.validate(), Err(BAD_PIN));
+        let odd = RelaySetting {
+            cert_sha256: Some("zz".repeat(32)),
+            ..r.clone()
+        };
+        assert_eq!(odd.validate(), Err(BAD_PIN));
+        // A pin over plain http: nothing to pin.
+        let plain = RelaySetting {
+            url: Some("http://localhost:3340".into()),
+            ..r.clone()
+        };
+        assert!(plain.validate().is_err());
+        // An empty one is none; another mode keeps none.
+        let empty = RelaySetting {
+            cert_sha256: Some("  ".into()),
+            ..r.clone()
+        };
+        assert!(empty.validate().is_ok());
+        assert_eq!(empty.normalized().cert_sha256, None);
+        let public = RelaySetting {
+            mode: RelayMode::Public,
+            ..r.clone()
+        };
+        assert_eq!(public.pin(), None);
+        assert_eq!(public.normalized().cert_sha256, None);
+        // Another pin is another setting (offered to the others); the same
+        // one written otherwise is not.
+        let unpinned = RelaySetting {
+            cert_sha256: None,
+            ..r.clone()
+        };
+        assert!(!r.same_as(&unpinned));
+        let lower = RelaySetting {
+            cert_sha256: Some(hex.clone()),
+            ..r.clone()
+        };
+        assert!(r.same_as(&lower));
+        // Unset, it is left out of the file and the wire (older builds).
+        let v = serde_json::to_value(&unpinned).unwrap();
+        assert!(v.get("certSha256").is_none(), "{v}");
+        let v = serde_json::to_value(lower.normalized()).unwrap();
+        assert_eq!(v["certSha256"], hex.as_str());
     }
 }

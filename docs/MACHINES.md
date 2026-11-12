@@ -1172,6 +1172,15 @@ ciphertext. In *Options*:
   spikes: fine for driving sessions, slower for large transfers.
 - **Your own relay** — the address of an `iroh-relay` you run (on a NAS, a
   small server). Your computers then ask no outside service anything.
+  Optionally **its certificate's SHA-256** (as `openssl x509 -noout
+  -fingerprint -sha256 -in cert.pem` prints it, colons and all): your
+  computers then take that relay only with exactly that certificate,
+  whoever signed it — a self-signed one too — and nothing else in the
+  middle can pose as it. A renewed certificate needs its new SHA-256: until
+  you enter it, the setup's relay check says the relay presented another
+  certificate, and across networks your computers can't meet. The pin
+  changes nothing for the connections between your computers: those are
+  checked by their keys either way.
 - **No relay** — the same network only.
 
 The setting must be the same on every computer; changing it on one offers

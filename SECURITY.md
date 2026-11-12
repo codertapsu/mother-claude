@@ -479,7 +479,14 @@ computer runs for the others; it does not unpair — revoking does.
   default; a computer's key is found through n0's DNS), **your own**
   `iroh-relay` (an `https://` address; a peer is then dialled as its key plus
   that relay, and no n0 service is asked anything) or **none** (the same
-  network only).
+  network only). Your own relay's certificate may be pinned (`certSha256`,
+  `machines::relay_pin`): the relay's host is then accepted only with that
+  certificate (its SHA-256 over the DER; a self-signed one too, the
+  handshake's signature still checked), every other host iroh reaches over
+  TLS keeps the default check (Mozilla's roots). A relay sees ciphertext
+  only either way; the pin keeps someone who can get a certificate for its
+  name from standing in for it (and seeing which keys talk, when and how
+  much).
 - The transport runs only once Machines is in use: a pairing, a paired
   computer, the setup's checks and test. A computer where nobody opens the
   setup or pairs makes no new connection.

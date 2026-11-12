@@ -46,6 +46,7 @@ pub mod move_routes;
 pub mod moves;
 pub mod pairing;
 pub mod protocol;
+pub mod relay_pin;
 pub mod revocation;
 pub mod roots;
 pub mod routes;
@@ -171,6 +172,9 @@ pub struct MachinesState {
     /// How many streams were lowered to the bulk priority, both ways
     /// (`transport::BULK_PRIORITY`): what the tests read.
     pub(crate) bulk_streams: std::sync::Arc<AtomicU64>,
+    /// What your pinned relay last presented when it was another
+    /// certificate (`relay_pin`): the setup's relay check says so.
+    pub(crate) relay_pin: std::sync::Arc<relay_pin::PinSeen>,
 }
 
 impl std::fmt::Debug for MachinesState {
@@ -211,6 +215,7 @@ impl MachinesState {
             work: work::WorkState::load(data_dir),
             intros: intro::Intros::default(),
             bulk_streams: std::sync::Arc::new(AtomicU64::new(0)),
+            relay_pin: std::sync::Arc::default(),
         }
     }
 
@@ -391,7 +396,7 @@ impl MachinesState {
         self.store_write(|f| {
             f.settings.relay = store::RelaySetting {
                 mode: store::RelayMode::None,
-                url: None,
+                ..Default::default()
             }
         });
     }
@@ -488,6 +493,12 @@ impl MachinesState {
     #[doc(hidden)]
     pub fn bulk_streams(&self) -> u64 {
         self.bulk_streams.load(Ordering::Relaxed)
+    }
+
+    /// The SHA-256 of the certificate your pinned relay presented instead
+    /// of the pinned one (`None` until then, and once it matched again).
+    pub fn relay_pin_mismatch(&self) -> Option<String> {
+        self.relay_pin.other()
     }
 
     /// The app turns this on: code sync watches its projects and checks

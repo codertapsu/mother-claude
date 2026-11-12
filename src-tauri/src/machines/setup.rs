@@ -566,16 +566,35 @@ async fn relay_check(state: &AppState) -> Check {
             _ => break,
         }
     }
+    let pinned = relay.pin().is_some();
     match current.iter().find(|s| s.is_connected()) {
         Some(s) => c.ok(format!(
-            "Connected to {}.",
-            s.url().host_str().unwrap_or("the relay")
+            "Connected to {}{}.",
+            s.url().host_str().unwrap_or("the relay"),
+            if pinned {
+                ", with the certificate you pinned"
+            } else {
+                ""
+            }
         )),
-        None => c.failed(
-            false,
-            "The relay does not answer: on the same network your computers still meet, across networks they can't.",
-            fix(FixKind::Manual, "Check the relay"),
-        ),
+        None => match state.machines.relay_pin_mismatch().filter(|_| pinned) {
+            Some(other) => c.failed(
+                false,
+                format!(
+                    "Your relay presented another certificate than the one you pinned (its SHA-256 \
+                     starts {}…). If you renewed it, enter its new SHA-256 in Options; if not, \
+                     something is in the way. Across networks your computers can't meet until \
+                     then.",
+                    &other[..other.len().min(16)]
+                ),
+                fix(FixKind::Manual, "Check the relay"),
+            ),
+            None => c.failed(
+                false,
+                "The relay does not answer: on the same network your computers still meet, across networks they can't.",
+                fix(FixKind::Manual, "Check the relay"),
+            ),
+        },
     }
 }
 

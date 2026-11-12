@@ -151,7 +151,7 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'Máy chủ chuyển tiếp',
-            text: '**Máy chủ chuyển tiếp công cộng (mặc định)** dùng được ngay, ở bất cứ đâu. **Máy chủ chuyển tiếp của riêng bạn** là một `iroh-relay` do bạn tự chạy, trên NAS hoặc một máy chủ nhỏ: nhập địa chỉ `https://` của nó. **Không dùng máy chủ chuyển tiếp**: các máy tính của bạn chỉ gặp nhau trong cùng một mạng. Máy chủ chuyển tiếp chỉ truyền dữ liệu đã mã hóa.',
+            text: '**Máy chủ chuyển tiếp công cộng (mặc định)** dùng được ngay, ở bất cứ đâu. **Máy chủ chuyển tiếp của riêng bạn** là một `iroh-relay` do bạn tự chạy, trên NAS hoặc một máy chủ nhỏ: nhập địa chỉ `https://` của nó và, nếu muốn, SHA-256 của chứng chỉ, để chỉ đúng chứng chỉ đó được chấp nhận (kể cả chứng chỉ tự ký). **Không dùng máy chủ chuyển tiếp**: các máy tính của bạn chỉ gặp nhau trong cùng một mạng. Máy chủ chuyển tiếp chỉ truyền dữ liệu đã mã hóa.',
           },
           {
             term: 'Cách mã nguồn được chuyển khi một phiên chuyển đi',

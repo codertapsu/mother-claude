@@ -224,6 +224,19 @@ const FIXED: Record<string, () => string> = {
 /** Server texts with a name or a number in them: the pattern, and what it
  * reads in the language shown. */
 const PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
+  // Your own relay, its certificate pinned (`setup.rs` `relay_check`).
+  [
+    /^Connected to (.+), with the certificate you pinned\.$/,
+    (m) => tr('Connected to {host}, with the certificate you pinned.', { host: m[1] }),
+  ],
+  [
+    /^Your relay presented another certificate than the one you pinned \(its SHA-256 starts (\S+)…\)\. If you renewed it, enter its new SHA-256 in Options; if not, something is in the way\. Across networks your computers can't meet until then\.$/,
+    (m) =>
+      tr(
+        "Your relay presented another certificate than the one you pinned (its SHA-256 starts {sha}…). If you renewed it, enter its new SHA-256 in Options; if not, something is in the way. Across networks your computers can't meet until then.",
+        { sha: m[1] },
+      ),
+  ],
   [/^Connected to (.+)\.$/, (m) => tr('Connected to {host}.', { host: m[1] })],
   // Phase 5 (`setup.rs` `app_check`, `intro.rs`).
   [

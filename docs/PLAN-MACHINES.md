@@ -1113,6 +1113,16 @@ code and the digits.*
 - `server::context`: `Ingress::Peer`, `Principal::Peer`; `server::auth` guards; the allow-list of routes a peer may reach.
 - API §7 (pairing, list, grants, revoke, settings, enable); `/peer/hello`, `/peer/settings`.
 - The relay setting, all three choices, offered to every machine (§5.3).
+  *Your own relay's pinned certificate (`certSha256`) since 2026-11-13*
+  (`machines/relay_pin.rs`): iroh 1.4 takes a TLS verifier for every
+  connection that is not a peer's (`Builder::ca_tls_config` with
+  `CaTlsConfig::custom_server_cert_verifier`), so the relay's host must
+  present exactly the pinned certificate — a self-signed one too, its
+  handshake signature still checked — and any other host keeps iroh's
+  default check (Mozilla's roots); the pin is part of the offered setting
+  (`same_as`), left out of the file and the wire when unset, and a
+  certificate other than the pinned one is the setup's relay check's
+  message (its SHA-256's start, *enter its new SHA-256 in Options*).
 - `scripts/release/check-windows.sh`: an override for `blake3`'s C build (it comes with iroh), like ring's; measure the binary's real growth (at most +13 MB in the spike; iroh's `metrics` feature costs nothing).
 - `machines/setup.rs`, the part this phase needs: the Mother Claude, network and pairing checks with their fixes (the settings pages through `invoke`, the firewall script after the UAC prompt, the keep-awake assertion); `Info.plist` with `NSLocalNetworkUsageDescription`; `GET /api/machines/setup`, `POST /api/machines/setup/fix`, `POST /api/machines/setup/ask`, `POST /api/machines/test`, `GET /peer/setup`, `POST /peer/setup/ask`; the readiness test's steps 1–2; Machines health and its badge.
 - UI: the setup's steps 1–4 and 7 (this machine, pairing with the grants on the confirmation screen, every machine's checks side by side, the grants matrix, the test); the Machines page.

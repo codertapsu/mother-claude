@@ -230,6 +230,9 @@ async fn start_inner(state: &AppState) -> Result<Endpoint, String> {
         .secret_key(ident.key.clone())
         .alpns(vec![ALPN_PEER.to_vec()]);
     builder = builder.relay_mode(relay_mode(&relay)?);
+    if let Some(tls) = super::relay_pin::tls_config(&relay, state.machines.relay_pin.clone())? {
+        builder = builder.ca_tls_config(tls);
+    }
     let mut mdns = None;
     if let Some(memory) = &test_lookup {
         builder = builder.address_lookup(memory.clone());
@@ -349,6 +352,9 @@ pub async fn bind_rendezvous(
         .secret_key(key.clone())
         .alpns(vec![ALPN_PAIR.to_vec()])
         .relay_mode(relay_mode(&relay)?);
+    if let Some(tls) = super::relay_pin::tls_config(&relay, state.machines.relay_pin.clone())? {
+        builder = builder.ca_tls_config(tls);
+    }
     let note: String = format!("{}{}:{}", super::pairing::NEARBY_TAG, me.os, me.name)
         .chars()
         .take(200)

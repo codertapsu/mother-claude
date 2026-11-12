@@ -502,6 +502,35 @@ async fn the_relay_setting_is_validated_and_offered() {
         .await;
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
     assert_eq!(v["error"]["code"], "machines_bad_relay");
+    // Your own relay's certificate may be pinned: its SHA-256, kept as 64
+    // lowercase hex digits (as openssl prints it, colons and capitals, is
+    // fine); anything else is refused.
+    let relay = |pin: Option<&str>| {
+        let mut r = json!({ "mode": "custom", "url": "https://relay.example.com" });
+        if let Some(p) = pin {
+            r["certSha256"] = json!(p);
+        }
+        json!({ "relay": r })
+    };
+    let (s, v) = a
+        .call("PUT", "/machines/settings", Some(relay(Some("abcd"))))
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(v["error"]["code"], "machines_bad_relay");
+    let openssl = vec!["AB"; 32].join(":");
+    let (s, v) = a
+        .call("PUT", "/machines/settings", Some(relay(Some(&openssl))))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["relay"]["certSha256"], "ab".repeat(32), "{v}");
+    assert_eq!(
+        a.view().await["settings"]["relay"]["certSha256"],
+        "ab".repeat(32)
+    );
+    // Unpinned again: none kept, none on the wire.
+    let (s, v) = a.call("PUT", "/machines/settings", Some(relay(None))).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v["relay"].get("certSha256").is_none(), "{v}");
     let (s, v) = a
         .call(
             "PUT",

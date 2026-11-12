@@ -19,13 +19,21 @@ import {
   MachinesSettings,
   RelayMode,
   defaultCode,
+  normalizePin,
 } from '../../core/machines';
 
 /** A relay setting in words. */
 export function relayText(s: MachinesSettings['relay'] | null | undefined): string {
   switch (s?.mode) {
-    case 'custom':
-      return tr('Your own relay: {url}', { url: s.url ?? '' });
+    case 'custom': {
+      const pin = normalizePin(s.certSha256);
+      return pin
+        ? tr('Your own relay: {url}, its certificate pinned ({sha}…)', {
+            url: s.url ?? '',
+            sha: pin.slice(0, 12),
+          })
+        : tr('Your own relay: {url}', { url: s.url ?? '' });
+    }
     case 'none':
       return tr('No relay');
     default:
@@ -93,6 +101,22 @@ export function relayText(s: MachinesSettings['relay'] | null | undefined): stri
               [ngModel]="url()"
               (ngModelChange)="url.set($event)"
             />
+          </label>
+          <label class="field url">
+            <span class="field-label">{{ "Its certificate's SHA-256 (optional)" | t }}</span>
+            <input
+              name="certSha256"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="AB:CD:…"
+              [ngModel]="pin()"
+              (ngModelChange)="pin.set($event)"
+            />
+            <span class="muted small">{{
+              'Pinned, your relay is taken only with exactly this certificate, whoever signed it — a self-signed one too. A renewed certificate needs its new SHA-256.'
+                | t
+            }}</span>
           </label>
         }
         <label class="opt">
@@ -298,6 +322,8 @@ export class OptionsFormComponent {
   protected readonly computer = computerNoun;
   protected readonly mode = signal<RelayMode>('public');
   protected readonly url = signal('');
+  /** Your relay's certificate's SHA-256, as typed (colons allowed). */
+  protected readonly pin = signal('');
   protected readonly keepAwake = signal(true);
   protected readonly transfer = signal<CodeTransfer>('bundle');
   protected readonly apply = signal<CodeApply>('checkout');
@@ -316,6 +342,7 @@ export class OptionsFormComponent {
         const code = s.code ?? defaultCode();
         this.mode.set(s.relay.mode);
         this.url.set(s.relay.url ?? '');
+        this.pin.set(s.relay.certSha256 ?? '');
         this.keepAwake.set(s.keepAwake);
         this.transfer.set(code.transfer);
         this.apply.set(code.apply);
@@ -335,6 +362,16 @@ export class OptionsFormComponent {
       this.error.set(tr("Your relay's address must start with https://."));
       return;
     }
+    const typed = this.mode() === 'custom' ? this.pin().trim() : '';
+    const pin = normalizePin(typed);
+    if (typed && !pin) {
+      this.error.set(tr("A certificate's SHA-256 is 64 hexadecimal digits (colons allowed)."));
+      return;
+    }
+    if (pin && !/^https:\/\//i.test(url)) {
+      this.error.set(tr('Pinning a certificate needs an https:// address.'));
+      return;
+    }
     const capChanged = Number(this.capGb()) !== this.capGbBefore;
     const cap = Math.round(Number(this.capGb()) * 1e9);
     if (capChanged && (!Number.isFinite(cap) || cap < 64 * 1024 ** 2 || cap > 4 * 1024 ** 4)) {
@@ -345,7 +382,12 @@ export class OptionsFormComponent {
     this.error.set('');
     try {
       const next = await this.api.saveMachinesSettings({
-        relay: { mode: this.mode(), url: this.mode() === 'custom' ? url : null },
+        // The whole setting: no pin sent is none kept.
+        relay: {
+          mode: this.mode(),
+          url: this.mode() === 'custom' ? url : null,
+          ...(pin ? { certSha256: pin } : {}),
+        },
         keepAwake: this.keepAwake(),
         code: {
           transfer: this.transfer(),

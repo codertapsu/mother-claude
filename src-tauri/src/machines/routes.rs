@@ -493,7 +493,7 @@ async fn put_settings(
     let before = state.machines.settings();
     state.machines.store_write(|f| {
         if let Some(r) = req.relay.clone() {
-            f.settings.relay = r;
+            f.settings.relay = r.normalized();
         }
         if let Some(k) = req.keep_awake {
             f.settings.keep_awake = k;
@@ -1247,7 +1247,7 @@ async fn peer_settings(
     state.machines.set_offer(Some(super::SettingsOffer {
         from: machine,
         from_name: name,
-        relay: req.relay,
+        relay: req.relay.normalized(),
         code: req.code,
         at: super::now(),
     }));

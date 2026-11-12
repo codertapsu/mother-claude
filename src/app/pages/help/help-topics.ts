@@ -1271,7 +1271,7 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'Relay',
-            text: '**Public relays (default)** work at once, anywhere. **Your own relay** is an `iroh-relay` you run, on a NAS or a small server: type its `https://` address. **No relay**: your computers meet on the same network only. A relay only ever carries encrypted traffic.',
+            text: "**Public relays (default)** work at once, anywhere. **Your own relay** is an `iroh-relay` you run, on a NAS or a small server: type its `https://` address and, if you like, its certificate's SHA-256, so only that certificate is taken (a self-signed one too). **No relay**: your computers meet on the same network only. A relay only ever carries encrypted traffic.",
           },
           {
             term: 'How code travels when a session moves',

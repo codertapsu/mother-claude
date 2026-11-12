@@ -45,6 +45,16 @@ export type RelayMode = 'public' | 'custom' | 'none';
 export interface RelaySetting {
   mode: RelayMode;
   url: string | null;
+  /** Your own relay's certificate, pinned: its SHA-256 (lowercase hex;
+   * absent when none is, and from an older server). */
+  certSha256?: string | null;
+}
+
+/** A pinned certificate's SHA-256 as the server keeps it: 64 lowercase hex
+ * digits, colons and spaces ignored; null when it is not one. */
+export function normalizePin(p: string | null | undefined): string | null {
+  const hex = (p ?? '').replace(/[:\s]/g, '').toLowerCase();
+  return /^[0-9a-f]{64}$/.test(hex) ? hex : null;
 }
 
 /** A paired computer. */
@@ -816,7 +826,11 @@ export function sameRelay(
 ): boolean {
   if (!a || !b) return a === b;
   const url = (u: string | null) => (u ?? '').trim().replace(/\/+$/, '').toLowerCase();
-  return a.mode === b.mode && (a.mode !== 'custom' || url(a.url) === url(b.url));
+  return (
+    a.mode === b.mode &&
+    (a.mode !== 'custom' ||
+      (url(a.url) === url(b.url) && normalizePin(a.certSha256) === normalizePin(b.certSha256)))
+  );
 }
 
 /** The required checks that keep Machines off (an older server counts every
