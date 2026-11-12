@@ -2677,7 +2677,7 @@ const TOPICS: HelpTopicSource[] = [
           'Choose a **Template**.',
           'With several accounts, choose the **Account**.',
           'Optional: write a **Brief for the lead (optional)**.',
-          "Under **Roles**, change a role's **Model**, **Effort**, **Permission mode** or **Start with the team** if you like.",
+          "Under **Roles**, change a role's **Model**, **Effort**, **Permission mode**, **Computer** or **Start with the team** if you like.",
           'Press **Start the team**.',
         ],
         points: [
@@ -2732,6 +2732,24 @@ const TOPICS: HelpTopicSource[] = [
           'Worktree roles work in `<project>/.claude/worktrees/<role>` on their own branch, which Mother Claude keeps. The lead merges.',
         ],
         tips: ['Add `.claude/worktrees/` to your `.gitignore`.'],
+      },
+      {
+        heading: 'A role on another computer',
+        intro:
+          'A role can run on another of your computers: the lead plans on your Mac while a Windows role works on your PC, on the same board.',
+        steps: [
+          'On the computer that will run it, give this one the **Run** permission in **Machines**.',
+          'In the template, give the role `"machine": "DESKTOP-PC"` (a paired computer’s name, or `os:windows` for any Windows one), or choose its **Computer** when you start the team.',
+          'Start the team. The role starts on that computer when it has work.',
+        ],
+        points: [
+          "It works there in a worktree of its own, at this project's code. Your copy there is not touched.",
+          'Its tasks are on this board. When it finishes one, its work comes back here as the branch `mother-claude/<computer>/<team>/<role>`, which the task names; the lead reviews and merges it.',
+          "Its card says **on DESKTOP-PC**, and why it waits or could not start. That computer's Capacity page counts it, not this one's.",
+          'It cannot message the lead with SendMessage: it writes on its task, and Mother Claude tells the lead.',
+          'That computer lists it under **Machines › Runs › Team roles**, where **Stop** and **Remove** act on it there.',
+        ],
+        links: [{ label: 'See Hand a task to another computer', path: '/help/machines-task' }],
       },
       {
         heading: 'A session started elsewhere as a role',

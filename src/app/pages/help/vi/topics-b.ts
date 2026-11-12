@@ -664,7 +664,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Chọn một **Mẫu**.',
           'Nếu có nhiều tài khoản, chọn **Tài khoản**.',
           'Tùy chọn: viết **Yêu cầu cho trưởng nhóm (không bắt buộc)**.',
-          'Ở **Vai trò**, đổi **Mô hình**, **Mức nỗ lực**, **Chế độ quyền** hoặc **Bắt đầu cùng nhóm** của một vai trò nếu muốn.',
+          'Ở **Vai trò**, đổi **Mô hình**, **Mức nỗ lực**, **Chế độ quyền**, **Máy tính** hoặc **Bắt đầu cùng nhóm** của một vai trò nếu muốn.',
           'Nhấn **Bắt đầu nhóm**.',
         ],
         points: [
@@ -719,6 +719,24 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Vai trò dùng worktree làm việc trong `<project>/.claude/worktrees/<role>` trên nhánh riêng, được Mother Claude giữ lại. Trưởng nhóm sẽ gộp các nhánh.',
         ],
         tips: ['Thêm `.claude/worktrees/` vào `.gitignore` của bạn.'],
+      },
+      {
+        heading: 'Một vai trò trên máy tính khác',
+        intro:
+          'Một vai trò có thể chạy trên một máy tính khác của bạn: trưởng nhóm lên kế hoạch trên máy Mac trong khi một vai trò Windows làm việc trên máy PC, trên cùng một bảng tác vụ.',
+        steps: [
+          'Trên máy tính sẽ chạy vai trò, cấp cho máy này quyền **Chạy** trong **Các máy**.',
+          'Trong mẫu, thêm `"machine": "DESKTOP-PC"` cho vai trò (tên một máy đã ghép đôi, hoặc `os:windows` cho một máy Windows bất kỳ), hoặc chọn **Máy tính** của nó khi bắt đầu nhóm.',
+          'Bắt đầu nhóm. Vai trò khởi chạy trên máy đó khi có việc.',
+        ],
+        points: [
+          'Ở đó nó làm việc trong một worktree riêng, với mã nguồn của dự án này. Bản sao của bạn ở đó không bị động đến.',
+          'Các tác vụ của nó nằm trên bảng này. Khi xong một tác vụ, kết quả của nó quay về đây thành nhánh `mother-claude/<computer>/<team>/<role>`, được ghi trên tác vụ; trưởng nhóm xem xét rồi gộp nhánh đó.',
+          'Ô của nó ghi **trên DESKTOP-PC**, kèm lý do nó phải chờ hoặc không khởi chạy được. Trang Công suất của máy kia tính phiên này, không phải trang của máy này.',
+          'Nó không nhắn được cho trưởng nhóm bằng SendMessage: nó ghi lên tác vụ của mình, và Mother Claude báo cho trưởng nhóm.',
+          'Máy kia liệt kê nó trong **Các máy › Các lần chạy › Vai trò trong nhóm**, nơi **Dừng** và **Gỡ bỏ** tác động lên nó ở đó.',
+        ],
+        links: [{ label: 'Xem “Giao tác vụ cho máy tính khác”', path: '/help/machines-task' }],
       },
       {
         heading: 'Dùng phiên bắt đầu ở nơi khác làm một vai trò',
