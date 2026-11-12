@@ -382,6 +382,14 @@ pub struct PeerRecord {
     /// The shell a run uses there, as it last said (Phase 4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shell: Option<String>,
+    /// The computers it is paired with (their ids), as its last hello said
+    /// (plan §5.12: what an introduction is offered for).
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub paired_with: Vec<String>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
 }

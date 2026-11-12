@@ -34,7 +34,7 @@ use super::grants::{Grant, Grants};
 use super::protocol::Hello;
 use super::store::RelaySetting;
 use super::transport::{self, PathKind};
-use super::{pairing, revocation, roots, setup};
+use super::{intro, pairing, revocation, roots, setup};
 use crate::server::auth::{Authed, DesktopOnly, ManageData};
 use crate::server::context::{ClientContext, Ingress, PeerCaller, Principal};
 use crate::server::error::{ApiError, ApiResult};
@@ -59,6 +59,10 @@ pub fn api_router() -> Router<AppState> {
         .route("/machines/settings", get(get_settings).put(put_settings))
         .route("/machines/settings/offer", post(answer_offer))
         .route("/machines/enable", post(enable))
+        // Three computers and more (Phase 5): introductions, revoke
+        // everywhere.
+        .route("/machines/introduce", post(introduce))
+        .route("/machines/introductions/{id}", post(answer_introduction))
         .route("/machines/{id}/revoke-everywhere", post(revoke_everywhere))
         .route("/machines/{id}", patch(update_peer).delete(revoke_peer))
         .route(
@@ -88,6 +92,9 @@ pub fn peer_router() -> Router<AppState> {
         .route("/peer/pair/confirm", post(peer_pair_confirm))
         .route("/peer/pair/status", get(peer_pair_status))
         .route("/peer/pair/cancel", post(peer_pair_cancel))
+        .route(intro::DECLINE_PATH, post(peer_intro_decline))
+        .route(intro::OFFER_PATH, post(peer_intro))
+        .route(intro::WITHDRAW_PATH, post(peer_intro_withdraw))
         .route(revocation::PEER_PATH, post(peer_revoke))
         .route("/peer/setup", get(peer_setup))
         .route("/peer/setup/ask", post(peer_setup_ask))
@@ -614,6 +621,49 @@ async fn revoke_everywhere(
     view_json(&state).await
 }
 
+#[derive(Deserialize)]
+struct IntroduceBody {
+    /// The computer introduced (it dials)…
+    machine: String,
+    /// …to this one (it waits).
+    with: String,
+}
+
+/// Introduces two paired computers to each other: each shows it, and pairs
+/// only when both desktops accept and confirm the six digits (`intro`).
+async fn introduce(
+    DesktopOnly(_): DesktopOnly,
+    State(state): State<AppState>,
+    Body(req): Body<IntroduceBody>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(
+        intro::introduce(&state, &req.machine, &req.with).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+struct IntroAnswer {
+    accept: bool,
+}
+
+/// This desktop accepts an introduction (its side of the pairing starts)
+/// or declines it (the other computer is told); answers the view.
+async fn answer_introduction(
+    DesktopOnly(_): DesktopOnly,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(req): Body<IntroAnswer>,
+) -> ApiResult<Json<Value>> {
+    if !intro::is_intro_id(&id) {
+        return Err(ApiError::not_found(
+            "intro_unknown",
+            "No such introduction here.",
+        ));
+    }
+    intro::answer(&state, &id, req.accept).await?;
+    view_json(&state).await
+}
+
 // ─── driving another machine through this one ───────────────────────────────────
 
 /// `/api/machines/{id}/proxy/<path>`: forwards a dashboard call to the paired
@@ -925,6 +975,44 @@ async fn peer_hello(
         tokio::spawn(async move { revocation::deliver_to(&st, &machine).await });
     }
     Ok(Json(serde_json::to_value(reply).unwrap_or(Value::Null)))
+}
+
+/// A paired computer introduces another one (its `view` grant): kept for
+/// this desktop to answer, nothing paired (`intro`).
+async fn peer_intro(
+    ctx: ClientContext,
+    State(state): State<AppState>,
+    Json(offer): Json<intro::Offer>,
+) -> ApiResult<Json<Value>> {
+    let machine = granted(&state, &ctx, Grant::View)?;
+    Ok(Json(intro::receive(&state, &machine, offer)?))
+}
+
+#[derive(Deserialize)]
+struct IntroId {
+    id: String,
+}
+
+/// The introducer takes an introduction back (the other side was not
+/// reached).
+async fn peer_intro_withdraw(
+    ctx: ClientContext,
+    State(state): State<AppState>,
+    Json(req): Json<IntroId>,
+) -> ApiResult<Json<Value>> {
+    let (machine, _) = paired(&ctx)?;
+    Ok(Json(intro::withdraw(&state, &machine, &req.id)?))
+}
+
+/// The other introduced computer declined (its key, while the introduction
+/// is open here: the two are not paired).
+async fn peer_intro_decline(
+    State(state): State<AppState>,
+    caller: Option<Extension<PeerCaller>>,
+    Json(req): Json<IntroId>,
+) -> ApiResult<Json<Value>> {
+    let caller = caller_of(caller)?;
+    Ok(Json(intro::declined_by(&state, &caller.key, &req.id)?))
 }
 
 /// A paired computer asks this one to revoke a third (*Revoke

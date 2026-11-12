@@ -25,6 +25,13 @@
 //! internet (not a direct path on the local network), the host must type
 //! the digits the joiner shows instead of tapping, as phone pairing does.
 //! Only when both confirmed does each store the other.
+//!
+//! **An introduced pairing** (`intro`, plan §5.12) runs the same exchange
+//! without a code: a paired computer told both whom to dial, so the joiner
+//! dials the host by the key the introduction names and the host admits
+//! that key alone; `join` names the introduction instead of proving a code,
+//! and the six digits are computed from the introduction (its introducer
+//! and id) in the code's place, with both keys and both nonces.
 
 use std::time::Duration;
 
@@ -258,6 +265,12 @@ pub struct Session {
     pub commit: Option<String>,
     /// Host: the rendezvous endpoint (closed when the session ends).
     pub rendezvous: Option<Endpoint>,
+    /// An introduced pairing: who introduced the other computer, and which
+    /// one it is (`None`: a pairing by code).
+    pub intro: Option<super::intro::Ticket>,
+    /// Joiner of an introduced pairing: the other computer has not accepted
+    /// the introduction yet.
+    pub waiting_accept: bool,
 }
 
 impl Session {
@@ -281,6 +294,17 @@ impl Session {
             nonce: nonce(),
             commit: None,
             rendezvous: None,
+            intro: None,
+            waiting_accept: false,
+        }
+    }
+
+    /// What the six digits are computed from besides the keys and nonces:
+    /// the code, or for an introduced pairing the introduction.
+    fn seed(&self) -> String {
+        match &self.intro {
+            Some(t) => t.seed(),
+            None => self.code.clone(),
         }
     }
 
@@ -303,8 +327,9 @@ impl Session {
 
     /// The wire view (`MachinesView.pairing`).
     pub fn view(&self) -> Value {
-        let show_code =
-            self.role == Role::Host && matches!(self.phase, Phase::Starting | Phase::Waiting);
+        let show_code = self.role == Role::Host
+            && self.intro.is_none()
+            && matches!(self.phase, Phase::Starting | Phase::Waiting);
         json!({
             "role": self.role,
             "state": self.phase,
@@ -324,6 +349,9 @@ impl Session {
             "otherConfirmed": self.other_confirmed,
             "error": self.error,
             "peerId": self.peer_id,
+            // An introduced pairing: by whom, and with which computer.
+            "intro": self.intro.as_ref().map(super::intro::Ticket::view),
+            "waitingAccept": self.waiting_accept,
         })
     }
 }
@@ -552,13 +580,19 @@ async fn answer_find(
     Ok(())
 }
 
-/// `POST /peer/pair/join` on the host, from the key the rendezvous saw.
+/// `POST /peer/pair/join` on the host, from the key the rendezvous saw (or
+/// the key an introduction named: then `intro` names it and there is no
+/// code to prove).
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JoinRequest {
+    #[serde(default)]
     proof: String,
     commit: String,
     machine: MachineInfo,
+    /// The introduction this joiner comes for (an introduced pairing).
+    #[serde(default)]
+    intro: Option<String>,
 }
 
 pub fn host_join(
@@ -578,19 +612,43 @@ pub fn host_join(
         .pairing
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let Some(s) = guard.as_mut().filter(|s| s.role == Role::Host) else {
-        return Err(pair_gone());
+    // The session this join is for: a pairing by code, or the one of the
+    // introduction it names.
+    let Some(s) = guard.as_mut().filter(|s| {
+        s.role == Role::Host
+            && s.intro.as_ref().map(|t| t.id.as_str()) == req.intro.as_deref()
+            && (s.intro.is_none() || !s.is_over())
+    }) else {
+        drop(guard);
+        return Err(match req.intro.as_deref() {
+            Some(id) => super::intro::join_refused(state, id, caller_key),
+            None => pair_gone(),
+        });
     };
     if s.phase != Phase::Waiting || now() > s.expires_at {
         return Err(pair_gone());
     }
-    if s.finder.as_deref() != Some(caller_key)
-        || !ct_eq(&req.proof, &join_proof(&s.code, &host_key, caller_key))
-    {
-        return Err(ApiError::forbidden(
-            "pair_code_wrong",
-            "That code doesn't match.",
-        ));
+    let proven = match &s.intro {
+        // The key the introduction named, and the computer it named.
+        Some(t) => {
+            s.finder.as_deref() == Some(caller_key)
+                && t.other.key == caller_key
+                && t.other.id == req.machine.id
+        }
+        None => {
+            s.finder.as_deref() == Some(caller_key)
+                && ct_eq(&req.proof, &join_proof(&s.code, &host_key, caller_key))
+        }
+    };
+    if !proven {
+        return Err(if s.intro.is_some() {
+            ApiError::forbidden(
+                "intro_wrong_computer",
+                "That is not the computer the introduction named.",
+            )
+        } else {
+            ApiError::forbidden("pair_code_wrong", "That code doesn't match.")
+        });
     }
     if req.commit.len() != 64 {
         return Err(bad_request("The other computer sent a malformed request."));
@@ -654,7 +712,7 @@ pub fn host_reveal(
             "Nothing was paired.",
         ));
     }
-    s.digits = Some(digits(&s.code, &host_key, caller_key, &s.nonce, &theirs));
+    s.digits = Some(digits(&s.seed(), &host_key, caller_key, &s.nonce, &theirs));
     // Over the internet the host types the digits the joiner shows.
     s.must_type = s.other.as_ref().is_some_and(|o| o.path != PathKind::Lan);
     s.phase = Phase::Confirm;
@@ -793,8 +851,25 @@ fn finish_host(state: &AppState, s: &mut Session) -> Result<(), ApiError> {
     s.phase = Phase::Paired;
     s.peer_id = Some(other.info.id.clone());
     s.close_rendezvous();
-    super::audit(state, "machine.paired", &other.info.id, &other.info.name);
+    paired_audit(state, &other.info, s.intro.as_ref());
     Ok(())
+}
+
+/// The audit line of a pairing, naming the introducer of an introduced one;
+/// its introduction is done.
+fn paired_audit(state: &AppState, info: &MachineInfo, intro: Option<&super::intro::Ticket>) {
+    let Some(t) = intro else {
+        super::audit(state, "machine.paired", &info.id, &info.name);
+        return;
+    };
+    super::audit_detail(
+        state,
+        "machine.paired",
+        &info.id,
+        &info.name,
+        json!({ "intro": t.id, "introducedBy": t.from, "introducedByName": t.from_name }),
+    );
+    super::intro::finished(state, &t.id);
 }
 
 /// `POST /api/machines/confirm` (either side).
@@ -1247,29 +1322,36 @@ fn apply_host_status(state: &AppState, generation: u64, v: &Value) {
             let host_grants: Option<Grants> = v
                 .get("grants")
                 .and_then(|g| serde_json::from_value(g.clone()).ok());
-            let finished = with_session(
-                state,
-                generation,
-                |s| -> Option<(MachineInfo, Grants, Option<Grants>)> {
-                    if s.phase == Phase::Paired {
-                        return None;
-                    }
-                    let other = s.other.clone()?;
-                    s.other_confirmed = true;
-                    s.other_grants = host_grants;
-                    s.phase = Phase::Paired;
-                    s.peer_id = Some(other.info.id.clone());
-                    Some((other.info, s.grants.unwrap_or_default(), host_grants))
-                },
-            )
+            type Finished = (
+                MachineInfo,
+                Grants,
+                Option<Grants>,
+                Option<super::intro::Ticket>,
+            );
+            let finished = with_session(state, generation, |s| -> Option<Finished> {
+                if s.phase == Phase::Paired {
+                    return None;
+                }
+                let other = s.other.clone()?;
+                s.other_confirmed = true;
+                s.other_grants = host_grants;
+                s.phase = Phase::Paired;
+                s.peer_id = Some(other.info.id.clone());
+                Some((
+                    other.info,
+                    s.grants.unwrap_or_default(),
+                    host_grants,
+                    s.intro.clone(),
+                ))
+            })
             .flatten();
-            if let Some((info, grants, their)) = finished {
+            if let Some((info, grants, their, intro)) = finished {
                 if let Err(e) = super::add_peer(state, &info, grants, their) {
                     with_session(state, generation, |s| {
                         s.fail(PairError::new("pair_failed", e.to_string()))
                     });
                 } else {
-                    super::audit(state, "machine.paired", &info.id, &info.name);
+                    paired_audit(state, &info, intro.as_ref());
                 }
             }
             publish(state);
@@ -1286,6 +1368,253 @@ fn apply_host_status(state: &AppState, generation: u64, v: &Value) {
             publish(state);
         }
         _ => {}
+    }
+}
+
+// ─── introduced pairings (plan §5.12) ─────────────────────────────────────────
+
+/// This desktop accepted an introduction as its host: it waits for the
+/// introduced computer — that key alone — to join (replacing any pairing in
+/// progress), until the confirmation window ends.
+pub async fn start_intro_host(
+    state: &AppState,
+    ticket: super::intro::Ticket,
+) -> Result<(), ApiError> {
+    super::identity(state).map_err(ApiError::internal)?;
+    transport::ensure_started(state)
+        .await
+        .map_err(unavailable)?;
+    end_current(
+        state,
+        Some(PairError::new("pair_replaced", "A new pairing started.")),
+    );
+    let generation = next_generation(state);
+    {
+        let mut s = Session::new(Role::Host, String::new(), generation);
+        s.phase = Phase::Waiting;
+        s.finder = Some(ticket.other.key.clone());
+        s.expires_at = now() + CONFIRM_TTL_MS;
+        s.intro = Some(ticket);
+        *state
+            .machines
+            .pairing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(s);
+    }
+    publish(state);
+    let st = state.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(CONFIRM_TTL_MS as u64)).await;
+        let stale = with_session(&st, generation, |s| {
+            if s.is_over() {
+                return false;
+            }
+            s.fail(PairError::new(
+                "pair_timed_out",
+                "The pairing was not confirmed in time. Ask for the introduction again.",
+            ));
+            true
+        });
+        if stale == Some(true) {
+            publish(&st);
+        }
+    });
+    Ok(())
+}
+
+/// This desktop accepted an introduction as its joiner: it dials the host
+/// by the key the introduction names, and joins once the host accepted too.
+pub async fn start_intro_joiner(
+    state: &AppState,
+    ticket: super::intro::Ticket,
+) -> Result<(), ApiError> {
+    let ident = super::identity(state).map_err(ApiError::internal)?;
+    transport::ensure_started(state)
+        .await
+        .map_err(unavailable)?;
+    end_current(
+        state,
+        Some(PairError::new("pair_replaced", "A new pairing started.")),
+    );
+    let generation = next_generation(state);
+    {
+        let mut s = Session::new(Role::Joiner, String::new(), generation);
+        s.phase = Phase::Joining;
+        s.expires_at = now() + CONFIRM_TTL_MS;
+        s.intro = Some(ticket.clone());
+        *state
+            .machines
+            .pairing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(s);
+    }
+    publish(state);
+    let st = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = intro_join_run(&st, generation, &ticket, &ident.key_hex()).await {
+            with_session(&st, generation, |s| {
+                if !s.is_over() {
+                    s.fail(e)
+                }
+            });
+            publish(&st);
+        }
+    });
+    Ok(())
+}
+
+/// How often the joiner tries again while the host has not accepted yet.
+const INTRO_RETRY: Duration = Duration::from_secs(2);
+
+/// The joiner's half of an introduced pairing: `join` (naming the
+/// introduction, committing to its nonce) until the host accepted, then the
+/// reveal and the six digits — as a pairing by code from its step 2.
+async fn intro_join_run(
+    state: &AppState,
+    generation: u64,
+    ticket: &super::intro::Ticket,
+    my_key: &str,
+) -> Result<(), PairError> {
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(CONFIRM_TTL_MS as u64);
+    let cancelled = || PairError::new("pair_cancelled", "You cancelled.");
+    let addr = super::intro::addr_of(state, &ticket.other)
+        .map_err(|e| PairError::new("pair_failed", e))?;
+    let my_nonce = with_session(state, generation, |s| s.nonce).ok_or_else(cancelled)?;
+    let me = super::machine_info(state);
+    let join = json!({
+        "intro": ticket.id,
+        "commit": commitment(&my_nonce),
+        "machine": me,
+    });
+    let mut conn: Option<Connection> = None;
+    let (host_conn, reply) = loop {
+        if tokio::time::Instant::now() > deadline {
+            return Err(PairError::new(
+                "pair_timed_out",
+                format!("{} did not answer in time.", ticket.other.name),
+            ));
+        }
+        if with_session(state, generation, |s| !s.is_over()) != Some(true) {
+            return Err(cancelled());
+        }
+        let live = match conn.take().filter(|c| c.close_reason().is_none()) {
+            Some(c) => c,
+            None => match transport::dial(state, addr.clone(), ALPN_PEER).await {
+                Ok(c) => c,
+                Err(_) => {
+                    tokio::time::sleep(INTRO_RETRY).await;
+                    continue;
+                }
+            },
+        };
+        let answer = transport::request_on(
+            &live,
+            "POST",
+            "/peer/pair/join",
+            Some(join.clone()),
+            Duration::from_secs(15),
+        )
+        .await;
+        match answer {
+            Ok((200, v)) => break (live, v),
+            Ok((409, v)) if v.pointer("/error/code") == Some(&json!("intro_waiting")) => {
+                let first = with_session(state, generation, |s| {
+                    !std::mem::replace(&mut s.waiting_accept, true)
+                })
+                .ok_or_else(cancelled)?;
+                if first {
+                    publish(state);
+                }
+                conn = Some(live);
+                tokio::time::sleep(INTRO_RETRY).await;
+            }
+            Ok((409, v)) if v.pointer("/error/code") == Some(&json!("intro_declined")) => {
+                return Err(PairError::new(
+                    "pair_declined",
+                    format!("{} declined.", ticket.other.name),
+                ));
+            }
+            Ok(other) => {
+                return Err(expect_ok(other).err().unwrap_or_else(|| {
+                    PairError::new("pair_failed", "The other computer refused the pairing.")
+                }))
+            }
+            Err(_) => {
+                tokio::time::sleep(INTRO_RETRY).await;
+            }
+        }
+    };
+    // The host must be the computer the introduction named.
+    let host_info: MachineInfo = reply
+        .get("machine")
+        .and_then(|m| serde_json::from_value(m.clone()).ok())
+        .filter(|m: &MachineInfo| m.key == ticket.other.key && m.id == ticket.other.id)
+        .ok_or_else(|| {
+            PairError::new("pair_failed", "The other computer answered inconsistently.")
+        })?;
+    let their_nonce = reply
+        .get("nonce")
+        .and_then(Value::as_str)
+        .and_then(unhex32)
+        .ok_or_else(|| {
+            PairError::new("pair_failed", "The other computer answered inconsistently.")
+        })?;
+    let path = transport::path_of(&host_conn);
+    with_session(state, generation, |s| {
+        s.waiting_accept = false;
+        s.other = Some(OtherSide {
+            info: host_info,
+            path,
+        });
+    })
+    .ok_or_else(cancelled)?;
+    publish(state);
+    expect_ok(
+        transport::request_on(
+            &host_conn,
+            "POST",
+            "/peer/pair/reveal",
+            Some(json!({ "nonce": hex(&my_nonce) })),
+            Duration::from_secs(15),
+        )
+        .await
+        .map_err(|e| PairError::new("pair_failed", e))?,
+    )?;
+    let shown = digits(
+        &ticket.seed(),
+        &ticket.other.key,
+        my_key,
+        &their_nonce,
+        &my_nonce,
+    );
+    with_session(state, generation, |s| {
+        s.digits = Some(shown);
+        s.phase = Phase::Confirm;
+    })
+    .ok_or_else(cancelled)?;
+    publish(state);
+    Ok(())
+}
+
+/// The introduction `id` closed (declined, withdrawn): its pairing, when
+/// one runs and has not finished, ends with `why`.
+pub fn end_intro(state: &AppState, id: &str, code: &'static str, why: &str) {
+    let ended = {
+        let mut guard = state
+            .machines
+            .pairing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        match guard.as_mut() {
+            Some(s) if !s.is_over() && s.intro.as_ref().is_some_and(|t| t.id == id) => {
+                s.fail(PairError::new(code, why));
+                true
+            }
+            _ => false,
+        }
+    };
+    if ended {
+        publish(state);
     }
 }
 
@@ -1308,6 +1637,7 @@ pub fn peer_record(info: &MachineInfo, grants: Grants, their: Option<Grants>) ->
         addrs: Vec::new(),
         relay_url: None,
         shell: info.shell.clone(),
+        paired_with: Vec::new(),
         extra: Default::default(),
     }
 }
