@@ -133,6 +133,30 @@ describe('MachinesComponent: Recent moves', () => {
     );
   });
 
+  it('lists what a move says is worth knowing under it', async () => {
+    backend.routes.set('/moves', () => ({
+      status: 200,
+      body: {
+        moves: [
+          movedTo('resumed', {
+            undoUntil: Date.now() + 86_400_000,
+            warnings: [
+              {
+                code: 'ignored_replaced',
+                message: 'DESKTOP-PC had its own .env.local: kept for Undo move.',
+              },
+            ],
+          }),
+        ],
+      },
+    }));
+    const el = await render();
+    const [card] = cards(el);
+    expect([...card.querySelectorAll('.warns li')].map((li) => text(li))).toEqual([
+      'DESKTOP-PC had its own .env.local: kept for Undo move.',
+    ]);
+  });
+
   it('shows nothing while there was no move', async () => {
     backend.routes.set('/moves', () => ({ status: 200, body: { moves: [] } }));
     const el = await render();

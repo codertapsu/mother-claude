@@ -292,6 +292,13 @@ started there. *Cancel the move* works until it is being placed there;
 does meanwhile, its composer waiting. A connection that drops for a moment
 while it sends picks up where it stopped.
 
+What is worth knowing about the move is listed under its steps, in *Recent
+moves* and (as a count that opens the steps) on the session's line while it
+moves: a file git ignores that the other computer had of its own and kept
+for *Undo move*, turns it had taken there kept beside the conversation, the
+checks' warnings (*Claude Code there is older*…) and the code's (Git LFS,
+submodules, names Windows can't hold, executable bits Windows drops).
+
 The first message the session gets there tells Claude it moved: from which
 computer and folder to which, that paths in earlier messages are the old
 computer's, which shell it has now, and the recipe when you asked for it.

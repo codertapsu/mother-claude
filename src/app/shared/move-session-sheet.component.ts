@@ -41,6 +41,7 @@ import {
   checkText,
   moveErrorText,
   moveSummary,
+  moveWarnings,
   offerLabel,
   passedChecks,
 } from '../core/moves-text';
@@ -122,6 +123,16 @@ function untilText(ms: number): string {
             >
               {{ retryable() ? summary() : nowText() }}
             </p>
+          }
+          @if (warnings().length) {
+            <ul class="checks warns" [attr.aria-label]="'Worth knowing' | t">
+              @for (w of warnings(); track $index) {
+                <li class="warning">
+                  <mc-icon name="alert" [size]="15" />
+                  <span class="cbody">{{ w }}</span>
+                </li>
+              }
+            </ul>
           }
           @if (error()) {
             <p class="notice error small" role="alert">{{ error() }}</p>
@@ -734,6 +745,9 @@ function untilText(ms: number): string {
       .outcome {
         margin-top: 0.9rem;
       }
+      .warns {
+        margin-top: 0.6rem;
+      }
       .actions {
         margin-top: 0.9rem;
       }
@@ -1054,6 +1068,12 @@ export class MoveSessionSheetComponent {
   protected readonly nowText = computed(() => {
     const e = this.entry();
     return e ? activeText(e.move, this.words()) : '';
+  });
+  /** What the move's record says is worth knowing (the target's own files
+   * kept for *Undo move*, the code's warnings…). */
+  protected readonly warnings = computed(() => {
+    const e = this.entry();
+    return e ? moveWarnings(e.move) : [];
   });
   protected readonly cancellable = computed(() => {
     const e = this.entry();

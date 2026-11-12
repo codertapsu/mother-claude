@@ -1669,6 +1669,7 @@ const TOPICS: HelpTopicSource[] = [
           "**Cancel the move** works until it is being placed there. **Close (it goes on)** leaves it running; the session's page says what it does meanwhile.",
           'A connection that drops for a moment while it sends picks up where it stopped.',
           "The first message the session gets there tells Claude it moved: from which computer and folder to which, that paths in earlier messages are the old computer's, and which shell it has now. The conversation itself is never rewritten.",
+          "What is worth knowing is listed under the steps and in **Recent moves**: a file of its own the other computer had, kept for **Undo move**, the checks' warnings and the code's (Git LFS, submodules, executable bits Windows drops…).",
         ],
       },
       {

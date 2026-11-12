@@ -19,6 +19,7 @@ import {
   moveSummary,
   moveTitle,
   moveTone,
+  moveWarnings,
 } from '../core/moves-text';
 import { MoveEntry, MovesService } from '../core/moves.service';
 import { NowService } from '../core/now.service';
@@ -67,6 +68,15 @@ function dateTime(ms: number): string {
       </div>
     }
     <p class="small sum" [class.error-text]="m.state === 'failed'">{{ summary() }}</p>
+    @if (warnings().length) {
+      <ul class="warns small" [attr.aria-label]="'Worth knowing' | t">
+        @for (w of warnings(); track $index) {
+          <li>
+            <mc-icon name="alert" [size]="13" /><span>{{ w }}</span>
+          </li>
+        }
+      </ul>
+    }
     @if (cancellable() || retryable() || openLink() || undoable()) {
       <div class="acts">
         @if (cancellable()) {
@@ -173,6 +183,25 @@ function dateTime(ms: number): string {
         margin: 0;
         overflow-wrap: anywhere;
       }
+      .warns {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+      }
+      .warns li {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.35rem;
+        overflow-wrap: anywhere;
+      }
+      .warns mc-icon {
+        flex: 0 0 auto;
+        margin-top: 0.15rem;
+        color: var(--amber);
+      }
       .acts {
         display: flex;
         align-items: center;
@@ -209,6 +238,8 @@ export class MoveCardComponent {
   protected readonly running = computed(() => !moveFinal(this.entry().move));
   protected readonly pct = computed(() => Math.round(moveFraction(this.entry().move) * 100));
   protected readonly summary = computed(() => moveSummary(this.entry().move, this.words));
+  /** What its record says is worth knowing. */
+  protected readonly warnings = computed(() => moveWarnings(this.entry().move));
   protected readonly cancellable = computed(() => canCancel(this.entry().move));
   protected readonly retryable = computed(() => canRetry(this.entry().move));
   protected readonly undoable = computed(() => canUndo(this.entry().move, this.clock.now()));

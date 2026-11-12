@@ -468,6 +468,30 @@ describe('MoveSessionSheetComponent (Continue on another computer)', () => {
       expect(text(el.querySelector('.until'))).toMatch(/^Possible until .+\.$/);
     });
 
+    it('shows what its record says is worth knowing, as it lands and once it ended', async () => {
+      const el = await startIt();
+      const warns = () => [...el.querySelectorAll('.warns li')].map((li) => text(li));
+      frame(movedTo('sending'));
+      expect(el.querySelector('.warns')).toBeNull();
+      const landed = {
+        warnings: [
+          {
+            code: 'ignored_replaced',
+            message: 'DESKTOP-PC had its own .env.local: kept for Undo move.',
+          },
+        ],
+        code: { ...movedTo('landed').code!, warnings: ['untracked-exec'] },
+      };
+      frame(movedTo('landed', landed));
+      expect(warns()).toEqual([
+        'DESKTOP-PC had its own .env.local: kept for Undo move.',
+        'New executable files lose their executable bit on Windows: stage them.',
+      ]);
+      frame(movedTo('resumed', { ...landed, undoUntil: Date.now() + 86_400_000 }));
+      expect(warns().length).toBe(2);
+      expect(el.querySelector('.warns')?.getAttribute('aria-label')).toBe('Worth knowing');
+    });
+
     it('cancels until it is being placed', async () => {
       backend.routes.set(`/moves/${MOVE_ID}/cancel`, () => ({
         status: 200,

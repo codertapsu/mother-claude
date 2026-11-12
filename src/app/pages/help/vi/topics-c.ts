@@ -561,6 +561,7 @@ const TOPICS: HelpTopicSource[] = [
           '**Hủy việc chuyển** dùng được cho đến khi phiên bắt đầu được đặt lên máy kia. **Đóng (vẫn tiếp tục chạy)** để việc chuyển tiếp tục; trang của phiên cho biết nó đang làm gì trong lúc đó.',
           'Kết nối bị rớt trong chốc lát khi đang gửi sẽ tiếp tục từ chỗ đã dừng.',
           'Tin nhắn đầu tiên phiên nhận ở máy kia cho Claude biết nó đã được chuyển: từ máy và thư mục nào sang đâu, rằng đường dẫn trong các tin nhắn trước là của máy cũ, và giờ nó dùng shell nào. Bản thân cuộc trò chuyện không bao giờ bị viết lại.',
+          'Những điều cần biết được liệt kê dưới các bước và trong **Các lần chuyển gần đây**: một tệp riêng mà máy kia đã có, được giữ lại để **Hoàn tác việc chuyển**, các cảnh báo của phần kiểm tra và của mã nguồn (Git LFS, submodule, quyền thực thi mà Windows làm mất…).',
         ],
       },
       {

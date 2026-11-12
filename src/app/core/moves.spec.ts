@@ -6,7 +6,7 @@ import { hostOsSignal, useLanguage } from './i18n/i18n';
 import { MachinesService } from './machines.service';
 import { FakeBackend, useFakeServer } from './mock/fake-server.testing';
 import { setActiveMock } from './mock/mock-api';
-import { MOVE_ID, movedTo, moveRecord, PEER_ID, SELF_ID } from './mock/moves.testing';
+import { MOVE_ID, moveCheck, movedTo, moveRecord, PEER_ID, SELF_ID } from './mock/moves.testing';
 import { pairedMachines } from './mock/remote.testing';
 import {
   canCancel,
@@ -16,7 +16,14 @@ import {
   normalizeMoves,
   sessionInTurn,
 } from './moves';
-import { failureText, moveErrorText, moveSummary, moveText, progressLines } from './moves-text';
+import {
+  failureText,
+  moveErrorText,
+  moveSummary,
+  moveText,
+  moveWarnings,
+  progressLines,
+} from './moves-text';
 import { MovesService } from './moves.service';
 import { NoticeService } from './notice.service';
 
@@ -109,6 +116,30 @@ describe('moves: the words', () => {
     );
     // Not one of its patterns: as it came.
     expect(moveText('Something new the server says.')).toBe('Something new the server says.');
+  });
+
+  it('lists what a record says is worth knowing, once each, in the language shown', async () => {
+    const m = movedTo('resumed', {
+      warnings: [
+        moveCheck('ignored_replaced', 'DESKTOP-PC had its own .env.local: kept for Undo move.'),
+        moveCheck('claude_older', 'Claude Code on DESKTOP-PC is older (2.1.300, here 2.1.330).'),
+        moveCheck('ignored_replaced', 'DESKTOP-PC had its own .env.local: kept for Undo move.'),
+      ],
+      code: { ...moveRecord().code!, warnings: ['lfs', 'something-newer'] },
+    });
+    expect(moveWarnings(m)).toEqual([
+      'DESKTOP-PC had its own .env.local: kept for Undo move.',
+      'Claude Code on DESKTOP-PC is older (2.1.300, here 2.1.330).',
+      'The project uses Git LFS: its large files come from the remote, not with the move.',
+    ]);
+    expect(moveWarnings(moveRecord())).toEqual([]);
+    await useLanguage('vi');
+    expect(moveWarnings(m)[0]).toBe(
+      'DESKTOP-PC đã có .env.local của riêng nó: được giữ lại để Hoàn tác việc chuyển.',
+    );
+    expect(moveWarnings(m)[2]).toBe(
+      'Dự án dùng Git LFS: các tệp lớn được lấy từ remote, không đi kèm việc chuyển.',
+    );
   });
 
   it('words a failure that came from the other computer with its name', () => {

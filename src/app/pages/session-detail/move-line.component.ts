@@ -8,11 +8,13 @@ import {
   untracked,
 } from '@angular/core';
 
+import { plural } from '../../core/data-jobs';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { MachineContext } from '../../core/machine-context';
 import { canCancel, canRetry, sessionInTurn } from '../../core/moves';
-import { activeText, moveErrorText, moveSummary } from '../../core/moves-text';
+import { activeText, moveErrorText, moveSummary, moveWarnings } from '../../core/moves-text';
 import { MoveEntry, MovesService } from '../../core/moves.service';
+import { IconComponent } from '../../shared/icon.component';
 import { MoveSessionSheetComponent } from '../../shared/move-session-sheet.component';
 import { SessionContext } from './session-context';
 
@@ -27,7 +29,7 @@ import { SessionContext } from './session-context';
 @Component({
   selector: 'mc-move-line',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MoveSessionSheetComponent, TPipe],
+  imports: [IconComponent, MoveSessionSheetComponent, TPipe],
   template: `
     @if (entry(); as e) {
       <div class="pend" role="status" [class.warn]="retryable()">
@@ -35,6 +37,16 @@ import { SessionContext } from './session-context';
           <span class="spin" aria-hidden="true"></span>
         }
         <span class="txt">{{ text() }}</span>
+        @if (warnings()) {
+          <button
+            class="btn ghost small warns"
+            type="button"
+            [title]="'Details' | t"
+            (click)="details()"
+          >
+            <mc-icon name="alert" [size]="13" /> {{ warnings() }}
+          </button>
+        }
         <button class="btn ghost small" type="button" (click)="details()">
           {{ 'Details' | t }}
         </button>
@@ -98,6 +110,9 @@ import { SessionContext } from './session-context';
         border-radius: 50%;
         animation: mc-spin 0.8s linear infinite;
       }
+      .warns {
+        color: var(--amber);
+      }
       .err {
         max-width: 960px;
         margin: 0 auto 0.35rem;
@@ -134,6 +149,13 @@ export class MoveLineComponent {
     if (!e) return '';
     const words = this.moves.words(sessionInTurn(this.ctx.session()));
     return this.retryable() ? moveSummary(e.move, words) : activeText(e.move, words);
+  });
+  /** "2 warnings" when its record has some ('' for none): *Details* shows
+   * them. */
+  protected readonly warnings = computed(() => {
+    const e = this.entry();
+    const n = e ? moveWarnings(e.move).length : 0;
+    return n ? plural(n, 'warning') : '';
   });
 
   constructor() {

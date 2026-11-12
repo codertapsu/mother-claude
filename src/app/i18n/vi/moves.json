@@ -278,5 +278,17 @@
   "The files git ignores can't be put back there: {error}": "Không thể đưa các tệp git bỏ qua về như cũ ở đó: {error}",
 
   "The remote {remote} doesn't answer from this {computer} without a prompt.": "Remote {remote} không phản hồi {computer} này mà không yêu cầu đăng nhập.",
-  "The remote {remote} doesn't answer on {name} without a prompt.": "Remote {remote} không phản hồi trên {name} mà không yêu cầu đăng nhập."
+  "The remote {remote} doesn't answer on {name} without a prompt.": "Remote {remote} không phản hồi trên {name} mà không yêu cầu đăng nhập.",
+
+  "Worth knowing": "Cần biết",
+  "Two paths differ only in case: on a disk that ignores case, one of them is lost.": "Có hai đường dẫn chỉ khác nhau ở chữ hoa/thường: trên ổ đĩa không phân biệt chữ hoa/thường, một trong hai sẽ bị mất.",
+  "Some file names are not allowed on Windows (aux.txt, a trailing dot, ?).": "Một số tên tệp không được phép trên Windows (aux.txt, dấu chấm ở cuối, ?).",
+  "Some paths are longer than Windows allows by default.": "Một số đường dẫn dài hơn mức Windows cho phép theo mặc định.",
+  "The project has submodules: their commits must exist there, and changes inside one didn't travel.": "Dự án có submodule: các commit của chúng phải có sẵn ở đó, và thay đổi bên trong submodule không được chuyển theo.",
+  "The project uses Git LFS: its large files come from the remote, not with the move.": "Dự án dùng Git LFS: các tệp lớn được lấy từ remote, không đi kèm việc chuyển.",
+  "Some files changed their executable bit without being staged: it is lost on Windows.": "Một số tệp đã đổi quyền thực thi mà chưa được stage: quyền này sẽ mất trên Windows.",
+  "New executable files lose their executable bit on Windows: stage them.": "Các tệp thực thi mới sẽ mất quyền thực thi trên Windows: hãy stage chúng.",
+  "New symbolic links become plain files on Windows without Developer Mode.": "Các liên kết tượng trưng mới sẽ thành tệp thường trên Windows nếu không bật Developer Mode.",
+  "This checkout is shallow: older commits may be missing there.": "Bản checkout này là shallow: ở đó có thể thiếu các commit cũ hơn.",
+  "Its branch had no commit yet.": "Nhánh của nó chưa có commit nào."
 }

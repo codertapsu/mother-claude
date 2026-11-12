@@ -929,6 +929,52 @@ export function moveSummary(m: MoveRecord, w: MoveWords = RECORD_WORDS): string 
   }
 }
 
+/**
+ * A snapshot's warnings by kind (`code::Warning::kind` in
+ * `src-tauri/src/machines/code/types.rs`; change both together), in words
+ * of the language shown.
+ */
+const CODE_WARNINGS: Readonly<Record<string, () => string>> = {
+  'case-collision': () =>
+    tr('Two paths differ only in case: on a disk that ignores case, one of them is lost.'),
+  'windows-names': () =>
+    tr('Some file names are not allowed on Windows (aux.txt, a trailing dot, ?).'),
+  'long-path': () => tr('Some paths are longer than Windows allows by default.'),
+  submodules: () =>
+    tr(
+      "The project has submodules: their commits must exist there, and changes inside one didn't travel.",
+    ),
+  lfs: () =>
+    tr('The project uses Git LFS: its large files come from the remote, not with the move.'),
+  'unstaged-mode-change': () =>
+    tr('Some files changed their executable bit without being staged: it is lost on Windows.'),
+  'untracked-exec': () =>
+    tr('New executable files lose their executable bit on Windows: stage them.'),
+  'untracked-symlink': () =>
+    tr('New symbolic links become plain files on Windows without Developer Mode.'),
+  'shallow-source': () => tr('This checkout is shallow: older commits may be missing there.'),
+  unborn: () => tr('Its branch had no commit yet.'),
+};
+
+/**
+ * What a move's record says is worth knowing (the record's `warnings` — a
+ * file git ignores the target had of its own and kept for *Undo move*, its
+ * own turns kept beside the conversation, the preflight's warnings — and
+ * the snapshot's code warnings), each once, in the language shown.
+ */
+export function moveWarnings(m: MoveRecord): string[] {
+  const out: string[] = [];
+  const add = (text: string) => {
+    if (text && !out.includes(text)) out.push(text);
+  };
+  for (const w of m.warnings ?? []) add(moveText(w.message));
+  for (const kind of m.code?.warnings ?? []) {
+    const words = Object.hasOwn(CODE_WARNINGS, kind) ? CODE_WARNINGS[kind] : undefined;
+    if (words) add(words());
+  }
+  return out;
+}
+
 /** What a move under way is doing now. */
 export function activeText(m: MoveRecord, w: MoveWords = RECORD_WORDS): string {
   const name = w.name(m.to);
