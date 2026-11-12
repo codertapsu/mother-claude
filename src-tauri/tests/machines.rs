@@ -965,6 +965,54 @@ async fn a_polling_dashboard_reads_another_computers_sessions() {
     );
 }
 
+/// Bulk transfers yield to the API (plan §5.3): a chunk going up and a file
+/// coming down run at the lower QUIC priority on the side that sends them;
+/// plain requests and the sessions' stream keep the default.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bulk_streams_yield_to_the_api() {
+    let lookup = MemoryLookup::new();
+    let a = machine(&lookup).await;
+    let b = machine(&lookup).await;
+    pair(&a, &b, grants(false), grants(false)).await;
+    turn_on(&[&a, &b]);
+    session_on(&b);
+    // The sessions' stream and plain requests: never lowered.
+    let mut ws = dashboard(&a).await;
+    let from = b.id();
+    frame_where(&mut ws, "B's sessions on A", |v| lists_sid(v, &from)).await;
+    let (s, v) = transport::request(
+        &a.st,
+        &b.id(),
+        "GET",
+        "/peer/roots",
+        None,
+        transport::REQUEST_TIMEOUT,
+    )
+    .await
+    .unwrap();
+    assert_eq!(s, 200, "{v}");
+    let (a0, b0) = (a.st.machines.bulk_streams(), b.st.machines.bulk_streams());
+    assert_eq!((a0, b0), (0, 0), "nothing bulk yet");
+
+    // A file coming down (the readiness test's transfer): B's answer yields.
+    let (n, _) = transport::bulk_from(&a.st, &b.id(), 1).await.unwrap();
+    assert_eq!(n, 1 << 20);
+    assert_eq!(b.st.machines.bulk_streams(), 1);
+    assert_eq!(a.st.machines.bulk_streams(), 0, "its request was no bulk");
+
+    // A chunk going up: A's request yields (whatever B answers).
+    let _ = machines::chunks::put(
+        &a.st,
+        &b.id(),
+        "/peer/moves/mv_0123456789abcdef/files/move.bundle?offset=0",
+        vec![1, 2, 3],
+        "",
+    )
+    .await;
+    assert_eq!(a.st.machines.bulk_streams(), 1);
+    assert_eq!(b.st.machines.bulk_streams(), 1, "its refusal is JSON");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_approval_is_answered_from_either_computer_and_the_first_answer_wins() {
     let lookup = MemoryLookup::new();

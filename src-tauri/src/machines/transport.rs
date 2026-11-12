@@ -73,6 +73,133 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// The largest JSON answer read from another machine.
 const MAX_ANSWER: usize = 16 * 1024 * 1024;
 
+// ─── bulk streams yield (plan §5.3) ──────────────────────────────────────────────
+
+/// The QUIC send priority of a stream that carries a big body — a file's
+/// chunk (moves, copies, code sync, runs, tasks, team roles), an artifact or
+/// a result's file, the readiness test's transfer — below the API's and the
+/// dashboard's frames' (0, every stream's default): a connection sends what
+/// those have buffered first, so a dashboard on a slow relay stays
+/// responsive while a move fills the link.
+pub const BULK_PRIORITY: i32 = -1;
+// Below the default every stream has.
+const _: () = assert!(BULK_PRIORITY < 0);
+
+/// Whether a body of `content_type` is bulk: raw bytes
+/// (`application/octet-stream`), what chunked transfers send and what their
+/// downloads answer. JSON, the WebSocket and everything else stay at the
+/// default priority.
+pub fn is_bulk_type(content_type: Option<&str>) -> bool {
+    content_type.is_some_and(|t| {
+        t.split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .eq_ignore_ascii_case("application/octet-stream")
+    })
+}
+
+/// A request's send priority from its headers: [`BULK_PRIORITY`] for a body
+/// of raw bytes (a chunk going up), else the default.
+pub fn priority_for(headers: &[(&str, String)]) -> i32 {
+    let bulk = headers
+        .iter()
+        .any(|(k, v)| k.eq_ignore_ascii_case("content-type") && is_bulk_type(Some(v)));
+    if bulk {
+        BULK_PRIORITY
+    } else {
+        0
+    }
+}
+
+/// What has a QUIC send priority (a send stream; a fake in tests).
+pub(crate) trait SetPriority {
+    /// Sets it; false when the stream is closed already.
+    fn set_send_priority(&self, priority: i32) -> bool;
+}
+
+impl SetPriority for iroh::endpoint::SendStream {
+    fn set_send_priority(&self, priority: i32) -> bool {
+        self.set_priority(priority).is_ok()
+    }
+}
+
+/// A served stream's send half whose priority follows what the answer
+/// carries: the router marks `want` bulk when it answers raw bytes, and the
+/// next write applies it (counted in `lowered`, for the tests).
+pub(crate) struct Prioritized<S> {
+    inner: S,
+    want: std::sync::Arc<std::sync::atomic::AtomicI32>,
+    applied: i32,
+    lowered: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl<S: SetPriority> Prioritized<S> {
+    pub(crate) fn new(
+        inner: S,
+        want: std::sync::Arc<std::sync::atomic::AtomicI32>,
+        lowered: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    ) -> Self {
+        Self {
+            inner,
+            want,
+            applied: 0,
+            lowered,
+        }
+    }
+
+    fn apply(&mut self) {
+        use std::sync::atomic::Ordering;
+        let want = self.want.load(Ordering::Relaxed);
+        if want != self.applied {
+            if self.inner.set_send_priority(want) && want < 0 {
+                self.lowered.fetch_add(1, Ordering::Relaxed);
+            }
+            self.applied = want;
+        }
+    }
+}
+
+impl<S: SetPriority + tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for Prioritized<S> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        this.apply();
+        std::pin::Pin::new(&mut this.inner).poll_write(cx, buf)
+    }
+
+    fn poll_write_vectored(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        this.apply();
+        std::pin::Pin::new(&mut this.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+}
+
 // ─── the endpoint ──────────────────────────────────────────────────────────────
 
 /// The endpoint, starting it if needed. (Boxed as a `Send` future: the
@@ -307,14 +434,33 @@ pub(super) async fn serve(state: AppState, conn: Connection) {
             };
             let remote = ConnectInfo(remote_addr(&conn));
             let app = state.machines.peer_app(&state);
+            let lowered = state.machines.bulk_streams.clone();
             drop(state);
-            let svc =
-                app.map_request(move |mut req: axum::http::Request<hyper::body::Incoming>| {
+            // An answer of raw bytes (a file's chunk, the readiness test's
+            // transfer) goes at the bulk priority; everything else at the
+            // default (plan §5.3).
+            let want = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
+            let mark = want.clone();
+            let svc = app
+                .map_request(move |mut req: axum::http::Request<hyper::body::Incoming>| {
                     req.extensions_mut().insert(caller.clone());
                     req.extensions_mut().insert(remote);
                     req.extensions_mut().insert(path);
                     req
+                })
+                .map_response(move |resp: axum::response::Response| {
+                    let bulk = is_bulk_type(
+                        resp.headers()
+                            .get(axum::http::header::CONTENT_TYPE)
+                            .and_then(|v| v.to_str().ok()),
+                    );
+                    mark.store(
+                        if bulk { BULK_PRIORITY } else { 0 },
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                    resp
                 });
+            let send = Prioritized::new(send, want, lowered);
             let io = TokioIo::new(tokio::io::join(recv, send));
             let _ = hyper::server::conn::http1::Builder::new()
                 .serve_connection(io, TowerToHyperService::new(svc))
@@ -577,6 +723,15 @@ pub async fn request_raw(
             .open_bi()
             .await
             .map_err(|e| format!("could not open a stream: {e}"))?;
+        // A chunk going up yields to everything else on the connection
+        // (plan §5.3).
+        let priority = priority_for(headers);
+        if priority != 0 && send.set_send_priority(priority) {
+            state
+                .machines
+                .bulk_streams
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         let io = TokioIo::new(tokio::io::join(recv, send));
         let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
             .await
@@ -669,4 +824,96 @@ pub async fn bulk_from(
         }
     }
     Ok((n, started.elapsed()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use tokio::io::AsyncWriteExt;
+
+    use super::*;
+
+    /// A writer that records the priorities it is given.
+    #[derive(Clone, Default)]
+    struct Fake {
+        set: Arc<Mutex<Vec<i32>>>,
+        written: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl SetPriority for Fake {
+        fn set_send_priority(&self, priority: i32) -> bool {
+            self.set.lock().unwrap().push(priority);
+            true
+        }
+    }
+
+    impl tokio::io::AsyncWrite for Fake {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            self.written.lock().unwrap().extend_from_slice(buf);
+            std::task::Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    #[test]
+    fn raw_bytes_are_bulk_and_nothing_else_is() {
+        assert!(is_bulk_type(Some("application/octet-stream")));
+        assert!(is_bulk_type(Some("Application/Octet-Stream; charset=x")));
+        for other in [
+            None,
+            Some("application/json"),
+            Some("text/plain"),
+            Some("application/octet-streamy"),
+        ] {
+            assert!(!is_bulk_type(other), "{other:?}");
+        }
+        let chunk = [("content-type", "application/octet-stream".to_string())];
+        assert_eq!(priority_for(&chunk), BULK_PRIORITY);
+        let json = [("content-type", "application/json".to_string())];
+        assert_eq!(priority_for(&json), 0);
+        assert_eq!(priority_for(&[]), 0);
+    }
+
+    #[tokio::test]
+    async fn a_served_stream_yields_only_once_its_answer_is_bulk() {
+        // An API answer: the default priority, never touched.
+        let fake = Fake::default();
+        let want = Arc::new(AtomicI32::new(0));
+        let lowered = Arc::new(AtomicU64::new(0));
+        let mut s = Prioritized::new(fake.clone(), want.clone(), lowered.clone());
+        s.write_all(b"HTTP/1.1 200 OK\r\n\r\n{}").await.unwrap();
+        assert!(fake.set.lock().unwrap().is_empty());
+        assert_eq!(lowered.load(Ordering::Relaxed), 0);
+
+        // Raw bytes: lowered at the next write, once.
+        want.store(BULK_PRIORITY, Ordering::Relaxed);
+        s.write_all(b"chunk one").await.unwrap();
+        s.write_all(b"chunk two").await.unwrap();
+        assert_eq!(*fake.set.lock().unwrap(), vec![BULK_PRIORITY]);
+        assert_eq!(lowered.load(Ordering::Relaxed), 1);
+        assert!(fake
+            .written
+            .lock()
+            .unwrap()
+            .ends_with(b"chunk onechunk two"));
+    }
 }

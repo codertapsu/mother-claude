@@ -168,6 +168,9 @@ pub struct MachinesState {
     /// Introductions to another computer, received from paired ones
     /// (`intro`).
     pub(crate) intros: intro::Intros,
+    /// How many streams were lowered to the bulk priority, both ways
+    /// (`transport::BULK_PRIORITY`): what the tests read.
+    pub(crate) bulk_streams: std::sync::Arc<AtomicU64>,
 }
 
 impl std::fmt::Debug for MachinesState {
@@ -207,6 +210,7 @@ impl MachinesState {
             copies: copies::CopiesState::load(data_dir),
             work: work::WorkState::load(data_dir),
             intros: intro::Intros::default(),
+            bulk_streams: std::sync::Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -477,6 +481,13 @@ impl MachinesState {
     #[doc(hidden)]
     pub fn set_bundle_limit(&self, bytes: Option<u64>) {
         self.moves.set_bundle_limit(bytes);
+    }
+
+    /// Tests: how many of this computer's streams were lowered to the bulk
+    /// priority (a chunk it sent, a file it answered).
+    #[doc(hidden)]
+    pub fn bulk_streams(&self) -> u64 {
+        self.bulk_streams.load(Ordering::Relaxed)
     }
 
     /// The app turns this on: code sync watches its projects and checks

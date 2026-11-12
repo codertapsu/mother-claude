@@ -1163,6 +1163,12 @@ it to the others, and each applies it when you accept there. Nothing runs on
 the network until you use Machines: a computer that never pairs makes no new
 connection.
 
+Big transfers give way: the files of a move, a copy, a code sync step, a
+run's or a task's code, an artifact coming back and the readiness test's
+transfer travel at a lower priority than the dashboard and its requests, so
+a session on another computer stays quick to drive while a move fills a
+slow relay.
+
 ## Troubleshooting
 
 - **"… has not accepted the introduction yet."** The introduced computer

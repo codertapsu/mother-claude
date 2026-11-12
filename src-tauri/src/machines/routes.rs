@@ -1259,8 +1259,12 @@ async fn peer_bulk(
     let n = (total / chunk.len() as u64) as usize;
     let stream =
         futures_util::stream::iter((0..n).map(move |_| Ok::<_, std::io::Error>(chunk.clone())));
+    // Raw bytes: the stream yields to the API's (`transport::BULK_PRIORITY`).
     (
-        [("content-length", total.to_string())],
+        [
+            ("content-length", total.to_string()),
+            ("content-type", "application/octet-stream".to_string()),
+        ],
         HttpBody::from_stream(stream),
     )
         .into_response()

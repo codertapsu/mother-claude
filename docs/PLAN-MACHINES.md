@@ -319,7 +319,12 @@ Wi-Fi) hole punching failed — the carrier's NAT — and every packet went
 through the relay: ~110 ms a request, fine for driving sessions, but 1.1
 MiB/s, and a 1 s round trip while a transfer filled the path. So **bulk
 streams (moves, copies) run at a lower QUIC stream priority than the API
-and the dashboard's frames**, a move says how long it will take before it
+and the dashboard's frames** (*built 2026-11-13*: `transport::BULK_PRIORITY`,
+-1 against every stream's 0, set by the side that sends the bytes — a
+request whose body is `application/octet-stream`, every chunk of a move,
+copy, sync step, run, task or role going up, and a served answer of that
+type, an artifact, a result's file or `/peer/bulk` coming down; QUIC sends
+a connection's higher-priority buffered data first), a move says how long it will take before it
 starts, and a large first move across networks suggests your own relay or
 your remote (D10). After a network change the endpoint needs time to find
 a relay again (15 s in the spike): Machines health says "reconnecting", not
