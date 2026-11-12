@@ -577,5 +577,8 @@
   "{name} declined.": "{name} đã từ chối.",
   "{name} runs an older Claude Code ({v}; here: {w}).": "{name} chạy Claude Code cũ hơn ({v}; ở đây: {w}).",
   "{name} runs an older Mother Claude ({v}; this {computer}: {w}).": "{name} chạy Mother Claude cũ hơn ({v}; {computer} này: {w}).",
-  "{name} took the introduction back.": "{name} đã rút lại lời giới thiệu."
+  "{name} took the introduction back.": "{name} đã rút lại lời giới thiệu.",
+  "One of your other computers asks something of this one.": "Một máy tính khác của bạn đang yêu cầu máy này một việc.",
+  "Your other computers ask {n} things of this one.": "Các máy tính khác của bạn đang yêu cầu máy này {n} việc.",
+  "Answer in the Inbox": "Trả lời trong Hộp thư"
 }

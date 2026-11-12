@@ -22,6 +22,9 @@
     @if (approvals().length) {
       <section class="approvals" [attr.aria-label]="'Browser actions waiting for you' | t">
         <h2>{{ 'Waiting for you' | t }}</h2>
+        <p class="muted small also">
+          <a routerLink="/inbox">{{ 'Also in the Inbox, with everything else waiting ›' | t }}</a>
+        </p>
         @for (a of approvals(); track a.id) {
           <mc-pending-card [item]="a" [showSession]="true" />
         }

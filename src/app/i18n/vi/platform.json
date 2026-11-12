@@ -626,5 +626,6 @@
   "on {computer}": "trên {computer}",
   "{commits} commits and uncommitted changes, {files} files": "{commits} commit và thay đổi chưa commit, {files} tệp",
   "{commits} commits, {files} files": "{commits} commit, {files} tệp",
-  "{computer} (template)": "{computer} (theo mẫu)"
+  "{computer} (template)": "{computer} (theo mẫu)",
+  "Also in the Inbox, with everything else waiting ›": "Cũng có trong Hộp thư, cùng mọi thứ khác đang chờ ›"
 }

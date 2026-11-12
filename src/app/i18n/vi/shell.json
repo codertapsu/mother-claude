@@ -50,5 +50,7 @@
   "Notifications on": "Thông báo đang bật",
   "Notifications off": "Thông báo đang tắt",
   "Notifications blocked": "Thông báo bị chặn",
-  "{n} computers online": "{n} máy tính trực tuyến"
+  "{n} computers online": "{n} máy tính trực tuyến",
+  "{label}, {n} waiting, {m} to fix": "{label}, {n} đang chờ, {m} cần sửa",
+  "{label}, {m} to fix": "{label}, {m} cần sửa"
 }

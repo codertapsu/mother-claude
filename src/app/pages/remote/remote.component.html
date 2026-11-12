@@ -22,67 +22,6 @@
       <p class="notice ok" role="status">{{ notice() }}</p>
     }
 
-    <!-- Pending approvals first: someone is waiting. -->
-    @if (livePairs().length) {
-      <section class="card approvals" [attr.aria-label]="'Pairing requests' | t">
-        <h2 class="first">
-          <mc-icon name="key" [size]="15" /> {{ 'Waiting for your approval' | t }}
-        </h2>
-        @for (p of livePairs(); track p.id) {
-          <div class="approval">
-            <div class="who">
-              <strong>{{ pairName(p) }}</strong>
-              <span class="muted small">
-                {{ p.platform || ('unknown platform' | t) }}
-                @if (p.clientIp || p.ip) {
-                  · {{ p.clientIp || p.ip }}
-                }
-                @if (p.ingress) {
-                  · {{ 'via {network}' | t: { network: ingressLabel(p.ingress) } }}
-                }
-                @if (p.provider) {
-                  ({{ providerLabel(p.provider) }})
-                }
-                @if (p.createdAt) {
-                  · {{ p.createdAt | relTime }}
-                }
-              </span>
-            </div>
-            @if (p.contested) {
-              <p class="notice warn small">
-                {{
-                  "This code was used by two devices, so this request can't be approved. Deny it and create a new code."
-                    | t
-                }}
-              </p>
-            } @else {
-              <p class="muted small fp-hint">
-                {{ "The device shows a 4-digit number: you'll type it to approve." | t }}
-              </p>
-            }
-            <div class="row">
-              <button
-                class="btn primary"
-                type="button"
-                [disabled]="busy().has(p.id) || !!p.contested"
-                (click)="approving.set(p)"
-              >
-                <mc-icon name="check" [size]="15" /> {{ 'Approve…' | t }}
-              </button>
-              <button
-                class="btn danger"
-                type="button"
-                [disabled]="busy().has(p.id)"
-                (click)="deny(p)"
-              >
-                {{ 'Deny' | t }}
-              </button>
-            </div>
-          </div>
-        }
-      </section>
-    }
-
     <div class="grid">
       <!-- ─────────────── Pair a device ─────────────── -->
       <section class="card pair" [attr.aria-label]="'Pair a device' | t">
@@ -633,9 +572,3 @@
     </section>
   }
 </div>
-
-<mc-pair-approval-dialog
-  [pending]="approving()"
-  (closed)="approving.set(null)"
-  (settled)="onSettled($event.pending, $event.approved)"
-/>

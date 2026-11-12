@@ -103,72 +103,19 @@ export class AsksCardComponent {
   protected readonly error = signal('');
 
   protected title(a: MachineAsk): string {
-    switch (a.kind) {
-      case 'signIn':
-        return tr('Sign in to {account}', { account: a.account ?? '' });
-      case 'addAccount':
-        return tr('Add the account {account}', { account: a.account ?? '' });
-      case 'clone':
-        return tr('Clone {repo}', { repo: a.title ?? a.origin ?? '' });
-      case 'sync':
-        return tr('Keep {project} in sync with {name}', {
-          project: a.title ?? '',
-          name: a.fromName,
-        });
-      default:
-        return serverText(a.title) || tr('A fix');
-    }
+    return askTitle(a);
   }
 
   protected detail(a: MachineAsk): string {
-    switch (a.kind) {
-      case 'signIn':
-        return tr('Its sign-in opens in this computer’s browser.');
-      case 'addAccount':
-        return tr('Add it in Accounts, under the same name, so sessions can move to it.');
-      case 'clone':
-        return tr('Clone {origin} into {folder}?', {
-          origin: a.origin ?? '',
-          folder: a.folder ?? '',
-        });
-      case 'sync':
-        return tr(
-          'Keep {folder} here the same as its copy on {name}, both ways: its commits, its branch and its uncommitted changes go across a few seconds after they change. Files git ignores stay on each computer, but for any the project carries. When both computers changed it, you choose which to keep: nothing is merged, and the side not kept is saved first.',
-          { folder: a.folder ?? '', name: a.fromName },
-        );
-      default:
-        return tr('Fix it on this computer: {fix}.', { fix: serverText(a.fix) });
-    }
+    return askDetail(a);
   }
 
   protected confirmLabel(a: MachineAsk): string {
-    switch (a.kind) {
-      case 'signIn':
-        return tr('Sign in…');
-      case 'addAccount':
-        return tr('Add it…');
-      case 'clone':
-        return tr('Clone it');
-      case 'sync':
-        return tr('Keep it in sync');
-      default:
-        return serverText(a.fix) || tr('Fix');
-    }
+    return askConfirmLabel(a);
   }
 
   protected stateText(a: MachineAsk): string {
-    switch (a.state) {
-      case 'running':
-        return serverText(a.detail) || tr('Under way…');
-      case 'done':
-        return serverText(a.detail) || tr('Done.');
-      case 'declined':
-        return tr('Not now.');
-      case 'failed':
-        return serverText(a.detail) || tr('It failed.');
-      default:
-        return '';
-    }
+    return askStateText(a);
   }
 
   protected async answer(a: MachineAsk, confirm: boolean): Promise<void> {
@@ -183,5 +130,78 @@ export class AsksCardComponent {
     } finally {
       this.busy.set(null);
     }
+  }
+}
+
+/** What another computer asked, in a few words. */
+export function askTitle(a: MachineAsk): string {
+  switch (a.kind) {
+    case 'signIn':
+      return tr('Sign in to {account}', { account: a.account ?? '' });
+    case 'addAccount':
+      return tr('Add the account {account}', { account: a.account ?? '' });
+    case 'clone':
+      return tr('Clone {repo}', { repo: a.title ?? a.origin ?? '' });
+    case 'sync':
+      return tr('Keep {project} in sync with {name}', {
+        project: a.title ?? '',
+        name: a.fromName,
+      });
+    default:
+      return serverText(a.title) || tr('A fix');
+  }
+}
+
+/** What it does, in a sentence. */
+export function askDetail(a: MachineAsk): string {
+  switch (a.kind) {
+    case 'signIn':
+      return tr('Its sign-in opens in this computer’s browser.');
+    case 'addAccount':
+      return tr('Add it in Accounts, under the same name, so sessions can move to it.');
+    case 'clone':
+      return tr('Clone {origin} into {folder}?', {
+        origin: a.origin ?? '',
+        folder: a.folder ?? '',
+      });
+    case 'sync':
+      return tr(
+        'Keep {folder} here the same as its copy on {name}, both ways: its commits, its branch and its uncommitted changes go across a few seconds after they change. Files git ignores stay on each computer, but for any the project carries. When both computers changed it, you choose which to keep: nothing is merged, and the side not kept is saved first.',
+        { folder: a.folder ?? '', name: a.fromName },
+      );
+    default:
+      return tr('Fix it on this computer: {fix}.', { fix: serverText(a.fix) });
+  }
+}
+
+/** The button that confirms it. */
+export function askConfirmLabel(a: MachineAsk): string {
+  switch (a.kind) {
+    case 'signIn':
+      return tr('Sign in…');
+    case 'addAccount':
+      return tr('Add it…');
+    case 'clone':
+      return tr('Clone it');
+    case 'sync':
+      return tr('Keep it in sync');
+    default:
+      return serverText(a.fix) || tr('Fix');
+  }
+}
+
+/** How it stands once answered. */
+export function askStateText(a: MachineAsk): string {
+  switch (a.state) {
+    case 'running':
+      return serverText(a.detail) || tr('Under way…');
+    case 'done':
+      return serverText(a.detail) || tr('Done.');
+    case 'declined':
+      return tr('Not now.');
+    case 'failed':
+      return serverText(a.detail) || tr('It failed.');
+    default:
+      return '';
   }
 }

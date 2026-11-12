@@ -687,9 +687,10 @@ const TOPICS: HelpTopicSource[] = [
     title: 'Yêu cầu duyệt và Hộp thư',
     icon: 'inbox',
     group: 'sessions',
-    summary: 'Trả lời yêu cầu cấp quyền, câu hỏi và kế hoạch từ mọi phiên.',
+    summary:
+      'Trả lời yêu cầu cấp quyền, câu hỏi và kế hoạch từ mọi phiên, và sửa những gì đã ngừng hoạt động.',
     intro:
-      'Khi Claude cần bạn, một thẻ sẽ hiện ra: phía trên ô soạn tin trên trang của phiên, trên thẻ của phiên trong danh sách, và trong **Hộp thư**, nơi gom mọi thứ đang chờ ở tất cả các phiên.',
+      'Khi Claude cần bạn, một thẻ sẽ hiện ra: phía trên ô soạn tin trên trang của phiên, trên thẻ của phiên trong danh sách, và trong **Hộp thư**, nơi gom mọi thứ đang chờ bạn: yêu cầu của mọi phiên và mọi máy tính, cùng những gì cần sửa.',
     keywords: [
       'quyền',
       'cho phép',
@@ -704,15 +705,59 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Hộp thư',
         points: [
-          '**Cần bạn** liệt kê những gì bạn trả lời được từ đây, cũ nhất trước, kèm thời gian mỗi mục đã chờ.',
-          '**Chờ tại máy tính** liệt kê những gì chỉ trả lời được ở nơi phiên đang chạy, và điều gì sẽ giúp bạn trả lời được ngay tại đây.',
-          'Con số trên **Hộp thư** đếm số mục đang chờ.',
-          'Khi có nhiều tài khoản Claude, bộ lọc tài khoản hiện từng tài khoản một.',
+          '**Cần bạn** liệt kê những gì bạn trả lời được từ đây, cũ nhất trước, kèm thời gian mỗi mục đã chờ: yêu cầu của mọi phiên, của các máy tính khác khi chúng trực tuyến, và trên ứng dụng máy tính là thiết bị muốn ghép nối cùng những gì các máy tính khác yêu cầu máy này.',
+          '**Cần sửa** liệt kê những gì đã ngừng hoạt động hoặc hoạt động kém đi, mỗi mục kèm cách sửa.',
+          '**Chờ ở nơi phiên chạy** liệt kê những gì chỉ trả lời được ở nơi phiên đang chạy, và điều gì sẽ giúp bạn trả lời được ngay tại đây.',
+          'Con số trên **Hộp thư** đếm những gì bạn trả lời được từ đây; một chấm cho biết có việc đang chờ được sửa.',
+          'Khi có nhiều tài khoản Claude, bộ lọc **Tài khoản** hiện từng tài khoản một; khi đã ghép nối máy tính khác, bộ lọc **Máy tính** hiện từng máy một.',
+          'Trên điện thoại, những gì chỉ ứng dụng máy tính trả lời hay sửa được sẽ ghi rõ như vậy, và không được tính vào con số.',
         ],
         tips: [
           'Trên bàn phím, J và K chuyển giữa các yêu cầu; A cho phép, D từ chối, F thêm phản hồi.',
+          '**Đóng thông báo** cất một lỗi đi trên thiết bị này; các lỗi tự rời đi sau một ngày.',
         ],
         links: [{ label: 'Mở trang Hộp thư', path: '/inbox' }],
+      },
+      {
+        heading: 'Những gì đang chờ ngoài các yêu cầu',
+        terms: [
+          {
+            term: 'Thiết bị muốn ghép nối',
+            text: 'Trên ứng dụng máy tính, nhấn **Cho phép…** rồi gõ con số mà thiết bị hiện, hoặc nhấn **Từ chối**. Hộp thoại đó cũng tự mở ra.',
+          },
+          {
+            term: 'Các máy tính khác yêu cầu',
+            text: 'Một cách sửa, một lần đăng nhập, một lần sao chép kho mã hay việc giữ một dự án đồng bộ mà máy tính khác yêu cầu máy này. Không có gì chạy cho đến khi có người ở đây xác nhận.',
+          },
+          {
+            term: 'Một mục kiểm tra bắt buộc lỗi',
+            text: 'Trên máy này, chạy cách sửa ngay tại đây; trên máy khác, **Nhờ … sửa** sẽ hiện cách sửa cho người đang ở máy đó.',
+          },
+          {
+            term: 'Cần cập nhật',
+            text: 'Hai máy tính chạy phiên bản khác nhau: hãy cập nhật máy cũ hơn, hoặc nhờ máy đó cập nhật.',
+          },
+          {
+            term: 'Đã thay đổi trên cả hai máy tính',
+            text: 'Đồng bộ mã của dự án đó đang tạm dừng: **Chọn…** mở dự án trên trang **Máy tính**, nơi bạn giữ một bên.',
+          },
+          {
+            term: 'Một bản sao đang tạm dừng',
+            text: 'Một bản sao giữ trên máy tính khác đang chờ một điều chỉ bạn thay đổi được ở đó, chẳng hạn quyền **Di chuyển** của nó.',
+          },
+          {
+            term: 'Sao lưu hay di chuyển thất bại',
+            text: 'Trong ngày qua: **Thử lại** chạy lại một lần sao lưu; **Chi tiết** mở danh sách của nó.',
+          },
+          {
+            term: 'Một lần đăng nhập',
+            text: 'Một tài khoản đã đăng xuất, bị từ chối, chưa có token ở đây, hoặc đăng nhập bằng một tài khoản Claude khác: **Đăng nhập…**, hoặc **Giữ lại**.',
+          },
+          {
+            term: 'Bản cập nhật hay một quyền',
+            text: 'Trên ứng dụng máy tính: **Cài bản cập nhật…** mở **Cài đặt › Cập nhật phần mềm**; một quyền macOS còn thiếu sẽ mở System Settings.',
+          },
+        ],
       },
       {
         heading: 'Trả lời yêu cầu cấp quyền',
@@ -765,7 +810,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Phiên bắt đầu ở nơi khác',
         points: [
           'Khi đã cài điều khiển phiên bên ngoài, yêu cầu cấp quyền từ một phiên terminal hay VS Code sẽ hiện ở đây, trong khi phiên đó vẫn hiện hộp thoại của riêng nó. Ai trả lời trước thì câu trả lời đó có hiệu lực; hộp thoại còn lại sẽ biến mất.',
-          'Nếu chưa cài, các yêu cầu đó hiện trong **Chờ tại máy tính**.',
+          'Nếu chưa cài, các yêu cầu đó hiện trong **Chờ ở nơi phiên chạy**.',
           'Phiên ở chế độ **Bỏ qua quyền** gần như không hỏi gì, nên rất ít yêu cầu đến được với bạn.',
         ],
         links: [{ label: 'Xem “Phiên bắt đầu ở nơi khác”', path: '/help/foreign-sessions' }],

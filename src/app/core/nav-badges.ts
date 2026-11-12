@@ -7,9 +7,10 @@ import { NavBadge } from './nav';
 import { RealtimeService } from './realtime.service';
 
 /**
- * What the map's badges show right now (core/nav.ts): the requests waiting,
- * the agents running, Machines' health. The sidebar, the phone's bar, More
- * and a place's tabs all ask here, so a badge reads the same everywhere.
+ * What the map's badges show right now (core/nav.ts): the requests waiting
+ * (and a dot when only something to fix waits), the agents running,
+ * Machines' health. The sidebar, the phone's bar, More and a place's tabs
+ * all ask here, so a badge reads the same everywhere.
  */
 @Injectable({ providedIn: 'root' })
 export class NavBadges {
@@ -36,8 +37,12 @@ export class NavBadges {
     }
   }
 
-  /** The badge is a dot: something to look at, with no number. */
+  /** The badge is a dot: something to look at, with no number — on the
+   * Inbox, something to fix while no request waits. */
   dot(badge: NavBadge | undefined): boolean {
+    if (badge === 'pending') {
+      return !this.attention.pendingCount() && this.attention.toFixCount() > 0;
+    }
     return badge === 'machines' && this.machines.alarm();
   }
 
@@ -46,7 +51,13 @@ export class NavBadges {
   label(entry: { label: string; badge?: NavBadge }): string | null {
     const label = tr(entry.label);
     const n = this.count(entry.badge);
-    if (entry.badge === 'pending' && n) return tr('{label}, {n} waiting', { label, n });
+    if (entry.badge === 'pending') {
+      const fix = this.attention.toFixCount();
+      if (n && fix) return tr('{label}, {n} waiting, {m} to fix', { label, n, m: fix });
+      if (n) return tr('{label}, {n} waiting', { label, n });
+      if (fix) return tr('{label}, {m} to fix', { label, m: fix });
+      return null;
+    }
     if (entry.badge === 'agents' && n) return tr('{label}, {n} running', { label, n });
     if (this.dot(entry.badge)) return tr('{label}, needs attention', { label });
     return null;

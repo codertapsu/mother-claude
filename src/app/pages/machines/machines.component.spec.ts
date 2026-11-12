@@ -70,6 +70,33 @@ describe('MachinesComponent', () => {
     expect(TestBed.inject(Router).url).toBe('/machines/setup');
   });
 
+  it('sends what another computer asked to the Inbox, where it is answered', async () => {
+    asDesktop();
+    const ask = {
+      id: 'ask_0000000000000001',
+      from: PEER_ID,
+      fromName: 'DESKTOP-PC',
+      kind: 'signIn' as const,
+      account: 'Work',
+      at: Date.now(),
+      state: 'asked' as const,
+    };
+    const el = await render(
+      machinesView({
+        enabled: true,
+        peers: [peer()],
+        asks: [ask, { ...ask, id: 'ask_2', state: 'done' as const }],
+      }),
+    );
+    // The card moved to the Inbox: one line here says so.
+    expect(el.querySelector('mc-machine-asks')).toBeNull();
+    const line = el.querySelector('.asks-line');
+    expect(text(line)).toBe(
+      'One of your other computers asks something of this one. Answer in the Inbox',
+    );
+    expect(line?.querySelector('a')?.getAttribute('href')).toBe('/inbox');
+  });
+
   it('offers to go on with a setup left halfway', async () => {
     asDesktop();
     const el = await render(

@@ -34,9 +34,16 @@
       <p class="muted" role="status">{{ 'Loading…' | t }}</p>
     }
   } @else {
-    <!-- ─────────────── Asked by another computer (UX §4.1) ─────────────── -->
-    @if (v.asks?.length) {
-      <mc-machine-asks [asks]="v.asks" [readonly]="!isDesktop()" (answered)="askAnswered()" />
+    <!-- ─────────────── Asked by another computer: answered in the Inbox ─────────────── -->
+    @if (openAsks(); as n) {
+      <p class="notice small asks-line" role="status">
+        {{
+          n === 1
+            ? ('One of your other computers asks something of this one.' | t)
+            : ('Your other computers ask {n} things of this one.' | t: { n })
+        }}
+        <a routerLink="/inbox">{{ 'Answer in the Inbox' | t }}</a>
+      </p>
     }
 
     <!-- ─────────────── Introduced by another computer (plan §5.12) ─────────────── -->

@@ -124,7 +124,7 @@ describe('InboxComponent accounts', () => {
     expect(titles(el)).toEqual([]);
     expect(text(el.querySelector('.empty-state strong'))).toBe('Nothing from Work needs you');
     expect(text(el.querySelector('.empty-state'))).toContain(
-      '2 requests from other accounts wait.',
+      '2 more items wait outside this filter.',
     );
     (el.querySelector('.empty-state .btn') as HTMLButtonElement).click();
     fixture.detectChanges();

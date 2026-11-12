@@ -12,6 +12,7 @@ import {
   GRANT_NAMES,
   GrantName,
   Grants,
+  askOpen,
   MachinesSettings,
   MachinesView,
   PeerMachine,
@@ -29,7 +30,6 @@ import { RemoteSessionsService } from '../../core/remote-sessions.service';
 import { IconComponent } from '../../shared/icon.component';
 import { MoveCardComponent } from '../../shared/move-card.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
-import { AsksCardComponent } from './asks-card.component';
 import { CheckListComponent } from './check-list.component';
 import { CopiesCardComponent } from './copies-card.component';
 import { GrantsMatrixComponent } from './grants-matrix.component';
@@ -53,8 +53,9 @@ import { RunsCardComponent } from './runs-card.component';
 import { SyncCardComponent } from './sync-card.component';
 
 /**
- * Machines (docs/PLAN-MACHINES.md, spikes/machines/UX.md §1): this
- * computer, the paired ones with what each may do here and their versions
+ * Machines (docs/PLAN-MACHINES.md, spikes/machines/UX.md §1): what the
+ * other computers asked of this one (a line: they are answered in the
+ * Inbox), this computer, the paired ones with what each may do here and their versions
  * (an older one named with what it can't do yet, *Update it*), Machines
  * health, introductions (two of your computers pair with each other, each
  * confirming the six digits: §5.12), *Revoke everywhere*, the projects kept
@@ -70,7 +71,6 @@ import { SyncCardComponent } from './sync-card.component';
   imports: [
     FormsModule,
     RouterLink,
-    AsksCardComponent,
     CheckListComponent,
     CopiesCardComponent,
     GrantsMatrixComponent,
@@ -128,6 +128,9 @@ export class MachinesComponent {
   protected readonly editingOptions = signal(false);
 
   protected readonly peers = computed(() => this.view()?.peers ?? []);
+  /** What other computers asked this one and is not done: answered in the
+   * Inbox. */
+  protected readonly openAsks = computed(() => (this.view()?.asks ?? []).filter(askOpen).length);
   /** This computer's moves of sessions, sent and received (UX §1.2). */
   protected readonly recentMoves = this.moves.here;
   protected readonly allMoves = signal(false);
@@ -214,12 +217,6 @@ export class MachinesComponent {
   /** The offer's code options differ from this computer's. */
   protected codeOffered(o: SettingsOffer, s: MachinesSettings): boolean {
     return !!o.code && !sameCode(o.code, s.code);
-  }
-
-  /** An ask was answered here: the view and the checks change. */
-  protected askAnswered(): void {
-    void this.machines.load();
-    void this.machines.loadSetup();
   }
 
   /** How many of its sessions this computer knows, and how many run: live

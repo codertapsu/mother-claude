@@ -36,7 +36,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RelativeTimePipe, TPipe],
   template: `
-    <section class="card sync" [attr.aria-label]="'Code sync' | t">
+    <section id="code-sync" class="card sync" [attr.aria-label]="'Code sync' | t">
       <div class="chead">
         <h2 class="first">{{ 'Code sync' | t }}</h2>
       </div>

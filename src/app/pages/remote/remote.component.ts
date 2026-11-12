@@ -23,14 +23,12 @@ import {
   ForeignControlStatus,
   PairCode,
   PairTarget,
-  PendingPair,
   RemoteInfo,
 } from '../../core/models';
 import { NowService } from '../../core/now.service';
 import { RealtimeService } from '../../core/realtime.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
-import { PairApprovalDialogComponent } from '../../shared/pair-approval-dialog.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
 
 const POLL_MS = 10_000;
@@ -55,21 +53,14 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 /**
  * Desktop: everything about reaching Mother Claude from other devices —
- * pairing QR codes (LAN or internet), pending pair approvals, internet access
- * through a tunnel (detection + copyable commands), paired devices, and the
- * foreign-session control plugin.
+ * pairing QR codes (LAN or internet), internet access through a tunnel
+ * (detection + copyable commands), paired devices, and the foreign-session
+ * control plugin. A device that asks to pair waits in the Inbox, and the
+ * shell's dialog asks for its number on any page.
  */
 @Component({
   selector: 'mc-remote',
-  imports: [
-    FormsModule,
-    RouterLink,
-    CopyButtonComponent,
-    IconComponent,
-    PairApprovalDialogComponent,
-    RelativeTimePipe,
-    TPipe,
-  ],
+  imports: [FormsModule, RouterLink, CopyButtonComponent, IconComponent, RelativeTimePipe, TPipe],
   templateUrl: './remote.component.html',
   styleUrl: './remote.component.scss',
 })
@@ -86,9 +77,6 @@ export class RemoteComponent {
   protected readonly computer = computerNoun;
   protected readonly remote = signal<RemoteInfo | null>(null);
   protected readonly devices = signal<DeviceInfo[]>([]);
-  protected readonly pendingPairs = signal<PendingPair[]>([]);
-  /** The pairing request whose typed-number dialog is open. */
-  protected readonly approving = signal<PendingPair | null>(null);
   protected readonly foreign = signal<ForeignControlStatus | null>(null);
   protected readonly error = signal('');
   protected readonly notice = signal('');
@@ -137,10 +125,6 @@ export class RemoteComponent {
     () => !!this.remote()?.internet.enabled && !!this.publicUrl(),
   );
   protected readonly activeDevices = computed(() => this.devices().filter((d) => !d.revoked));
-  /** Requests that can still be answered (decided ones linger briefly). */
-  protected readonly livePairs = computed(() =>
-    this.pendingPairs().filter((p) => (p.status ?? 'pending') === 'pending'),
-  );
   protected readonly idleDays = signal<number | null>(null);
 
   /** The API servers (main first), while one besides the main one exists:
@@ -172,14 +156,6 @@ export class RemoteComponent {
     const destroyRef = inject(DestroyRef);
     const subs = [
       this.realtime.devices$.subscribe(() => void this.loadDevices()),
-      this.realtime.pairRequest$.subscribe((f) => {
-        if (!f.pending?.id) return;
-        this.pendingPairs.update((prev) =>
-          prev.some((p) => p.id === f.pending.id)
-            ? prev.map((p) => (p.id === f.pending.id ? f.pending : p))
-            : [...prev, f.pending],
-        );
-      }),
       this.realtime.refetch$.subscribe(() => void this.loadAll()),
     ];
     // The server only probes for tunnels while this page (or internet
@@ -237,22 +213,6 @@ export class RemoteComponent {
     } finally {
       this.creating.set(false);
     }
-  }
-
-  protected onSettled(p: PendingPair, approved: boolean): void {
-    this.pendingPairs.update((prev) => prev.filter((x) => x.id !== p.id));
-    if (approved) void this.loadDevices();
-  }
-
-  protected async deny(p: PendingPair): Promise<void> {
-    await this.withBusy(p.id, async () => {
-      await this.api.denyPair(p.id);
-      this.pendingPairs.update((prev) => prev.filter((x) => x.id !== p.id));
-    });
-  }
-
-  protected pairName(p: PendingPair): string {
-    return p.deviceName || p.name || tr('A device');
   }
 
   // ──────────────────────────────────────────────────────────── Internet
@@ -444,7 +404,6 @@ export class RemoteComponent {
     try {
       const list = await this.api.listDevices();
       this.devices.set(list.devices ?? []);
-      this.pendingPairs.set(list.pending ?? []);
       this.idleDays.set(list.idleDays ?? null);
     } catch (e) {
       this.error.set(tr('Devices: {error}', { error: errorMessage(e) }));

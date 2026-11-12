@@ -11,10 +11,10 @@ import { AuthService } from './core/auth.service';
 import { ConfigService } from './core/config.service';
 import { PermissionsService } from './core/permissions.service';
 import { sessionStorageGet, storageGet, storageSet } from './core/platform';
+import { PairRequestsService, isStillPending } from './core/pair-requests.service';
 import { PushService } from './core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from './core/realtime.service';
 import { I18nService } from './core/i18n/i18n.service';
-import { MachinesService } from './core/machines.service';
 import {
   HELP_ENTRY,
   MORE_ENTRY,
@@ -40,11 +40,6 @@ import { TimeAgoComponent } from './shared/time-ago.component';
 import { ToastComponent } from './shared/toast.component';
 
 const ONBOARDING_SKIP_KEY = 'mc_onboarding_skipped';
-
-/** A pair request that can still be approved. */
-export function isStillPending(p: PendingPair, now: number): boolean {
-  return (p.status ?? 'pending') === 'pending' && !(p.expiresAt && p.expiresAt <= now);
-}
 const WELCOME_SEEN_KEY = 'mc_welcome_seen';
 
 /**
@@ -87,8 +82,8 @@ export class AppComponent {
   /** Started here: the language follows the desktop's system name too. */
   private readonly i18n = inject(I18nService);
   protected readonly attention = inject(AttentionService);
-  /** Machines' health, for the sidebar's dot (desktop). */
-  private readonly machines = inject(MachinesService);
+  /** Devices waiting to pair (desktop): the dialog's queue follows it. */
+  private readonly pairs = inject(PairRequestsService);
   /** What the map's badges show. */
   protected readonly badges = inject(NavBadges);
 
@@ -149,26 +144,22 @@ export class AppComponent {
               : 'info';
       this.notices.show(level, n.text);
     });
-    // Desktop: a device asked to pair.
+    // Desktop: a device asked to pair (on any page: the Inbox lists it too).
     this.realtime.pairRequest$.subscribe((f) => {
-      if (!f.pending?.id || !this.isDesktop() || this.section() === 'remote') return;
+      if (!f.pending?.id || !this.isDesktop()) return;
       if (!isStillPending(f.pending, Date.now())) return;
       this.pairQueue.update((q) => (q.some((p) => p.id === f.pending.id) ? q : [...q, f.pending]));
     });
-    // Requests settle elsewhere too (approved or denied on the Remote page or
-    // in another window, expired): `devices` frames follow every change.
-    this.realtime.devices$.subscribe(() => void this.prunePairQueue());
-    this.realtime.refetch$.subscribe(() => void this.prunePairQueue());
-    // Drop a request locally the moment it expires.
-    effect((onCleanup) => {
-      const q = this.pairQueue();
-      const next = Math.min(...q.map((p) => p.expiresAt ?? Infinity));
-      if (!Number.isFinite(next)) return;
-      const t = setTimeout(
-        () => this.pairQueue.update((list) => list.filter((p) => isStillPending(p, Date.now()))),
-        Math.max(0, next - Date.now()) + 250,
+    // Requests settle elsewhere too (approved or denied in the Inbox or in
+    // another window, expired): keep only those still waiting.
+    effect(() => {
+      const open = new Set(this.pairs.pending().map((p) => p.id));
+      untracked(() =>
+        this.pairQueue.update((q) => {
+          const next = q.filter((p) => open.has(p.id));
+          return next.length === q.length ? q : next;
+        }),
       );
-      onCleanup(() => clearTimeout(t));
     });
     // Say connection changes out loud (the dot alone says nothing to a
     // screen reader).
@@ -181,10 +172,11 @@ export class AppComponent {
       lastConn = c;
     });
 
-    // The desktop's sidebar shows Machines' health: keep its summary current.
+    // What waits for you, for the Inbox's badge and dot (Machines' health
+    // for the Computers dot too), once this device is paired.
     effect(() => {
-      if (this.ready() && this.auth.state() === 'paired' && this.isDesktop()) {
-        untracked(() => this.machines.start());
+      if (this.ready() && this.auth.state() === 'paired') {
+        untracked(() => this.attention.start());
       }
     });
 
@@ -291,21 +283,6 @@ export class AppComponent {
 
   protected nextPairRequest(): void {
     this.pairQueue.update((q) => q.slice(1));
-  }
-
-  /** Keep only the queued pair requests the server still has pending. */
-  private async prunePairQueue(): Promise<void> {
-    if (!this.pairQueue().length || !this.isDesktop()) return;
-    try {
-      const list = await this.api.listDevices();
-      const now = Date.now();
-      const open = new Set(
-        (list.pending ?? []).filter((p) => isStillPending(p, now)).map((p) => p.id),
-      );
-      this.pairQueue.update((q) => q.filter((p) => open.has(p.id) && isStillPending(p, now)));
-    } catch {
-      // Unknown right now: the dialog still reports the server's answer.
-    }
   }
 
   protected reconnect(): void {

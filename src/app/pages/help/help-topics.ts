@@ -674,9 +674,10 @@ const TOPICS: HelpTopicSource[] = [
     title: 'Approvals and the Inbox',
     icon: 'inbox',
     group: 'sessions',
-    summary: 'Answer permission prompts, questions and plans from any session.',
+    summary:
+      'Answer permission prompts, questions and plans from any session, and fix what stopped working.',
     intro:
-      "When Claude needs you, a card appears: above the message box on the session's page, on its card in the list, and in the **Inbox**, which gathers everything waiting across all sessions.",
+      "When Claude needs you, a card appears: above the message box on the session's page, on its card in the list, and in the **Inbox**, which gathers everything that waits for you: every session's requests and every computer's, and what to fix.",
     keywords: [
       'permission',
       'allow',
@@ -691,15 +692,59 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'The Inbox',
         points: [
-          '**Needs you** lists what you can answer from here, oldest first, with how long each has waited.',
-          '**Waiting at the desk** lists what can only be answered where the session runs, and what would let you answer it here.',
-          'The number on **Inbox** counts what waits.',
-          'With several Claude accounts, the account filter shows one account at a time.',
+          "**Needs you** lists what you can answer from here, oldest first, with how long each has waited: every session's requests, your other computers' while they are online, and on the desktop app a device that wants to pair and what your other computers asked of this one.",
+          '**To fix** lists what stopped working or works worse, each with its fix.',
+          '**Waiting where it runs** lists what can only be answered where the session runs, and what would let you answer it here.',
+          'The number on **Inbox** counts what you can answer from here; a dot says something waits to be fixed.',
+          'With several Claude accounts, the **Account** filter shows one account at a time; with another computer paired, the **Computer** filter shows one computer.',
+          'On a phone, what only the desktop app answers or fixes says so, and is not counted.',
         ],
         tips: [
           'On a keyboard, J and K move between requests; A allows, D denies, F adds feedback.',
+          '**Dismiss** puts a failure away on this device; failures leave by themselves after a day.',
         ],
         links: [{ label: 'Open Inbox', path: '/inbox' }],
+      },
+      {
+        heading: 'What waits besides requests',
+        terms: [
+          {
+            term: 'A device wants to pair',
+            text: 'On the desktop app, press **Approve…** and type the number the device shows, or **Deny**. The same dialog also opens by itself.',
+          },
+          {
+            term: 'Asked by your other computers',
+            text: 'A fix, a sign-in, a clone or keeping a project in sync that another computer asks of this one. Nothing runs until someone here confirms it.',
+          },
+          {
+            term: 'A required check fails',
+            text: 'On this computer, run its fix here; on another, **Ask … to fix** shows the fix to whoever is there.',
+          },
+          {
+            term: 'Needs an update',
+            text: 'Two computers run versions apart: update the older one, or ask it to.',
+          },
+          {
+            term: 'Changed on both computers',
+            text: 'Code sync of that project is paused: **Choose…** opens it on **Computers**, where you keep one side.',
+          },
+          {
+            term: 'A copy is paused',
+            text: 'A copy kept on another computer waits for something only you can change there, such as its **Move** permission.',
+          },
+          {
+            term: 'A backup or move failed',
+            text: 'In the last day: **Try again** runs a backup again; **Details** opens its list.',
+          },
+          {
+            term: 'A sign-in',
+            text: 'An account signed out, refused, without its token here, or signed in as someone else: **Sign in…**, or **Keep it**.',
+          },
+          {
+            term: 'An update or a permission',
+            text: 'On the desktop app: **Install…** opens **Settings › Software updates**; a missing macOS permission opens System Settings.',
+          },
+        ],
       },
       {
         heading: 'Answer a permission request',
@@ -752,7 +797,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Sessions started elsewhere',
         points: [
           'With foreign-session control installed, a permission request from a terminal or VS Code session shows here while the session shows its own dialog. Whoever answers first wins; the other prompt goes away.',
-          'Without it, those requests show under **Waiting at the desk**.',
+          'Without it, those requests show under **Waiting where it runs**.',
           'A session in **Bypass permissions** asks almost nothing, so few requests reach you.',
         ],
         links: [{ label: 'See Sessions started elsewhere', path: '/help/foreign-sessions' }],

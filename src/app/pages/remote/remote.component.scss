@@ -31,26 +31,6 @@ h3 {
   }
 }
 
-.approvals {
-  border-color: var(--amber-border);
-}
-.approval {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.6rem 0;
-}
-.approval + .approval {
-  border-top: 1px solid var(--border);
-}
-.who {
-  display: flex;
-  flex-direction: column;
-}
-.fp-hint {
-  margin: 0 0 0.25rem;
-}
-
 .pair {
   display: flex;
   flex-direction: column;

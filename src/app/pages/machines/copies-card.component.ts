@@ -39,7 +39,7 @@ import { sessionLink } from '../../core/session-links';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [TPipe],
   template: `
-    <section class="card copies" [attr.aria-label]="'Copies' | t">
+    <section id="copies" class="card copies" [attr.aria-label]="'Copies' | t">
       <div class="chead">
         <h2 class="first">{{ 'Copies' | t }}</h2>
       </div>

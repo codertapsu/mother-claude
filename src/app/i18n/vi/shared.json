@@ -746,5 +746,7 @@
   "Running {n} agents": "Đang chạy {n} tác tử",
   "Claude has {n} questions": "Claude có {n} câu hỏi",
   "How it works ›": "Cách hoạt động ›",
-  "More actions": "Thao tác khác"
+  "More actions": "Thao tác khác",
+  "Blocks:": "Chặn:",
+  "Works, but worse:": "Vẫn chạy, nhưng kém hơn:"
 }

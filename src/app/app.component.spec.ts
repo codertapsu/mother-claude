@@ -2,14 +2,16 @@ import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
-import { AppComponent, isStillPending } from './app.component';
+import { AppComponent } from './app.component';
 import { hostOsSignal } from './core/i18n/i18n';
 import { MachinesService } from './core/machines.service';
+import { isStillPending } from './core/pair-requests.service';
 import { FakeBackend, asDesktop, flush, useFakeServer } from './core/mock/fake-server.testing';
 import { setActiveMock } from './core/mock/mock-api';
 import { SessionSummary } from './core/models';
 import { PLACES } from './core/nav';
 import { RealtimeService } from './core/realtime.service';
+import { UpdaterService } from './core/updater.service';
 import { machinesView, peer } from './pages/machines/machines.testing';
 
 describe('isStillPending', () => {
@@ -186,5 +188,39 @@ describe('AppComponent: the navigation, from the map', () => {
     await settle();
     expect(computers().querySelector('.count-badge.dot')).not.toBeNull();
     expect(computers().getAttribute('aria-label')).toBe('Computers, needs attention');
+  });
+
+  it('puts a dot on the Inbox when only something to fix waits', async () => {
+    await render();
+    const inbox = () => sideLinks()[1];
+    expect(inbox().querySelector('.count-badge')).toBeNull();
+    asDesktop();
+    TestBed.inject(UpdaterService).status.set('available');
+    TestBed.inject(UpdaterService).newVersion.set('0.12.0');
+    await settle();
+    expect(inbox().querySelector('.count-badge.dot')).not.toBeNull();
+    expect(inbox().getAttribute('aria-label')).toBe('Inbox, 1 to fix');
+    expect(barLinks()[1].querySelector('.count-badge.dot')).not.toBeNull();
+    // A request waiting shows its number instead.
+    store([
+      {
+        id: 's1',
+        live: true,
+        pending: [
+          {
+            id: 'p1',
+            kind: 'permission',
+            title: 'Allow Bash?',
+            dangerous: false,
+            answerable: true,
+            createdAt: Date.now(),
+          },
+        ],
+      },
+    ]);
+    await settle();
+    expect(text(inbox().querySelector('.count-badge'))).toBe('1');
+    expect(inbox().querySelector('.count-badge.dot')).toBeNull();
+    expect(inbox().getAttribute('aria-label')).toBe('Inbox, 1 waiting, 1 to fix');
   });
 });

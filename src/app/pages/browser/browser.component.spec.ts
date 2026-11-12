@@ -140,6 +140,10 @@ describe('BrowserComponent', () => {
     const card = el.querySelector('.approvals mc-pending-card');
     expect(card).not.toBeNull();
     expect(text(card)).toContain('Run a script on github.com');
+    // The Inbox lists them too, with everything else waiting.
+    const also = el.querySelector<HTMLAnchorElement>('.approvals .also a');
+    expect(text(also)).toBe('Also in the Inbox, with everything else waiting ›');
+    expect(also?.getAttribute('href')).toBe('/inbox');
   });
 
   it('on a phone without the dangerous grant: no pairing, act locked where the desktop decides', async () => {
