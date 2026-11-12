@@ -16,6 +16,7 @@ const IDS = [
   'machines-move',
   'machines-sync',
   'machines-run',
+  'machines-task',
   'machines-troubleshooting',
 ];
 

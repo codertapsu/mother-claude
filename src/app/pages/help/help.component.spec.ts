@@ -66,6 +66,7 @@ describe('HelpComponent', () => {
       'machines-move',
       'machines-sync',
       'machines-run',
+      'machines-task',
     ]);
 
     search('take over');
@@ -74,6 +75,8 @@ describe('HelpComponent', () => {
     expect(cardIds()).toContain('machines-sync');
     search('machine_run');
     expect(cardIds()).toContain('machines-run');
+    search('machine_task');
+    expect(cardIds()).toContain('machines-task');
     // Its troubleshooting sits with the other troubleshooting.
     search('nearby');
     expect(cardIds()).toContain('machines-troubleshooting');

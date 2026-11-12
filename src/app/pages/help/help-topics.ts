@@ -1360,7 +1360,7 @@ const TOPICS: HelpTopicSource[] = [
           { term: 'Move', text: 'Move sessions to this computer and away from it. On by default.' },
           {
             term: 'Run',
-            text: "Run commands here for its sessions, in a work folder of their own: this computer's copy of the project is never touched. Each run is approved on the other computer. Off by default.",
+            text: "Run commands here for its sessions, in a work folder of their own, and take tasks they hand over, in a worktree of their own: this computer's copy of the project is never touched. Each is approved on the other computer. Off by default.",
           },
           {
             term: 'Dangerous',
@@ -1370,7 +1370,10 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Driving needs seeing; moving, running commands and dangerous actions need driving. Ticking one ticks what it needs; unticking one unticks what needs it.',
         ],
-        links: [{ label: 'See Run commands on another computer', path: '/help/machines-run' }],
+        links: [
+          { label: 'See Run commands on another computer', path: '/help/machines-run' },
+          { label: 'See Hand a task to another computer', path: '/help/machines-task' },
+        ],
       },
       {
         heading: 'Same network or internet',
@@ -1399,7 +1402,7 @@ const TOPICS: HelpTopicSource[] = [
           "A dangerous action on another computer needs both: that computer's **Dangerous** permission for this one, and your own right here. A phone without the dangerous permission on this computer can't reach for it through this computer. A move you start from here for another computer's session comes back to this one from it: carrying a folder's trust or the files git ignores then needs each computer's **Dangerous** permission for the other.",
           "Every change another computer makes here is written to this computer's audit log, with who acted through it; a dangerous one also shows a notice here.",
           'With **Dangerous**, another computer can run anything here: give it only to a computer you trust as much as this one.',
-          'With **Run**, another computer runs commands here as you, each approved on that computer, not on this one: give it only to a computer you would let type into a terminal here.',
+          'With **Run**, another computer runs commands and starts Claude Code sessions here as you, each approved on that computer, not on this one: give it only to a computer you would let type into a terminal here.',
         ],
       },
     ],
@@ -1907,6 +1910,130 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'A program is not found',
             text: 'On a Mac, put what adds it to the `PATH` in `.zprofile`, not only `.zshrc`. On Windows, restart Mother Claude after installing it: a run gets the `PATH` Mother Claude started with.',
+          },
+        ],
+      },
+    ],
+  },
+
+  {
+    id: 'machines-task',
+    title: 'Hand a task to another computer',
+    icon: 'send',
+    group: 'machines',
+    summary:
+      'Let a session hand a task to a Claude Code session on another of your computers, and get its work back as a branch.',
+    intro:
+      "A Claude Code session on one computer can hand a whole task to a session on another: your Mac's session asks your Windows PC to make the installer build on Windows. A session there does it in its own copy of the project, at the Mac session's code, and its work comes back to the Mac as a branch, with its last message as the summary. You approve each task.",
+    keywords: [
+      'task',
+      'hand over',
+      'machine_task',
+      'branch',
+      'worktree',
+      'summary',
+      'another session',
+      'delegate',
+    ],
+    sections: [
+      {
+        heading: 'Turn it on',
+        points: [
+          'Handing tasks over uses the **Run** permission: a session that works on the other computer runs code there. Turn it on as for running commands.',
+          'Both computers need this version of Mother Claude.',
+        ],
+        links: [{ label: 'See Run commands on another computer', path: '/help/machines-run' }],
+      },
+      {
+        heading: 'Ask a session to use it',
+        intro:
+          'Ask in your own words, such as “have DESKTOP-PC make the installer build on Windows”. Claude writes the task as a full prompt, since the session there knows nothing of your conversation, and hands it over:',
+        terms: [
+          {
+            term: '`machine_task`',
+            text: "Hands the task over and waits up to 10 minutes for that session to finish its turn. It can choose the session's permission mode, model and effort.",
+          },
+          {
+            term: '`machine_wait`',
+            text: 'Waits again for a task that is still running, or for its next end once it runs again.',
+          },
+          {
+            term: '`machine_cancel`',
+            text: "Stops the task's session. What it did so far still comes back.",
+          },
+        ],
+      },
+      {
+        heading: 'Approve each task',
+        intro:
+          "Each task waits for your approval on the computer whose session asks: in **Inbox**, on the session's page and on your phone. The card shows:",
+        terms: [
+          { term: 'Computer', text: 'Where the task goes.' },
+          {
+            term: 'Folder',
+            text: "That computer's copy of the project. The task gets its own worktree of it, at the session's code: the copy itself is not touched.",
+          },
+          { term: 'Task', text: 'The whole prompt the session there gets.' },
+          {
+            term: 'Permission mode',
+            text: 'How the session there asks before it acts: **default** unless Claude asked for another.',
+          },
+          {
+            term: 'Account',
+            text: "The Claude account it runs under there: the one with the same name as this session's account, else the Default.",
+          },
+        ],
+        points: [
+          'There is no **Always…**: every task is approved.',
+          'A task whose session runs without approvals (`bypassPermissions` or `dontAsk`) is dangerous: only the desktop app, or a phone allowed dangerous actions, can allow it, and the other computer must have given this one its **Dangerous** permission.',
+        ],
+      },
+      {
+        heading: 'Where it works',
+        points: [
+          "In a worktree of its own on the other computer, in Mother Claude's data folder there: a git worktree of that computer's copy of the project, set to the session's code, committed or not.",
+          'Your own copy of the project there is never changed.',
+          "The session there is an ordinary Claude Code session that Mother Claude runs. Both computers list it, named after where it came from and the task's first line; you drive it and answer its approvals from either one.",
+        ],
+      },
+      {
+        heading: 'What comes back',
+        points: [
+          'When its turn ends with nothing waiting, what it did, its commits and the changes it left uncommitted, comes back as the branch `mother-claude/<computer>/<task>` in this project.',
+          'The branch is never checked out or merged: look at it with `git log` and `git diff`, then merge what you want, or delete it.',
+          "Claude also gets the session's last message as the task's summary. A task that changed nothing makes no branch.",
+          'Send the session another message, from either computer, and the task runs again: when that turn ends, the branch moves forward with what it did since. It never rewrites what the branch already holds, and never moves a branch you committed onto or have checked out.',
+        ],
+      },
+      {
+        heading: 'Follow and remove tasks',
+        points: [
+          '**Machines › Runs** lists the tasks both ways under **Tasks**: where, the project, the task, how it stands and the branch. **Open its session** opens it on the computer it runs on; **Summary** shows its last message; **Cancel** stops a task that still works.',
+          '**Remove** takes away a task that ended, with its worktree and session on the other computer. Its branch stays.',
+          'Each computer keeps a task 7 days after it last ended, then removes it with its worktree.',
+          "On the asking session's page, a task is a background task too: open **Agents**, then **Background tasks**.",
+          'Turning Machines off, revoking a computer or taking back its **Run** permission cancels the tasks it still works on here.',
+        ],
+        links: [{ label: 'Open Machines', path: '/machines' }],
+      },
+      {
+        heading: "If it doesn't go",
+        terms: [
+          {
+            term: '… has not given this computer the Run permission',
+            text: "Tick **Run** for this computer on that computer's **Machines** page.",
+          },
+          {
+            term: '… needs its Dangerous permission',
+            text: 'Tick **Dangerous** for this computer on the other computer, or let the task run in the default mode and answer its approvals.',
+          },
+          {
+            term: "… isn't signed in on …",
+            text: 'Sign that account in on the other computer, under **Settings › Accounts** there.',
+          },
+          {
+            term: 'The branch did not move',
+            text: 'You committed onto it, or a worktree has it checked out: Mother Claude never moves it under you. The task names the newer commit, and `git branch` makes a branch of it.',
           },
         ],
       },

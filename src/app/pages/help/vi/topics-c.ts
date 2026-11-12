@@ -272,7 +272,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Chạy',
-            text: 'Chạy lệnh ở đây cho các phiên của máy đó, trong một thư mục làm việc riêng: bản sao dự án của máy này không bao giờ bị động đến. Mỗi lần chạy được duyệt trên máy kia. Tắt theo mặc định.',
+            text: 'Chạy lệnh ở đây cho các phiên của máy đó, trong một thư mục làm việc riêng, và nhận các tác vụ chúng giao, trong một worktree riêng: bản sao dự án của máy này không bao giờ bị động đến. Mỗi việc đều được duyệt trên máy kia. Tắt theo mặc định.',
           },
           {
             term: 'Nguy hiểm',
@@ -282,7 +282,10 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Điều khiển cần quyền xem; di chuyển, chạy lệnh và thao tác nguy hiểm cần quyền điều khiển. Đánh dấu một quyền sẽ đánh dấu cả những quyền nó cần; bỏ một quyền sẽ bỏ cả những quyền cần nó.',
         ],
-        links: [{ label: 'Xem “Chạy lệnh trên máy tính khác”', path: '/help/machines-run' }],
+        links: [
+          { label: 'Xem “Chạy lệnh trên máy tính khác”', path: '/help/machines-run' },
+          { label: 'Xem “Giao tác vụ cho máy tính khác”', path: '/help/machines-task' },
+        ],
       },
       {
         heading: 'Cùng mạng hay qua Internet',
@@ -311,7 +314,7 @@ const TOPICS: HelpTopicSource[] = [
           'Một thao tác nguy hiểm trên máy khác cần cả hai: quyền **Nguy hiểm** mà máy đó cấp cho máy này, và quyền của chính bạn ở đây. Một điện thoại không có quyền thao tác nguy hiểm trên máy này không thể dùng máy này để làm việc đó. Một lần chuyển bạn bắt đầu từ đây cho phiên của máy khác sẽ quay về máy này từ máy đó: khi đó việc mang theo sự tin cậy của thư mục hay các tệp git bỏ qua cần quyền **Nguy hiểm** mà mỗi máy cấp cho máy kia.',
           'Mọi thay đổi mà máy khác thực hiện ở đây đều được ghi vào nhật ký kiểm tra của máy này, kèm người đã thao tác qua máy đó; thao tác nguy hiểm còn hiện thông báo ở đây.',
           'Có quyền **Nguy hiểm**, máy kia có thể chạy bất cứ thứ gì ở đây: chỉ cấp cho máy tính bạn tin cậy như chính máy này.',
-          'Có quyền **Chạy**, máy kia chạy lệnh ở đây với tư cách của bạn, mỗi lần chạy được duyệt trên máy đó chứ không phải trên máy này: chỉ cấp cho máy tính mà bạn sẵn lòng để nó gõ lệnh vào terminal ở đây.',
+          'Có quyền **Chạy**, máy kia chạy lệnh và khởi động phiên Claude Code ở đây với tư cách của bạn, mỗi việc được duyệt trên máy đó chứ không phải trên máy này: chỉ cấp cho máy tính mà bạn sẵn lòng để nó gõ lệnh vào terminal ở đây.',
         ],
       },
     ],
@@ -825,6 +828,121 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'Không tìm thấy một chương trình',
             text: 'Trên máy Mac, hãy đặt dòng thêm chương trình vào `PATH` trong `.zprofile`, không chỉ trong `.zshrc`. Trên Windows, hãy khởi động lại Mother Claude sau khi cài chương trình: lần chạy nhận `PATH` từ lúc Mother Claude khởi động.',
+          },
+        ],
+      },
+    ],
+  },
+
+  {
+    id: 'machines-task',
+    title: 'Giao tác vụ cho máy tính khác',
+    icon: 'send',
+    group: 'machines',
+    summary:
+      'Cho một phiên giao một tác vụ cho một phiên Claude Code trên máy tính khác của bạn, rồi nhận kết quả về dưới dạng một nhánh.',
+    intro:
+      'Một phiên Claude Code trên máy này có thể giao cả một tác vụ cho một phiên trên máy khác: phiên trên máy Mac nhờ máy PC Windows của bạn làm cho bộ cài build được trên Windows. Một phiên ở đó làm việc này trong bản sao dự án riêng của nó, với mã nguồn của phiên trên máy Mac, và kết quả quay về máy Mac dưới dạng một nhánh, kèm tin nhắn cuối của phiên làm bản tóm tắt. Bạn duyệt từng tác vụ.',
+    keywords: ['giao tác vụ', 'tác vụ', 'nhánh', 'tóm tắt', 'phiên khác', 'máy khác', 'ủy thác'],
+    sections: [
+      {
+        heading: 'Bật tính năng',
+        points: [
+          'Việc giao tác vụ dùng quyền **Chạy**: một phiên làm việc trên máy kia nghĩa là chạy mã ở đó. Hãy bật quyền này giống như khi chạy lệnh.',
+          'Cả hai máy đều cần phiên bản Mother Claude này.',
+        ],
+        links: [{ label: 'Xem “Chạy lệnh trên máy tính khác”', path: '/help/machines-run' }],
+      },
+      {
+        heading: 'Nhờ một phiên dùng tính năng này',
+        intro:
+          'Hãy nói bằng lời của bạn, chẳng hạn “nhờ DESKTOP-PC làm cho bộ cài build được trên Windows”. Claude viết tác vụ thành một prompt đầy đủ, vì phiên ở đó không biết gì về cuộc trò chuyện của bạn, rồi giao nó đi:',
+        terms: [
+          {
+            term: '`machine_task`',
+            text: 'Giao tác vụ đi và chờ tối đa 10 phút để phiên đó xong lượt của mình. Nó có thể chọn chế độ quyền, mô hình và mức nỗ lực của phiên.',
+          },
+          {
+            term: '`machine_wait`',
+            text: 'Chờ tiếp một tác vụ vẫn đang chạy, hoặc lần kết thúc tiếp theo của nó khi nó chạy lại.',
+          },
+          {
+            term: '`machine_cancel`',
+            text: 'Dừng phiên của tác vụ. Những gì nó đã làm đến lúc đó vẫn được mang về.',
+          },
+        ],
+      },
+      {
+        heading: 'Duyệt từng tác vụ',
+        intro:
+          'Mỗi tác vụ đều chờ bạn duyệt trên máy tính có phiên đang nhờ: trong **Hộp thư**, trên trang của phiên và trên điện thoại của bạn. Thẻ yêu cầu duyệt hiện:',
+        terms: [
+          { term: 'Máy tính', text: 'Nơi tác vụ được giao đến.' },
+          {
+            term: 'Thư mục',
+            text: 'Bản sao dự án trên máy đó. Tác vụ có một worktree riêng của bản sao này, với mã nguồn của phiên: bản thân bản sao không bị động đến.',
+          },
+          { term: 'Tác vụ', text: 'Toàn bộ prompt mà phiên ở đó nhận được.' },
+          {
+            term: 'Chế độ quyền',
+            text: 'Cách phiên ở đó hỏi trước khi hành động: **default** trừ khi Claude yêu cầu chế độ khác.',
+          },
+          {
+            term: 'Tài khoản',
+            text: 'Tài khoản Claude mà phiên chạy dưới đó: tài khoản cùng tên với tài khoản của phiên này, nếu không có thì là tài khoản Mặc định.',
+          },
+        ],
+        points: [
+          'Không có **Luôn cho phép…**: mọi tác vụ đều được duyệt.',
+          'Một tác vụ mà phiên chạy không cần phê duyệt (`bypassPermissions` hoặc `dontAsk`) là tác vụ nguy hiểm: chỉ ứng dụng máy tính, hoặc điện thoại được phép thực hiện thao tác nguy hiểm, mới cho phép được, và máy kia phải cấp quyền **Nguy hiểm** cho máy này.',
+        ],
+      },
+      {
+        heading: 'Tác vụ làm việc ở đâu',
+        points: [
+          'Trong một worktree riêng trên máy kia, nằm trong thư mục dữ liệu của Mother Claude ở đó: một git worktree của bản sao dự án trên máy đó, đặt về đúng mã nguồn của phiên, dù đã commit hay chưa.',
+          'Bản sao dự án của chính bạn ở đó không bao giờ bị thay đổi.',
+          'Phiên ở đó là một phiên Claude Code bình thường do Mother Claude chạy. Cả hai máy đều liệt kê nó, đặt tên theo nơi nó đến và dòng đầu của tác vụ; bạn điều khiển nó và trả lời các yêu cầu duyệt của nó từ bất kỳ máy nào.',
+        ],
+      },
+      {
+        heading: 'Những gì nhận lại',
+        points: [
+          'Khi lượt của phiên kết thúc mà không còn gì chờ, những gì nó đã làm, gồm các commit và các thay đổi chưa commit, quay về thành nhánh `mother-claude/<computer>/<task>` trong dự án này.',
+          'Nhánh không bao giờ được checkout hay merge: hãy xem nó bằng `git log` và `git diff`, rồi merge những gì bạn muốn, hoặc xóa nó.',
+          'Claude cũng nhận tin nhắn cuối của phiên làm bản tóm tắt của tác vụ. Một tác vụ không thay đổi gì thì không tạo nhánh.',
+          'Gửi cho phiên thêm một tin nhắn, từ bất kỳ máy nào, và tác vụ chạy lại: khi lượt đó kết thúc, nhánh tiến lên với những gì nó đã làm thêm. Nhánh không bao giờ bị viết lại những gì nó đã có, và một nhánh bạn đã commit lên hoặc đang checkout thì không bao giờ bị dịch chuyển.',
+        ],
+      },
+      {
+        heading: 'Theo dõi và gỡ bỏ tác vụ',
+        points: [
+          '**Các máy › Các lần chạy** liệt kê các tác vụ theo cả hai chiều trong **Tác vụ**: nơi đến, dự án, tác vụ, tình trạng và nhánh. **Mở phiên của tác vụ** mở nó trên máy đang chạy nó; **Tóm tắt** hiện tin nhắn cuối của nó; **Hủy** dừng một tác vụ vẫn đang làm việc.',
+          '**Gỡ bỏ** xóa một tác vụ đã kết thúc, cùng worktree và phiên của nó trên máy kia. Nhánh của nó vẫn được giữ.',
+          'Mỗi máy giữ một tác vụ 7 ngày sau lần kết thúc gần nhất, rồi gỡ nó cùng worktree.',
+          'Trên trang của phiên đã giao tác vụ, tác vụ cũng là một tác vụ nền: mở **Tác tử**, rồi **Tác vụ nền**.',
+          'Tắt tính năng Các máy, thu hồi một máy hoặc rút lại quyền **Chạy** của máy đó sẽ hủy các tác vụ máy đó vẫn đang làm ở đây.',
+        ],
+        links: [{ label: 'Mở trang Các máy', path: '/machines' }],
+      },
+      {
+        heading: 'Khi tác vụ không được giao',
+        terms: [
+          {
+            term: 'Máy kia chưa cấp quyền Chạy cho máy này',
+            text: 'Hãy đánh dấu **Chạy** cho máy này trên trang **Các máy** của máy kia.',
+          },
+          {
+            term: 'Cần quyền Nguy hiểm của máy kia',
+            text: 'Hãy đánh dấu **Nguy hiểm** cho máy này trên máy kia, hoặc để tác vụ chạy ở chế độ mặc định và trả lời các yêu cầu duyệt của nó.',
+          },
+          {
+            term: 'Tài khoản chưa đăng nhập trên máy kia',
+            text: 'Hãy đăng nhập tài khoản đó trên máy kia, trong **Cài đặt › Tài khoản** ở đó.',
+          },
+          {
+            term: 'Nhánh không tiến lên',
+            text: 'Bạn đã commit lên nhánh, hoặc một worktree đang checkout nó: Mother Claude không bao giờ dịch chuyển nó dưới tay bạn. Tác vụ nêu commit mới hơn, và `git branch` tạo một nhánh từ commit đó.',
           },
         ],
       },
