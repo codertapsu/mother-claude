@@ -164,6 +164,102 @@ pub struct RunningView {
     pub rss_bytes: Option<u64>,
 }
 
+/// A role of a team this computer leads that runs on another computer
+/// (docs/PLAN-MACHINES.md Phase 4 decision 9): where it runs, what was last
+/// heard of it, and that computer's last admission decision. It counts
+/// there — that computer's own `admit`, with every role session it runs —
+/// never here.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteRoleView {
+    pub team: String,
+    pub team_label: String,
+    pub project: String,
+    pub role: String,
+    pub role_title: String,
+    /// The computer (its id; empty until a start resolved it) and its name
+    /// (else what the template names: `os:windows`, a name).
+    pub machine: String,
+    pub machine_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    pub alive: bool,
+    pub busy: bool,
+    /// That computer did not answer the last time.
+    pub unreachable: bool,
+    /// `running` | `waiting` (that computer said not now) | `stopped`.
+    pub state: &'static str,
+    /// Why it waits, in that computer's words ("on DESKTOP-PC: …").
+    pub reasons: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting_since: Option<i64>,
+    /// When it was last heard (or asked).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heard_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
+/// This computer's teams' roles that run on other computers, by project,
+/// team and role.
+pub fn remote_roles(state: &AppState) -> Vec<RemoteRoleView> {
+    let mut out = Vec::new();
+    for team in state.teams.all() {
+        for role in &team.template.roles {
+            let slot = team.slot(&role.id);
+            if role.machine_spec().is_none() && slot.remote.is_none() {
+                continue;
+            }
+            let rt = state.teams.runtime(&team.id, &role.id);
+            let heard = slot
+                .remote
+                .as_ref()
+                .and_then(|r| state.teams.remote_status(&r.binding));
+            let alive = heard.as_ref().is_some_and(|s| s.alive);
+            let (machine, machine_name) = match &slot.remote {
+                Some(r) => (r.machine.clone(), r.machine_name.clone()),
+                None => (
+                    String::new(),
+                    role.machine_spec().unwrap_or_default().to_string(),
+                ),
+            };
+            let waiting = rt.waiting.clone().filter(|_| !alive);
+            out.push(RemoteRoleView {
+                team: team.id.clone(),
+                team_label: team.label.clone(),
+                project: team.project.clone(),
+                role: role.id.clone(),
+                role_title: role.title.clone(),
+                machine,
+                machine_name,
+                session: heard
+                    .as_ref()
+                    .and_then(|s| s.session.clone())
+                    .or_else(|| slot.session_id.clone()),
+                alive,
+                busy: heard.as_ref().is_some_and(|s| s.busy),
+                unreachable: heard.as_ref().is_some_and(|s| s.unreachable),
+                state: if alive {
+                    "running"
+                } else if waiting.is_some() {
+                    "waiting"
+                } else {
+                    "stopped"
+                },
+                reasons: waiting
+                    .as_ref()
+                    .map(|w| w.reasons.clone())
+                    .unwrap_or_default(),
+                waiting_since: waiting.as_ref().map(|w| w.since),
+                heard_at: heard.as_ref().map(|s| s.at).filter(|at| *at > 0),
+                last_error: rt.last_error.clone().filter(|_| !alive),
+            });
+        }
+    }
+    out.sort_by(|a, b| (&a.project, &a.team, &a.role).cmp(&(&b.project, &b.team, &b.role)));
+    out
+}
+
 /// The optional classifier.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -187,6 +283,10 @@ pub struct CapacityView {
     pub rate_limits: Vec<RateLimitNote>,
     pub running: Vec<RunningView>,
     pub queue: Vec<QueueEntry>,
+    /// This computer's teams' roles that run on other computers: listed
+    /// apart, never counted in `caps` (they count where they run).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub remote_roles: Vec<RemoteRoleView>,
     pub budgets: Vec<BudgetState>,
     pub routes: Vec<RouteNote>,
     pub settings: Limits,
@@ -289,6 +389,7 @@ pub fn capacity_view(state: &AppState, ctx: &ClientContext) -> CapacityView {
         rate_limits: lock(&state.scheduler.rate).all(),
         running,
         queue,
+        remote_roles: remote_roles(state),
         budgets: budget::states(state),
         routes: lock(&state.scheduler.routes).iter().cloned().collect(),
         classifier: ClassifierView {

@@ -732,7 +732,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         points: [
           'Ở đó nó làm việc trong một worktree riêng, với mã nguồn của dự án này. Bản sao của bạn ở đó không bị động đến.',
           'Các tác vụ của nó nằm trên bảng này. Khi xong một tác vụ, kết quả của nó quay về đây thành nhánh `mother-claude/<computer>/<team>/<role>`, được ghi trên tác vụ; trưởng nhóm xem xét rồi gộp nhánh đó.',
-          'Ô của nó ghi **trên DESKTOP-PC**, kèm lý do nó phải chờ hoặc không khởi chạy được. Trang Công suất của máy kia tính phiên này, không phải trang của máy này.',
+          'Ô của nó ghi **trên DESKTOP-PC**, kèm lý do nó phải chờ hoặc không khởi chạy được. Trang Công suất của máy kia tính phiên này, không phải trang của máy này; trang của máy này liệt kê nó riêng, trong mục **Trên các máy tính khác của bạn**, kèm quyết định gần nhất của máy kia.',
           'Nó không nhắn được cho trưởng nhóm bằng SendMessage: nó ghi lên tác vụ của mình, và Mother Claude báo cho trưởng nhóm.',
           'Máy kia liệt kê nó trong **Các máy › Các lần chạy › Vai trò trong nhóm**, nơi **Dừng** và **Gỡ bỏ** tác động lên nó ở đó.',
         ],

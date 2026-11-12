@@ -1469,7 +1469,9 @@ secret, and a board call must also name the role's current session; the
 other computer runs its admission before the code is sent (`prepare`) and
 again at the start, and the role waits on the lead's team page with its
 reasons (*on DESKTOP-PC: …*), while its Capacity page shows the queue and
-the session (*for MacBook*); the role's worktree is kept between starts
+the session (*for MacBook*) — and, since 2026-11-13, the lead's Capacity
+page lists the role apart (`remoteRoles`: where it runs, running, waiting
+there with its reasons, or stopped; never in the lead's counts); the role's worktree is kept between starts
 and moved to the lead's newer code only when nothing in it is unreturned
 and the lead's code holds what came back (the next result stays a
 descendant of the last, so the branch only moves forward); a result is

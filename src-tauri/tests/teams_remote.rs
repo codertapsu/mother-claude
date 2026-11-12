@@ -895,3 +895,67 @@ async fn without_run_or_with_machines_off_the_role_does_not_start_there() {
     }
     assert_eq!(w.b.st.machines.recorded_role_stops()[1], again);
 }
+
+/// The lead's Capacity page lists its teams' roles on other computers —
+/// where they run, with that computer's last admission decision — apart
+/// from its own role sessions, never counted here (they count there).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_lead_s_capacity_page_lists_its_roles_elsewhere_never_counted_here() {
+    use mother_claude_lib::orchestration::scheduler::{self, RateLimitNote};
+    let w = world_with(true).await;
+    let team = w.team("WIN-BOX").await;
+    let task = w.task_for_windows(&team, "Windows build").await;
+
+    // That computer makes it wait (its account hit a limit), and says why.
+    scheduler::note_rate_limited(&w.b.st, "default");
+    let e = launcher::start_role(&w.a.st, &team, "windows", Some(task), &[])
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("WIN-BOX"), "{e}");
+    let (s, v) = w.a.call("GET", "/capacity", None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let rows = v["remoteRoles"].as_array().expect("its roles elsewhere");
+    assert_eq!(rows.len(), 1, "{v:#}");
+    let r = &rows[0];
+    assert_eq!(r["role"], "windows");
+    assert_eq!(r["roleTitle"], "Windows");
+    assert_eq!(r["team"], team.as_str());
+    assert_eq!(r["state"], "waiting", "{r:#}");
+    assert!(
+        r["reasons"][0]
+            .as_str()
+            .is_some_and(|x| x.starts_with("on WIN-BOX: ")),
+        "that computer's words: {r:#}"
+    );
+    assert_eq!(v["caps"]["workersRunning"], 0);
+
+    // Admitted there: it runs there, listed here, counted there only.
+    w.b.st.scheduler.note_rate(RateLimitNote {
+        at: chrono::Utc::now().timestamp_millis() + 1,
+        account: "default".into(),
+        status: "allowed".into(),
+        limit: None,
+        resets_at: None,
+        pct: Some(10.0),
+        source: "stream",
+    });
+    let session = launcher::start_role(&w.a.st, &team, "windows", Some(task), &[])
+        .await
+        .expect("started there");
+    let (_, v) = w.a.call("GET", "/capacity", None).await;
+    let r = &v["remoteRoles"][0];
+    assert_eq!(r["state"], "running", "{r:#}");
+    assert_eq!(r["machineName"], "WIN-BOX");
+    assert_eq!(r["machine"], w.b.id().as_str());
+    assert_eq!(r["session"], session.as_str());
+    assert_eq!(r["reasons"], json!([]));
+    assert_eq!(v["caps"]["workersRunning"], 0, "never counted here");
+    assert!(v["running"].as_array().unwrap().is_empty(), "{v:#}");
+    // That computer leads no team of its own: nothing listed there.
+    let (_, there) = w.b.call("GET", "/capacity", None).await;
+    assert!(
+        there.get("remoteRoles").is_none(),
+        "none of its own elsewhere"
+    );
+    launcher::stop_role(&w.a.st, &team, "windows", "done").await;
+}

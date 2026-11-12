@@ -55,6 +55,49 @@ describe('CapacityComponent', () => {
     fixture.destroy();
   });
 
+  it("lists the teams' roles on other computers apart, with that computer's decision", async () => {
+    const v = view();
+    backend.routes.set('/capacity', () => ({
+      status: 200,
+      body: {
+        ...v,
+        remoteRoles: [
+          {
+            team: 'tm_1',
+            teamLabel: 'shop',
+            project: '/Users/me/shop',
+            role: 'windows',
+            roleTitle: 'Windows',
+            machine: 'f'.repeat(32),
+            machineName: 'DESKTOP-PC',
+            session: null,
+            alive: false,
+            busy: false,
+            unreachable: false,
+            state: 'waiting',
+            reasons: ['on DESKTOP-PC: 3 role sessions run already (your limit)'],
+            waitingSince: Date.now() - 60_000,
+            heardAt: Date.now() - 10_000,
+          },
+        ],
+      },
+    }));
+    const fixture = TestBed.createComponent(CapacityComponent);
+    await flush();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const card = el.querySelector('.remote-roles');
+    expect(card).not.toBeNull();
+    const text = (card?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toContain('Windows');
+    expect(text).toContain('on DESKTOP-PC');
+    expect(text).toContain('waiting there');
+    expect(text).toContain('on DESKTOP-PC: 3 role sessions run already (your limit)');
+    // Never counted here: the caps line is the server's, untouched.
+    expect(el.textContent).toContain('of 3 workers');
+    fixture.destroy();
+  });
+
   it('says so when the server has no capacity data', async () => {
     backend.routes.set('/capacity', () => ({
       status: 404,

@@ -356,7 +356,11 @@ launcher stay on the computer that started it.
 * **Where it counts.** Its session runs on that computer, so it counts in
   that computer's admission and on its Capacity page (*for <the lead's
   computer>*), never here; the team page shows the role *on DESKTOP-PC*,
-  its worktree there and its branch.
+  its worktree there and its branch. This computer's Capacity page lists
+  it apart, under *On your other computers* (`remoteRoles`): where it
+  runs, whether it runs, waits there (with that computer's reasons, *on
+  DESKTOP-PC: …*) or is stopped, and when it was last heard — never in
+  this computer's counts.
 * **Only owned sessions** run a role elsewhere: a foreign session can take
   a role only on the team's own computer.
 

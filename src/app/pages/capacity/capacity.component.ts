@@ -5,6 +5,7 @@ import { ApiError, ApiService, errorMessage } from '../../core/api.service';
 import {
   CapacityView,
   QueueEntry,
+  RemoteRoleView,
   RouteNote,
   bytesLabel,
   choiceLabel,
@@ -128,6 +129,18 @@ export class CapacityComponent {
   /** "P0", "P2 · lead". */
   protected priority(q: QueueEntry): string {
     return q.lead ? tr('lead') : `P${q.priority}`;
+  }
+
+  /** A remote role's badge: what its computer last said of it. */
+  protected remoteState(r: RemoteRoleView): string {
+    switch (r.state) {
+      case 'running':
+        return r.busy ? tr('working there') : tr('running there');
+      case 'waiting':
+        return tr('waiting there');
+      default:
+        return tr('stopped');
+    }
   }
 
   /** "for reviewer (implement) in app", "for a task in app". */

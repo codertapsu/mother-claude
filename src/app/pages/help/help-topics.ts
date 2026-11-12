@@ -2934,7 +2934,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           "It works there in a worktree of its own, at this project's code. Your copy there is not touched.",
           'Its tasks are on this board. When it finishes one, its work comes back here as the branch `mother-claude/<computer>/<team>/<role>`, which the task names; the lead reviews and merges it.',
-          "Its card says **on DESKTOP-PC**, and why it waits or could not start. That computer's Capacity page counts it, not this one's.",
+          "Its card says **on DESKTOP-PC**, and why it waits or could not start. That computer's Capacity page counts it, not this one's; this one's lists it apart, under **On your other computers**, with that computer's last decision.",
           'It cannot message the lead with SendMessage: it writes on its task, and Mother Claude tells the lead.',
           'That computer lists it under **Machines › Runs › Team roles**, where **Stop** and **Remove** act on it there.',
         ],

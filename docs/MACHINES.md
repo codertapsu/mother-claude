@@ -1037,7 +1037,9 @@ work coming back to the Mac as a branch.
 - **It counts where it runs.** The other computer's Capacity page lists its
   session *for MacBook*; the lead's computer does not count it. The team
   page shows the role *on DESKTOP-PC*, why it waits (*on DESKTOP-PC: …*) or
-  why it could not start, its worktree there and its branch.
+  why it could not start, its worktree there and its branch. The lead's
+  Capacity page lists it too, under *On your other computers*, with that
+  computer's last decision — apart from its own counts.
 
 ### On the computer that runs it
 

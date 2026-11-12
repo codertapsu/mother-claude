@@ -94,6 +94,36 @@ export interface RunningView extends RoleSession {
   rssBytes?: number;
 }
 
+/** A role of a team this computer leads that runs on another computer
+ * (docs/PLAN-MACHINES.md Phase 4 decision 9): where it runs, what was last
+ * heard of it, and that computer's last admission decision. It counts
+ * there, never here. */
+export interface RemoteRoleView {
+  team: string;
+  teamLabel: string;
+  project: string;
+  role: string;
+  roleTitle: string;
+  /** The computer (its id; '' until a start resolved it) and its name (or
+   * what the template names, `os:windows`). */
+  machine: string;
+  machineName: string;
+  session?: string | null;
+  /** Its session runs there; in a turn. */
+  alive: boolean;
+  busy: boolean;
+  /** That computer did not answer the last time. */
+  unreachable: boolean;
+  /** That computer's last word on starting it: `waiting` (with its reasons),
+   * `running`, or `stopped`. */
+  state: 'running' | 'waiting' | 'stopped';
+  reasons: string[];
+  waitingSince?: number | null;
+  /** When it was last heard (ms). */
+  heardAt?: number | null;
+  lastError?: string | null;
+}
+
 /** The last admission decision for a (project, role). */
 export interface QueueEntry {
   project: string;
@@ -187,6 +217,9 @@ export interface CapacityView {
   rateLimits: RateLimitNote[];
   running: RunningView[];
   queue: QueueEntry[];
+  /** This computer's teams' roles that run on other computers (absent from
+   * an older server, or none). */
+  remoteRoles?: RemoteRoleView[];
   budgets: BudgetState[];
   routes: RouteNote[];
   settings: CapacitySettings;
@@ -545,6 +578,11 @@ export function normalizeCapacity(raw: unknown): CapacityView | null {
     rateLimits: Array.isArray(v.rateLimits) ? v.rateLimits : [],
     running: Array.isArray(v.running) ? v.running : [],
     queue: Array.isArray(v.queue) ? v.queue : [],
+    remoteRoles: Array.isArray(v.remoteRoles)
+      ? v.remoteRoles
+          .filter((r) => !!r && typeof r === 'object' && typeof r.role === 'string')
+          .map((r) => ({ ...r, reasons: Array.isArray(r.reasons) ? r.reasons : [] }))
+      : [],
     budgets: Array.isArray(v.budgets) ? v.budgets : [],
     routes: Array.isArray(v.routes) ? v.routes : [],
     settings: v.settings,

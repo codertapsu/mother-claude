@@ -269,6 +269,56 @@
           <p class="muted">{{ 'No role sessions run now.' | t }}</p>
         }
 
+        @if (v.remoteRoles?.length) {
+          <h2>{{ 'On your other computers' | t }}</h2>
+          <p class="muted small">
+            {{
+              "Roles of this computer's teams that run on another computer: they count there, not here, and that computer decides when they start."
+                | t
+            }}
+          </p>
+          <ul class="card list remote-roles">
+            @for (r of v.remoteRoles; track r.team + r.role) {
+              <li class="entry">
+                <div class="row">
+                  <strong>{{ r.roleTitle || r.role }}</strong>
+                  <span class="muted">{{
+                    'in {project}' | t: { project: project(r.project) }
+                  }}</span>
+                  <span class="badge info">{{ 'on {name}' | t: { name: r.machineName } }}</span>
+                  <span class="badge" [class.accent]="r.state === 'running'">{{
+                    remoteState(r)
+                  }}</span>
+                  @if (r.unreachable) {
+                    <span class="badge">{{ "can't be reached" | t }}</span>
+                  }
+                  <span class="spacer"></span>
+                  @if (r.state === 'waiting' && r.waitingSince) {
+                    <span class="muted small"
+                      ><mc-time
+                        [ms]="r.waitingSince"
+                        mode="elapsed"
+                        [prefix]="('waiting' | t) + ' '"
+                    /></span>
+                  } @else if (r.heardAt) {
+                    <span class="muted small">{{ 'heard' | t }} <mc-time [ms]="r.heardAt" /></span>
+                  }
+                </div>
+                @if (r.reasons.length) {
+                  <ul class="reasons">
+                    @for (x of r.reasons; track x) {
+                      <li>{{ x }}</li>
+                    }
+                  </ul>
+                }
+                @if (r.lastError) {
+                  <p class="small warn-text">{{ r.lastError }}</p>
+                }
+              </li>
+            }
+          </ul>
+        }
+
         <h2>{{ 'Recent routing decisions' | t }}</h2>
         @if (v.routes.length) {
           <ul class="card list routes">
