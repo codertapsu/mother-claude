@@ -133,10 +133,11 @@ export class SessionContext {
       }),
     );
     this.subs.add(this.realtime.refetch$.subscribe(() => void this.refreshDetail()));
-    // A command it runs on another computer changed (a background task).
+    // A command it runs, or a task it handed, on another computer changed
+    // (a background task).
     this.subs.add(
       this.realtime.machines$.subscribe((f) => {
-        if (f.what === 'runs' && this.id()) this.scheduleDetail();
+        if ((f.what === 'runs' || f.what === 'tasks') && this.id()) this.scheduleDetail();
       }),
     );
     this.subs.add(

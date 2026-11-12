@@ -259,6 +259,8 @@
         @default {
           @if (isBrowser()) {
             <mc-browser-action [input]="full()?.input" />
+          } @else if (isMachineTask()) {
+            <mc-machine-task-action [input]="full()?.input" />
           } @else if (isMachineRun()) {
             <mc-machine-run-action [input]="full()?.input" />
           } @else if (hasPreview()) {

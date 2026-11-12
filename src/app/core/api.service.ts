@@ -43,6 +43,7 @@ import type {
 } from './machines';
 import type { MoveBody } from './move-data';
 import type { MachineRun, RunGrantsView, RunsView } from './runs';
+import type { MachineTask, TaskRemoved, TasksView } from './tasks';
 import {
   MovePreflight,
   MoveRecord,
@@ -228,6 +229,7 @@ import {
  *             getSync() · setSync(project, machine, on) · syncNow(id) ·
  *             resolveSync(id, keep) · getRuns() · getRun(id) ·
  *             cancelRun(id) · getRunGrants() · revokeRunGrant(id) ·
+ *             getTasks() · getTask(id) · cancelTask(id) · removeTask(id) ·
  *             getMachineAccounts() · getMachineFolders(fresh?) ·
  *             cloneHere(body) · checkProjectRemote(project) ·
  *             getRoots() · saveRoots(change)
@@ -1392,6 +1394,30 @@ export class ApiService {
   /** Desktop: `DELETE /api/machines/run-grants/{id}`; answers the list. */
   revokeRunGrant(id: string): Promise<RunGrantsView> {
     return this.req<RunGrantsView>(`/machines/run-grants/${enc(id)}`, { method: 'DELETE' });
+  }
+
+  /** `GET /api/machines/tasks`: tasks handed to other computers, and
+   * taken from them. */
+  getTasks(): Promise<TasksView> {
+    return this.req<TasksView>('/machines/tasks');
+  }
+
+  /** `GET /api/machines/tasks/{id}`: one task whole (its text, summary,
+   * branch). */
+  getTask(id: string): Promise<MachineTask> {
+    return this.req<MachineTask>(`/machines/tasks/${enc(id)}`);
+  }
+
+  /** `POST /api/machines/tasks/{id}/cancel`: stops its session, there or
+   * here. */
+  cancelTask(id: string): Promise<MachineTask> {
+    return this.post<MachineTask>(`/machines/tasks/${enc(id)}/cancel`, {});
+  }
+
+  /** `DELETE /api/machines/tasks/{id}`: removes an ended task (its
+   * worktree there; never its branch here). */
+  removeTask(id: string): Promise<TaskRemoved> {
+    return this.req<TaskRemoved>(`/machines/tasks/${enc(id)}`, { method: 'DELETE' });
   }
 
   getMachineAccounts(): Promise<AccountsTable> {

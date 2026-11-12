@@ -32,6 +32,7 @@ import {
 import { NoticeService } from '../core/notice.service';
 import { PendingService, isFullItem, resolutionText } from '../core/pending.service';
 import { machineRunInput } from '../core/runs';
+import { machineTaskInput } from '../core/tasks';
 import { RealtimeService } from '../core/realtime.service';
 import { sessionLink } from '../core/session-links';
 import { AccountChipComponent } from './account-chip.component';
@@ -40,6 +41,7 @@ import { CapLimitsComponent } from './cap-limits.component';
 import { ChipComponent } from './chip.component';
 import { IconComponent, IconName } from './icon.component';
 import { MachineRunActionComponent } from './machine-run-action.component';
+import { MachineTaskActionComponent } from './machine-task-action.component';
 import { renderMarkdown } from './markdown';
 import { SheetComponent } from './sheet.component';
 import { TimeAgoComponent } from './time-ago.component';
@@ -116,6 +118,7 @@ interface SchemaField {
     ChipComponent,
     IconComponent,
     MachineRunActionComponent,
+    MachineTaskActionComponent,
     SheetComponent,
     TimeAgoComponent,
     ToolPreviewComponent,
@@ -289,9 +292,14 @@ export class PendingCardComponent {
   protected readonly isBrowser = computed(
     () => (this.full()?.source ?? this.item().source) === 'browser',
   );
-  /** A command a session asks to run on another computer (Machines). */
+  /** A command a session asks to run on another computer (Machines), or a
+   * task it asks to hand to a session there. */
   protected readonly isMachineRun = computed(
     () => (this.full()?.source ?? this.item().source) === 'machine',
+  );
+  /** A task a session asks to hand to a session on another computer. */
+  protected readonly isMachineTask = computed(
+    () => this.isMachineRun() && this.toolName() === 'machine_task',
   );
   /** Its "always allow …" is a standing grant: offered only to whoever may
    * attach one (the dangerous right), never shown greyed out to others. */
@@ -302,6 +310,7 @@ export class PendingCardComponent {
    * shown). */
   protected readonly detailText = computed(() => {
     const d = this.item().detail ?? '';
+    if (this.isMachineTask()) return taskDetail(d);
     return this.isMachineRun() ? runDetail(d) : d;
   });
   protected readonly toolName = computed(() => this.full()?.toolName ?? this.item().toolName ?? '');
@@ -370,6 +379,8 @@ export class PendingCardComponent {
       case 'elicitation':
         return it.title || tr('Input requested');
       default: {
+        const task = this.isMachineTask() ? machineTaskInput(this.full()?.input) : null;
+        if (task) return tr('Hand a task to {name}?', { name: task.machineName });
         const run = this.isMachineRun() ? machineRunInput(this.full()?.input) : null;
         if (run) return tr('Run a command on {name}?', { name: run.machineName });
         return (
@@ -729,7 +740,20 @@ export function pendingTitle(title: string | undefined): string {
   if (allow) return tr('Allow {tool}?', { tool: allow[1] });
   const run = /^Run on (.+?): (.+)$/s.exec(t);
   if (run) return tr('Run on {name}: {command}', { name: run[1], command: run[2] });
+  const task = /^Hand a task to (.+?): (.+)$/s.exec(t);
+  if (task) return tr('Hand a task to {name}: {task}', { name: task[1], task: task[2] });
   return title ?? '';
+}
+
+/** A task approval's detail (`machines::work::tasks::source::approve`) in
+ * the language shown; any other text as it came. */
+export function taskDetail(detail: string): string {
+  const m = /^In its own worktree of (.+) on (.+), at this session's code\.$/s.exec(detail);
+  if (!m) return detail;
+  return tr('In its own worktree of {folder} on {name}, at this session’s code.', {
+    folder: m[1],
+    name: m[2],
+  });
 }
 
 /** A run approval's detail (`machines::work::source::approve`) in the
