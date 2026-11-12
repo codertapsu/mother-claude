@@ -70,7 +70,7 @@ pub fn repo_info(op: &GitOp, repo: &Path) -> Result<RepoInfo, CodeError> {
 
 /// A path git printed, in this computer's own form: Git for Windows prints
 /// `C:/Users/me/app`, which would be stored, shown and sent on as such.
-fn native(path: &str) -> PathBuf {
+pub(super) fn native(path: &str) -> PathBuf {
     if cfg!(windows) {
         PathBuf::from(path.replace('/', "\\"))
     } else {

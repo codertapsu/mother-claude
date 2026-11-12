@@ -4,6 +4,7 @@
 mod cases;
 mod special;
 mod sync;
+mod work;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

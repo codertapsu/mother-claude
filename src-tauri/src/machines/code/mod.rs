@@ -8,6 +8,10 @@
 //! checkout when that is clean or parked for this session, or in a new
 //! worktree, keeps what undo needs, and proves the result file by file.
 //!
+//! A run on another computer (Phase 4, `work`) uses the same snapshot and
+//! fetch for its work folder: a kept worktree of the target's checkout,
+//! reset to each snapshot, the files git ignores kept.
+//!
 //! Ported from spike S2 (`spikes/machines/code/roundtrip.mjs`; findings
 //! F1–F9 in `RESULTS-S2.md`). Invariants:
 //! - git runs with argv only, its environment scrubbed, the repository's
@@ -35,6 +39,7 @@ mod snapshot;
 mod sync;
 mod types;
 mod verify;
+mod work;
 
 #[cfg(test)]
 mod tests;
@@ -54,3 +59,4 @@ pub use sync::{
 };
 pub use types::*;
 pub use verify::verify;
+pub use work::{fetch_snapshot, reset_work_tree, top_of, Fetched, WorkTree};

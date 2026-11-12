@@ -59,6 +59,30 @@ fn fetch_move(
     req: &ApplyRequest,
     record: &mut ApplyRecord,
 ) -> Result<(), CodeError> {
+    fetch_into(
+        op,
+        top,
+        in_dir,
+        meta,
+        req.remote.as_deref(),
+        req.keep_remote_refs,
+    )?;
+    record.fetched = true;
+    Ok(())
+}
+
+/// [`fetch_move`]'s git: the snapshot's two commits fetched (from the
+/// bundle in `in_dir`, or the remote) into its refs, then checked against
+/// the record — the trees, the base, every object, the manifest. Shared
+/// with a run's work folder (`super::work`).
+pub(super) fn fetch_into(
+    op: &GitOp,
+    top: &Path,
+    in_dir: &Path,
+    meta: &SnapshotMeta,
+    remote: Option<&str>,
+    keep_remote_refs: bool,
+) -> Result<(), CodeError> {
     let refs = &meta.refs;
     let have = |r: &str| op.rev(top, &format!("{r}^{{commit}}"));
     let already = have(&refs.snap)?.as_deref() == Some(meta.snap.as_str())
@@ -81,7 +105,7 @@ fn fetch_move(
         }
         TransferKind::Remote => {
             let r = meta.remote.as_ref().ok_or(CodeError::FetchMismatch)?;
-            let name = req.remote.as_deref().unwrap_or(&r.remote);
+            let name = remote.unwrap_or(&r.remote);
             if !valid_remote_name(name) {
                 return Err(CodeError::Invalid {
                     what: "remote name",
@@ -103,7 +127,7 @@ fn fetch_move(
                     .arg(format!("{}:{}", r.hidden.snap, refs.snap))
                     .arg(format!("{}:{}", r.hidden.index, refs.index))
                     .raw()?;
-                if !req.keep_remote_refs {
+                if !keep_remote_refs {
                     // Kept here for undo; gone from the remote.
                     let deleted = op
                         .cmd(top)
@@ -118,7 +142,6 @@ fn fetch_move(
             }
         }
     }
-    record.fetched = true;
     if have(&refs.snap)?.as_deref() != Some(meta.snap.as_str())
         || have(&refs.index)?.as_deref() != Some(meta.index_commit.as_str())
     {
@@ -167,7 +190,11 @@ fn fetch_move(
 }
 
 /// Copies the Git LFS objects the move carried (each checked against its id).
-fn install_lfs(info: &RepoInfo, in_dir: &Path, meta: &SnapshotMeta) -> Result<usize, CodeError> {
+pub(super) fn install_lfs(
+    info: &RepoInfo,
+    in_dir: &Path,
+    meta: &SnapshotMeta,
+) -> Result<usize, CodeError> {
     let Some(lfs) = &meta.lfs else {
         return Ok(0);
     };
@@ -196,7 +223,7 @@ fn install_lfs(info: &RepoInfo, in_dir: &Path, meta: &SnapshotMeta) -> Result<us
     Ok(n)
 }
 
-fn same_place(a: &Path, b: &Path) -> bool {
+pub(super) fn same_place(a: &Path, b: &Path) -> bool {
     match (dunce::canonicalize(a), dunce::canonicalize(b)) {
         (Ok(x), Ok(y)) => x == y,
         _ => a == b,
