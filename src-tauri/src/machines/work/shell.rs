@@ -132,6 +132,7 @@ pub fn powershell_script(command: &str) -> String {
     )
 }
 
+#[cfg(not(target_os = "macos"))]
 fn on_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
