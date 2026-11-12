@@ -45,6 +45,7 @@ pub mod setup;
 pub mod store;
 pub mod sync;
 pub mod transport;
+pub mod versions;
 pub mod work;
 
 use std::collections::HashMap;
@@ -878,7 +879,11 @@ pub fn start(state: &AppState) {
 pub async fn view(state: &AppState) -> Value {
     let me = machine_info(state);
     let file = state.machines.store_read(|f| f.clone());
-    let peers: Vec<Value> = file.peers.iter().map(|p| peer_view(state, p)).collect();
+    let peers: Vec<Value> = file
+        .peers
+        .iter()
+        .map(|p| peer_view(state, p, &me.versions))
+        .collect();
     let pairing = state
         .machines
         .pairing
@@ -917,7 +922,7 @@ pub async fn view(state: &AppState) -> Value {
     })
 }
 
-fn peer_view(state: &AppState, p: &PeerRecord) -> Value {
+fn peer_view(state: &AppState, p: &PeerRecord, mine: &Versions) -> Value {
     let link = state.machines.link(&p.id);
     let problem = p.versions.as_ref().and_then(|v| {
         if protocol::compatible(v.protocol) {
@@ -946,6 +951,8 @@ fn peer_view(state: &AppState, p: &PeerRecord) -> Value {
         "shell": p.shell,
         "relay": p.relay,
         "problem": problem,
+        // Which is older, and what it can't do until it updates (`versions`).
+        "skew": versions::skew(p, mine),
         "sessions": state.machines.federation.counts(&p.id).map(|(total, running)| json!({ "total": total, "running": running })),
     })
 }

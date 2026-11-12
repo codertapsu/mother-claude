@@ -516,10 +516,18 @@ pub async fn answer(
                 ctx.note_dangerous("account sign-in");
                 next = Some("/accounts");
             }
-            super::fix_check(state, &check)
-                .await
-                .map(|()| "Fixed.".to_string())
-                .map_err(|e| e.message)
+            if check == "app" {
+                // *Update Mother Claude*: the update shows on this
+                // computer's Software updates page; nothing installs on its
+                // own.
+                next = Some(super::APP_UPDATE_PAGE);
+                Ok("Software updates opened here.".to_string())
+            } else {
+                super::fix_check(state, &check)
+                    .await
+                    .map(|()| "Fixed.".to_string())
+                    .map_err(|e| e.message)
+            }
         }
         AskKind::SignIn => {
             let account = ask.account.clone().unwrap_or_default();

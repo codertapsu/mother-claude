@@ -32,6 +32,7 @@ pub const CAPABILITIES: &[&str] = &[
     super::work::CAPABILITY,
     super::work::tasks::CAPABILITY,
     super::work::roles::CAPABILITY,
+    SYNC,
 ];
 
 /// The capability a machine needs to take (and send) sessions.
@@ -40,6 +41,11 @@ pub const MOVES: &str = "moves";
 /// The capability a machine needs to take the files git ignores that a
 /// project carries with a move (`moves::ignored`).
 pub const IGNORED_FILES: &str = "ignoredFiles";
+
+/// Code sync (`sync`, plan §5.15). Advertised so the Machines page can
+/// name it when another computer lacks it; sync itself does not require it
+/// (builds made before it was advertised keep syncing).
+pub const SYNC: &str = "sync";
 
 /// Versions a machine reports.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

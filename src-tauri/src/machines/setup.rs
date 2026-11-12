@@ -369,6 +369,20 @@ async fn app_check(state: &AppState) -> Check {
     if let Some(v) = &claude {
         detail.push_str(&format!(" · Claude Code {v}"));
     }
+    // Another computer runs a newer Mother Claude (plan Phase 5): this one
+    // can't do all it does with the others until it updates. Its fix shows
+    // the Software updates page — here, or there when another computer asks.
+    let peers = state.machines.store_read(|f| f.peers.clone());
+    if let Some((name, theirs)) = super::versions::newer_app(&peers, env!("CARGO_PKG_VERSION")) {
+        return c.failed(
+            false,
+            format!(
+                "Mother Claude {} is older than {name}'s {theirs}: update it here.",
+                env!("CARGO_PKG_VERSION")
+            ),
+            fix(FixKind::Auto, "Update Mother Claude"),
+        );
+    }
     c.ok(detail)
 }
 
@@ -403,6 +417,10 @@ async fn awake_check(state: &AppState) -> Check {
         )
     }
 }
+
+/// The page the dashboard opens for *Update Mother Claude* (the `app`
+/// check's fix, here or asked from another computer).
+pub const APP_UPDATE_PAGE: &str = "/settings#updates";
 
 fn pairing_check(state: &AppState) -> Check {
     let c = Check::new(
@@ -937,6 +955,10 @@ pub async fn fix_check(state: &AppState, id: &str) -> Result<(), ApiError> {
             state.machines.store_write(|f| f.settings.keep_awake = true);
             super::awake::update(state);
         }
+        // *Update Mother Claude*: the update is installed from the Software
+        // updates page, which the dashboard opens (`APP_UPDATE_PAGE`);
+        // nothing runs here.
+        "app" => {}
         "localNetwork" | "firewall" | "networkProfile" => {
             let pane = match (id, cfg!(windows)) {
                 ("localNetwork", _) => "local-network",
