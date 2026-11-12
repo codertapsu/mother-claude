@@ -270,6 +270,7 @@ const TOPICS: HelpTopicSource[] = [
           'Lần tới khi bạn đăng nhập vào máy, Mother Claude khởi động mà không có cửa sổ, chỉ có biểu tượng trong khay hệ thống (thanh menu trên máy Mac), và vẫn phục vụ điện thoại cùng các máy tính khác của bạn như thường.',
           'Trên Windows, nhấp biểu tượng để hiện cửa sổ, hoặc nhấp chuột phải để chọn **Open Mother Claude** và **Quit Mother Claude**. Trên máy Mac, nhấp biểu tượng trên thanh menu và chọn **Open Mother Claude**.',
           'Đóng cửa sổ vẫn giữ ứng dụng chạy trong khay hệ thống; **Quit Mother Claude** mới thoát hẳn.',
+          'Mở Mother Claude lần nữa khi nó đang chạy sẽ đưa cửa sổ của nó lên trước: không bao giờ có bản thứ hai chạy cùng lúc.',
           'Tùy chọn này tắt cho đến khi bạn bật, và tắt nó sẽ gỡ ứng dụng khỏi danh sách khởi động của máy. Trên Windows, **Trình quản lý tác vụ › Ứng dụng khởi động** cũng tắt được: khi đó **Cài đặt** sẽ báo, và bật lại ở đây sẽ cho ứng dụng khởi động như cũ.',
         ],
       },

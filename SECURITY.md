@@ -1039,6 +1039,19 @@ runs on the other one as an owned session.
   transport runs, mDNS announces this computer's key on the local network,
   and during a pairing its name and system too (the _Nearby_ list).
 
+## One Mother Claude at a time
+
+A second launch hands its arguments to the running app and exits before its
+server, endpoint or window start (Tauri's `tauri-plugin-single-instance`);
+the running app only reads whether that launch was the sign-in start
+(`--tray`) and shows its window otherwise. On Windows the guard is a named
+mutex and a message window in your session. On macOS it is a Unix socket at
+`/tmp/dev_motherclaude_desktop_si.sock`, made with your umask (other
+accounts can't connect): another account on the Mac that creates a socket
+there first can keep Mother Claude from starting for you (it exits as if one
+ran) — a nuisance, never access; and a second account's launch can't reach
+yours and runs on its own.
+
 ## Reporting
 
 This is a research-preview-grade tool over undocumented internals. Audit before

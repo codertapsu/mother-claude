@@ -682,6 +682,12 @@ developed on `main`, as the rest of the app is. Invariants:
   `autostart.enable_for_real()` — tests record. Started with `--tray`, the
   window stays hidden (`tauri.conf.json` makes it hidden; `lib.rs` shows it
   otherwise) and closing it hides it again.
+- **One Mother Claude at a time** (`tauri-plugin-single-instance`,
+  registered first in `lib.rs`): a second launch exits before its server,
+  endpoint or window start, and the running one shows its window
+  (`second_launch`) — unless that launch has `--tray`, which stays quiet.
+  Never run a second copy of the app beside one in use (it shares the data
+  dir: `mcp.token`, `machines.json`, the index checkpoints).
 - **Runs on another computer** (`machines::work`, docs/PLAN-MACHINES.md
   Phase 4): a session's `machine_run` needs the target's `run` grant and an
   approval on the source per run (`crate::pending`, source `machine`)

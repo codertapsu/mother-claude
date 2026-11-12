@@ -260,6 +260,7 @@ const TOPICS: HelpTopicSource[] = [
           'The next time you sign in to the computer, Mother Claude starts with no window, only its icon in the tray (the menu bar on a Mac), and serves your phone and your other computers as usual.',
           'On Windows, click the icon to show the window, or right-click it for **Open Mother Claude** and **Quit Mother Claude**. On a Mac, click the icon in the menu bar and choose **Open Mother Claude**.',
           'Closing the window keeps it running in the tray; **Quit Mother Claude** ends it.',
+          'Opening Mother Claude again while it runs brings its window to the front: a second copy never starts.',
           'It is off until you switch it on, and switching it off removes it from the computer’s startup items. On Windows, **Task Manager › Startup apps** can switch it off too: **Settings** then says so, and switching it on here starts it again.',
         ],
       },

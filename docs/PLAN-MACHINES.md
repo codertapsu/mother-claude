@@ -1533,7 +1533,11 @@ asked (it only removes trust) and matches the computer by its id or its
 key; the login item is the system's own (the `Run` value, a LaunchAgent),
 not `tauri-plugin-autostart` (it writes the program's path unquoted, to
 the machine-wide key when the app runs elevated); a tray icon only on a run
-the login item started.*
+the login item started. Since 2026-11-13, one Mother Claude at a time:
+`tauri-plugin-single-instance`, registered first, so a second launch exits
+before its server, endpoint or window start, and the running one shows its
+window (`lib.rs` `second_launch`) — a second launch with `--tray` (the
+login item while it already runs) stays quiet.*
 
 *The dev mock covers every Machines screen (2026-11-13):
 `?mock=1&mockmachines=1` serves Machines on with DESKTOP-PC (online) and

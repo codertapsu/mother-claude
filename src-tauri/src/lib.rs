@@ -194,6 +194,26 @@ fn recover_path_for_gui() {
     }
 }
 
+/// Mother Claude was opened again while it runs (`tauri-plugin-single-
+/// instance`): that launch has exited, and this one shows its window, in
+/// front — unless the launch was the sign-in start (`--tray`), which stays
+/// quiet.
+#[cfg(desktop)]
+fn second_launch<R: tauri::Runtime>(app: &tauri::AppHandle<R>, argv: &[String]) {
+    if quiet_launch(argv) {
+        tracing::info!("started at sign-in while already running: nothing to show");
+        return;
+    }
+    tracing::info!("opened again: showing the window");
+    tray::show_main(app);
+}
+
+/// Whether a launch's arguments (its program first) are the sign-in start,
+/// which shows no window.
+fn quiet_launch(argv: &[String]) -> bool {
+    argv.iter().skip(1).any(|a| a == autostart::TRAY_ARG)
+}
+
 /// Build and run the Tauri application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -234,7 +254,15 @@ pub fn run() {
     }
     let exit_state = app_state.clone();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // One Mother Claude at a time, registered first so a second launch exits
+    // before anything of it starts (its server, its Machines endpoint, its
+    // window): the one already running answers it (`second_launch`).
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        second_launch(app, &argv)
+    }));
+    builder
         .manage(app_state.clone())
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
@@ -342,5 +370,25 @@ mod tests {
     fn returns_none_when_absent_or_empty() {
         assert_eq!(extract_marked("no markers at all", MARK), None);
         assert_eq!(extract_marked("@@MCPATH@@@@MCPATH@@", MARK), None);
+    }
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::quiet_launch;
+
+    fn argv(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn only_the_sign_in_start_opens_again_quietly() {
+        let exe = r"C:\Program Files\Mother Claude\mother-claude.exe";
+        assert!(quiet_launch(&argv(&[exe, "--tray"])));
+        assert!(!quiet_launch(&argv(&[exe])));
+        assert!(!quiet_launch(&argv(&[])));
+        // The program itself is never read as the flag.
+        assert!(!quiet_launch(&argv(&["--tray"])));
+        assert!(!quiet_launch(&argv(&[exe, "--trayx"])));
     }
 }

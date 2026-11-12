@@ -1150,6 +1150,11 @@ your other computers as usual. *Open Mother Claude* in the icon's menu (on
 Windows, a click on the icon) shows the window; closing the window hides it
 again; *Quit Mother Claude* ends it.
 
+One Mother Claude runs at a time: opening it again while it runs (from the
+Start menu, the Dock, Finder) never starts a second copy — the one running
+shows its window, in front. The sign-in start finding it already running
+does nothing at all.
+
 The switch writes the system's own login item and reads it back: on
 Windows the per-user `Run` key (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
 value `Mother Claude`: the app, quoted, with `--tray`) — when *Task Manager ›
