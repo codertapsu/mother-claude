@@ -292,7 +292,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         intro:
           'Cho đến khi có bản sao lưu đầu tiên, trang sẽ mở với **Thiết lập sao lưu trong ba bước**.',
         steps: [
-          'Mở **Sao lưu & đồng bộ** (ở thanh bên; trên điện thoại, trong **Thêm**).',
+          'Mở **Tài khoản**, rồi thẻ **Bản sao lưu**.',
           'Bước 1: nhấn một trong các thư mục gợi ý (iCloud Drive, Google Drive…), hoặc nhấn **Nhập thư mục…**, nhập đường dẫn đầy đủ vào **Thư mục sao lưu** rồi nhấn **Lưu**.',
           'Bước 2: nhấn **Đặt cụm mật khẩu…** và làm theo hộp thoại (xem bên dưới).',
           'Bước 3: nhấn **Sao lưu ngay**.',
@@ -530,7 +530,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Ghép nối trình duyệt',
         steps: [
-          'Trong Mother Claude, mở **Trình duyệt** (trên điện thoại: **Thêm › Trình duyệt**).',
+          'Trong Mother Claude, mở **Cài đặt › Trình duyệt**.',
           'Nhấn **Ghép nối trình duyệt**. Một mã sẽ hiện ra; mã chỉ dùng được một lần, trong 5 phút.',
           'Trong trình duyệt, bấm nút Mother Claude: bảng bên mở ra ở **Pair this browser**.',
           'Nhập mã vào **Pairing code** và kiểm tra **Name of this browser**.',
@@ -881,7 +881,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Bật hoặc tắt',
         where: 'desktop',
         steps: [
-          'Mở **Cài đặt** và, ở **Giới thiệu**, chọn **Dịch vụ (daemon, máy chủ MCP)**.',
+          'Mở **Cài đặt** và, ở **Các kết nối**, chọn **Công cụ cho Claude Code**.',
           'Ở **Công cụ cho Claude Code (MCP)**, bật hoặc tắt **Cấp công cụ của Mother Claude cho các phiên**.',
         ],
         points: [
@@ -934,7 +934,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Khởi động API',
         steps: [
-          'Mở **API** (trên điện thoại: **Thêm › HTTP API**).',
+          'Mở **Cài đặt › HTTP API**.',
           'Ở **Mặc định**, điền **Thư mục làm việc** (để trống là thư mục chính của bạn).',
           'Chọn **Mô hình**, **Mức nỗ lực**, **Suy nghĩ** và **Quyền**, hoặc để **Mặc định** để dùng cài đặt Claude của riêng bạn.',
           'Ở **Cuộc trò chuyện**, dùng **Tin nhắn gửi vào** để chọn cuộc trò chuyện nhận tin nhắn.',

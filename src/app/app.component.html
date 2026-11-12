@@ -10,8 +10,8 @@
       </a>
       <nav class="side-nav" [attr.aria-label]="'Primary' | t">
         @for (item of sidebar(); track item.id; let i = $index) {
-          @if (item.group && item.group !== sidebar()[i - 1]?.group) {
-            <span class="nav-group" aria-hidden="true">{{ item.group | t }}</span>
+          @if (i > 0 && item.group !== sidebar()[i - 1].group) {
+            <span class="nav-sep" aria-hidden="true"></span>
           }
           <a
             [routerLink]="item.path"

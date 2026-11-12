@@ -36,6 +36,7 @@ import { RealtimeService } from '../../core/realtime.service';
 import { StorageService } from '../../core/storage.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { DataJobComponent } from '../../shared/data-job.component';
+import { HubTabsComponent } from '../../shared/hub-tabs.component';
 import { IconComponent } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { relativeTime, shortPath } from '../../shared/util';
@@ -96,6 +97,7 @@ interface SetRow {
     DataJobComponent,
     FolderPairsComponent,
     ForceBackupSheetComponent,
+    HubTabsComponent,
     IconComponent,
     JobDetailsComponent,
     PassphraseSheetComponent,

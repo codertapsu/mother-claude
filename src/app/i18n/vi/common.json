@@ -38,9 +38,7 @@
   "Capacity": "Công suất",
   "More": "Thêm",
   "Services": "Dịch vụ",
-  "Your data": "Dữ liệu của bạn",
   "Connect": "Kết nối",
-  "System": "Hệ thống",
   "Mac": "máy Mac",
   "PC": "máy PC",
   "computer": "máy tính",
@@ -100,5 +98,8 @@
   "hour": "giờ",
   "hours": "giờ",
   "minute": "phút",
-  "minutes": "phút"
+  "minutes": "phút",
+  "Computers": "Máy tính",
+  "Phone & devices": "Điện thoại & thiết bị",
+  "Sessions started elsewhere": "Phiên bắt đầu ở nơi khác"
 }

@@ -18,6 +18,7 @@ import {
   roleComputer,
   upsertTeam,
 } from '../../core/teams';
+import { HubTabsComponent } from '../../shared/hub-tabs.component';
 import { IconComponent } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { StartTeamSheetComponent } from './start-team-sheet.component';
@@ -30,6 +31,7 @@ import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.comp
   selector: 'mc-teams',
   imports: [
     RouterLink,
+    HubTabsComponent,
     IconComponent,
     TimeAgoComponent,
     TPipe,
@@ -51,6 +53,7 @@ import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.comp
             | t
         }}
       </p>
+      <mc-hub-tabs place="teams" />
 
       @if (error()) {
         <p class="notice error" role="alert">{{ error() }}</p>

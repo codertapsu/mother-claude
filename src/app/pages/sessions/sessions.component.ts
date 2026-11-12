@@ -21,6 +21,7 @@ import {
   deletedIds,
 } from '../../shared/delete-data-sheet.component';
 import { FleetSummaryComponent } from '../../shared/fleet-summary.component';
+import { HubTabsComponent } from '../../shared/hub-tabs.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitOfferComponent } from '../../shared/limit-offer.component';
 import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
@@ -93,6 +94,7 @@ const HERE = 'here';
     RouterLink,
     FormsModule,
     FleetSummaryComponent,
+    HubTabsComponent,
     IconComponent,
     DeleteDataSheetComponent,
     LimitOfferComponent,

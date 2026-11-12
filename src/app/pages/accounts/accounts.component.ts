@@ -36,6 +36,7 @@ import {
 } from '../../shared/accounts';
 import { DataJobComponent } from '../../shared/data-job.component';
 import { CompactMeter, compactPlan } from '../../shared/fleet-summary.component';
+import { HubTabsComponent } from '../../shared/hub-tabs.component';
 import { IconComponent } from '../../shared/icon.component';
 import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
 import { PlanUsageComponent } from '../../shared/plan-usage.component';
@@ -114,6 +115,7 @@ interface ProjectRow {
     AccountAddSheetComponent,
     AccountSheetComponent,
     DataJobComponent,
+    HubTabsComponent,
     IconComponent,
     IdentityWarningComponent,
     MoveDataSheetComponent,

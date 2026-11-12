@@ -1,7 +1,6 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { AccountsService } from '../../core/accounts.service';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AttentionService } from '../../core/attention.service';
 import { AuthService } from '../../core/auth.service';
@@ -27,6 +26,7 @@ import { UpdaterService } from '../../core/updater.service';
 import { IconComponent } from '../../shared/icon.component';
 import { PermissionsListComponent } from '../../shared/permissions-list.component';
 import { UpdaterComponent } from '../../shared/updater.component';
+import { ConnectionsComponent } from './connections.component';
 import { StartupSettingComponent } from './startup-setting.component';
 
 type PrefKey =
@@ -64,13 +64,15 @@ const INGRESS: Record<string, string> = {
   'bridge-loopback': 'This computer (API port)',
 };
 
-/** Notifications, theme, the Claude accounts and Backup & sync (pages of
- * their own), the plan-usage refresh interval (set on the desktop, shown
- * read-only on phones), connection details and about. */
+/** What is set once: notifications, theme, the *Connections* (what else
+ * works with Mother Claude, each with its state and page), the plan-usage
+ * refresh interval (set on the desktop, shown read-only on phones),
+ * connection details and about. */
 @Component({
   selector: 'mc-settings',
   imports: [
     RouterLink,
+    ConnectionsComponent,
     IconComponent,
     PermissionsListComponent,
     StartupSettingComponent,
@@ -98,18 +100,6 @@ export class SettingsComponent {
   protected readonly attention = inject(AttentionService);
   protected readonly updater = inject(UpdaterService);
   protected readonly plan = inject(PlanUsageService);
-  private readonly accounts = inject(AccountsService);
-  /** What the Accounts entry says (only what is already known: opening
-   * Settings fetches nothing new). */
-  protected readonly accountsHint = computed(() => {
-    const list = this.accounts.list();
-    if (list.length > 1) {
-      const d = this.accounts.view()?.defaults;
-      const next = this.accounts.byId(d?.newSession)?.name ?? 'Default';
-      return tr('{n} accounts · new sessions run under {name}', { n: list.length, name: next });
-    }
-    return tr('Several Claude accounts side by side, e.g. to carry on when one reaches its limit');
-  });
   /** The desktop's computer, in sentences. */
   protected readonly computer = computerNoun;
   protected readonly planIntervals = PLAN_INTERVALS;

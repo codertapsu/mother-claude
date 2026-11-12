@@ -1,14 +1,19 @@
 import type { IconName } from '../shared/icon.component';
 
 /**
- * The app's map (docs/UI-REDESIGN.md §10.1): every place the navigation
- * opens, with its route, name, icon, badge, Help topic and the routes that
- * belong to it. The desktop sidebar, the phone's bottom bar and its More
- * list, and the phone's top-bar title all read it; nothing else names the
- * places. A stage of the redesign moves routes and this map together.
+ * The app's map (docs/UI-REDESIGN.md §6.1, §10.1): six places — Sessions,
+ * Inbox and Teams for the work, Computers, Accounts and Settings for what
+ * you look after — with their tabs, Settings' connections, and Help. The
+ * desktop sidebar, the phone's bottom bar and its More list, the phone's
+ * top-bar title and a place's tabs (`mc-hub-tabs`) all read it; nothing
+ * else names the places. A stage of the redesign moves routes and this map
+ * together: for now every tab and connection opens today's route.
  *
- * Labels and hints are English, translated where they are shown
- * (`tr(entry.label)`).
+ * One map for the desktop and the phone: the sidebar lists the work, a
+ * line, then what you look after; the phone's bar shows the work and
+ * *More* the rest, in the same order, then Help.
+ *
+ * Labels are English, translated where they are shown (`tr(entry.label)`).
  */
 
 /** What an entry's badge shows: the requests waiting (`pending`, a count),
@@ -50,18 +55,30 @@ export interface NavTab {
   exact?: boolean;
 }
 
-/** An entry of the desktop sidebar and of the phone's navigation. */
+/** One of Settings' *Connections*: what else works with Mother Claude,
+ * each on a page of its own. */
+export interface NavConnection {
+  id: 'devices' | 'elsewhere' | 'browser' | 'api' | 'tools';
+  /** Its route, as `routerLink` takes it. */
+  path: string;
+  /** The part of the page it opens at. */
+  fragment?: string;
+  /** Its name (English). */
+  label: string;
+  icon: IconName;
+  /** Only the desktop app lists it. */
+  desktopOnly?: boolean;
+  /** The Help topic that explains it. */
+  help: string;
+}
+
+/** The sidebar's two groups, a line between them: the work, and what you
+ * look after. The phone's bar shows the first, More the second. */
+export type NavGroup = 'work' | 'care';
+
+/** A place of the sidebar and of the phone's navigation. */
 export interface NavPlace extends NavEntry {
-  /** The sidebar heading it sits under (none: the work itself). */
-  group?: string;
-  /** Where a phone shows it: a tab of the bottom bar, or a row of More. */
-  phone: 'bar' | 'more';
-  /** The line under it in More (English). */
-  hint?: string;
-  /** Its name in More, when that differs (English). */
-  moreLabel?: string;
-  /** Left out of the sidebar (only More lists it). */
-  noSidebar?: boolean;
+  group: NavGroup;
   /** Its pages, as tabs under its header (none: one page). */
   tabs?: readonly NavTab[];
 }
@@ -73,9 +90,14 @@ export const PLACES: readonly NavPlace[] = [
     path: '/',
     label: 'Sessions',
     icon: 'sessions',
-    phone: 'bar',
+    group: 'work',
     help: 'sessions',
-    sections: [''],
+    // `new`: the home's primary button; `session`: one of them.
+    sections: ['', 'agents', 'new', 'session'],
+    tabs: [
+      { path: '/', label: 'Sessions', exact: true },
+      { path: '/agents', label: 'Agents', badge: 'agents' },
+    ],
   },
   {
     id: 'inbox',
@@ -83,187 +105,118 @@ export const PLACES: readonly NavPlace[] = [
     label: 'Inbox',
     icon: 'inbox',
     badge: 'pending',
-    phone: 'bar',
+    group: 'work',
     help: 'approvals',
     sections: ['inbox'],
-  },
-  {
-    id: 'agents',
-    path: '/agents',
-    label: 'Agents',
-    icon: 'agents',
-    badge: 'agents',
-    phone: 'bar',
-    help: 'sessions',
-    sections: ['agents'],
-  },
-  {
-    id: 'new',
-    path: '/new',
-    label: 'New session',
-    icon: 'plus',
-    phone: 'more',
-    hint: 'Start an owned Claude Code session',
-    help: 'new-session',
-    sections: ['new'],
   },
   {
     id: 'teams',
     path: '/teams',
     label: 'Teams',
     icon: 'layers',
-    phone: 'more',
-    hint: 'A lead and role sessions on a board',
+    group: 'work',
     help: 'teams',
-    sections: ['teams'],
+    sections: ['teams', 'capacity'],
+    tabs: [
+      { path: '/teams', label: 'Teams' },
+      { path: '/capacity', label: 'Capacity' },
+    ],
+  },
+  {
+    id: 'computers',
+    path: '/machines',
+    label: 'Computers',
+    icon: 'monitor',
+    badge: 'machines',
+    group: 'care',
+    help: 'machines-setup',
+    sections: ['machines'],
   },
   {
     id: 'accounts',
     path: '/accounts',
     label: 'Accounts',
     icon: 'user',
-    group: 'Your data',
-    phone: 'more',
-    hint: 'Several Claude accounts, sign-in, moving conversations',
+    group: 'care',
     help: 'accounts',
-    sections: ['accounts'],
-  },
-  {
-    id: 'backup',
-    path: '/backup',
-    label: 'Backup & sync',
-    icon: 'cloud',
-    group: 'Your data',
-    phone: 'more',
-    hint: 'Back up, restore and carry conversations to another computer',
-    help: 'backup',
-    sections: ['backup'],
-  },
-  {
-    id: 'machines',
-    path: '/machines',
-    label: 'Machines',
-    icon: 'monitor',
-    badge: 'machines',
-    group: 'Connect',
-    phone: 'more',
-    hint: 'Your other computers: their sessions, pairing, health',
-    help: 'machines-setup',
-    sections: ['machines'],
-  },
-  {
-    id: 'remote',
-    path: '/remote',
-    label: 'Remote',
-    icon: 'phone',
-    desktopOnly: true,
-    group: 'Connect',
-    phone: 'more',
-    hint: 'Pair devices, internet access, foreign sessions',
-    help: 'phone',
-    sections: ['remote'],
-  },
-  {
-    id: 'browser',
-    path: '/browser',
-    label: 'Browser',
-    icon: 'globe',
-    group: 'Connect',
-    phone: 'more',
-    hint: 'Sessions in your browser: site modes, approvals',
-    help: 'browser',
-    sections: ['browser'],
-  },
-  {
-    id: 'api',
-    path: '/api',
-    label: 'API',
-    moreLabel: 'HTTP API',
-    icon: 'code',
-    group: 'Connect',
-    phone: 'more',
-    hint: 'Drive Claude from scripts and tools',
-    help: 'api',
-    sections: ['api'],
-  },
-  {
-    id: 'capacity',
-    path: '/capacity',
-    label: 'Capacity',
-    icon: 'gauge',
-    group: 'System',
-    phone: 'more',
-    hint: 'Role sessions, why they wait, budgets, routing and costs',
-    help: 'capacity',
-    sections: ['capacity'],
+    sections: ['accounts', 'backup'],
+    tabs: [
+      { path: '/accounts', label: 'Accounts' },
+      { path: '/backup', label: 'Backups' },
+    ],
   },
   {
     id: 'settings',
     path: '/settings',
     label: 'Settings',
     icon: 'settings',
-    group: 'System',
-    phone: 'more',
-    hint: 'Notifications, theme, plan usage, connection',
+    group: 'care',
     help: 'settings',
-    sections: ['settings'],
+    // Its connections' pages, and the first run's macOS permissions.
+    sections: ['settings', 'remote', 'browser', 'api', 'services', 'onboarding'],
+  },
+];
+
+/** Settings' *Connections*, in their order (docs/UI-REDESIGN.md §6.7). */
+export const CONNECTIONS: readonly NavConnection[] = [
+  {
+    id: 'devices',
+    path: '/remote',
+    label: 'Phone & devices',
+    icon: 'phone',
+    desktopOnly: true,
+    help: 'phone',
   },
   {
-    id: 'services',
+    id: 'elsewhere',
+    path: '/remote',
+    fragment: 'foreign',
+    label: 'Sessions started elsewhere',
+    icon: 'plug',
+    desktopOnly: true,
+    help: 'foreign-sessions',
+  },
+  { id: 'browser', path: '/browser', label: 'Browser', icon: 'globe', help: 'browser' },
+  { id: 'api', path: '/api', label: 'HTTP API', icon: 'code', help: 'api' },
+  {
+    id: 'tools',
     path: '/services',
-    label: 'Services',
+    label: 'Claude Code tools',
     icon: 'activity',
-    noSidebar: true,
-    phone: 'more',
-    hint: 'Daemon and MCP servers',
     help: 'claude-code-tools',
-    sections: ['services'],
   },
 ];
 
 /** Help: the sidebar's foot, and More's last row. */
-export const HELP_ENTRY: NavPlace = {
+export const HELP_ENTRY: NavEntry = {
   id: 'help',
   path: '/help',
   label: 'Help',
   icon: 'question',
-  phone: 'more',
-  hint: 'How to use every feature, step by step',
   sections: ['help'],
 };
 
-/** The phone's last tab: everything the bar has no room for. Its own
- * sections are the pages only More leads to. */
+/** The phone's last tab: what the bar has no room for. */
 export const MORE_ENTRY: NavEntry = {
   id: 'more',
   path: '/more',
   label: 'More',
   icon: 'more',
-  sections: ['more', 'onboarding'],
+  sections: ['more'],
 };
 
-/** More's rows, in their order. */
-const MORE_ORDER: readonly string[] = [
-  'new',
-  'teams',
-  'accounts',
-  'backup',
-  'machines',
-  'remote',
-  'settings',
-  'api',
-  'capacity',
-  'browser',
-  'services',
-  'help',
-];
-
-/** Titles of pages that are no place of their own (English). */
+/** Titles of pages that are no place, or not the place's own (English):
+ * what the phone's top bar says there. */
 export const PAGE_TITLES: Readonly<Record<string, string>> = {
   more: 'More',
-  onboarding: 'Welcome',
   pair: 'Pair this device',
   session: 'Session',
+  new: 'New session',
+  onboarding: 'Welcome',
+  remote: 'Remote',
+  browser: 'Browser',
+  api: 'API',
+  services: 'Services',
 };
 
 /**
@@ -272,6 +225,7 @@ export const PAGE_TITLES: Readonly<Record<string, string>> = {
  * notification). `app.routes.ts` holds nothing else.
  */
 export const LINK_ONLY: readonly string[] = [
+  'new',
   'session/:id',
   'session/:id/agent/:agentId',
   'session/:id/on/:machine',
@@ -293,34 +247,33 @@ export function sectionOf(url: string): string {
 
 /** The sidebar, in order: what this client may open. */
 export function sidebarPlaces(desktop: boolean): NavPlace[] {
-  return PLACES.filter((p) => !p.noSidebar && (!p.desktopOnly || desktop));
+  return PLACES.filter((p) => !p.desktopOnly || desktop);
 }
 
-/** The tabs of the phone's bottom bar before More. */
+/** The tabs of the phone's bottom bar before More: the work. */
 export function barPlaces(): NavPlace[] {
-  return PLACES.filter((p) => p.phone === 'bar');
+  return PLACES.filter((p) => p.group === 'work');
 }
 
-/** More's rows, in order: what this client may open. */
-export function moreEntries(desktop: boolean): NavPlace[] {
-  const all = [...PLACES, HELP_ENTRY];
-  return MORE_ORDER.map((id) => all.find((p) => p.id === id)).filter(
-    (p): p is NavPlace => !!p && (!p.desktopOnly || desktop),
-  );
+/** More's rows, in order: what you look after, then Help. */
+export function moreEntries(desktop: boolean): NavEntry[] {
+  return [...PLACES.filter((p) => p.group === 'care' && (!p.desktopOnly || desktop)), HELP_ENTRY];
 }
 
-/** The place a section belongs to, if any. */
-export function placeOf(section: string): NavPlace | undefined {
+/** Settings' connections this client may open. */
+export function connections(desktop: boolean): NavConnection[] {
+  return CONNECTIONS.filter((c) => !c.desktopOnly || desktop);
+}
+
+/** The place (or Help) a section belongs to, if any. */
+export function placeOf(section: string): NavEntry | undefined {
   return [...PLACES, HELP_ENTRY].find((p) => p.sections.includes(section));
 }
 
-/** The phone's More tab is the current one: its own pages, or a row of
- * More's. */
+/** The phone's More tab is the current one: More itself, or a page of
+ * what it lists. */
 export function moreActive(section: string): boolean {
-  return (
-    MORE_ENTRY.sections.includes(section) ||
-    [...PLACES, HELP_ENTRY].some((p) => p.phone === 'more' && p.sections.includes(section))
-  );
+  return [MORE_ENTRY, ...moreEntries(true)].some((e) => e.sections.includes(section));
 }
 
 /** The phone's top-bar title of a section (English). */
@@ -335,7 +288,10 @@ export function tabsOf(placeId: string): readonly NavTab[] {
 
 /** Every route the map's entries open (without the leading `/`). */
 export function mapPaths(): string[] {
-  const entries = [...PLACES, HELP_ENTRY, MORE_ENTRY].map((e) => e.path);
-  const tabs = PLACES.flatMap((p) => (p.tabs ?? []).map((t) => t.path));
-  return [...new Set([...entries, ...tabs])].map((path) => path.replace(/^\//, ''));
+  const paths = [
+    ...[...PLACES, HELP_ENTRY, MORE_ENTRY].map((e) => e.path),
+    ...PLACES.flatMap((p) => (p.tabs ?? []).map((t) => t.path)),
+    ...CONNECTIONS.map((c) => c.path),
+  ];
+  return [...new Set(paths)].map((path) => path.replace(/^\//, ''));
 }

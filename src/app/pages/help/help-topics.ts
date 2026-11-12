@@ -80,8 +80,9 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Find your way around',
         points: [
-          'On the desktop app, the sidebar has **Sessions**, **Inbox**, **Agents**, **New session** and **Teams**; under **Your data**, **Accounts** and **Backup & sync**; under **Connect**, **Machines**, **Remote**, **Browser** and **API**; under **System**, **Capacity** and **Settings**; and **Help** at the bottom.',
-          'On a phone, the tabs at the bottom are **Sessions**, **Inbox**, **Agents** and **More**. Everything else is under **More**.',
+          'On the desktop app, the sidebar has your work first — **Sessions**, **Inbox** and **Teams** — then what you look after: **Computers**, **Accounts** and **Settings**. **Help** is at the bottom.',
+          'A place with more than one page shows them as tabs under its name: **Sessions** and **Agents**; **Teams** and **Capacity**; **Accounts** and **Backups**. **Settings** opens the rest under **Connections**: **Phone & devices**, **Sessions started elsewhere**, **Browser**, **HTTP API** and **Claude Code tools**.',
+          'On a phone, the tabs at the bottom are **Sessions**, **Inbox**, **Teams** and **More**. **More** has **Computers**, **Accounts**, **Settings** and **Help**, each with a line saying how it stands.',
           'The dot at the bottom of the sidebar (at the top on a phone) shows the connection. **Live** means updates arrive as they happen.',
           'The button beside it switches the theme between dark, light and system. **Settings › Appearance** also has the language, the accent colour and the background.',
           'The first time, a short **Welcome to Mother Claude** note explains how the app works. Press **Got it** to close it.',
@@ -90,9 +91,9 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'What to do next',
         points: [
-          'Start a session from **New session**: sessions started there can be fully controlled.',
-          'Pair your phone from **Remote** on the desktop app.',
-          'To answer sessions you started in a terminal or VS Code, install foreign-session control.',
+          'Start a session with **New session** on the **Sessions** page: sessions started there can be fully controlled.',
+          'Pair your phone on the desktop app, under **Settings › Phone & devices**.',
+          'To answer sessions you started in a terminal or VS Code, install foreign-session control under **Settings › Sessions started elsewhere**.',
         ],
         links: [
           { label: 'Open New session', path: '/new' },
@@ -165,7 +166,7 @@ const TOPICS: HelpTopicSource[] = [
     group: 'basics',
     summary: 'Notifications, theme, plan usage, connection and software updates.',
     intro:
-      'Settings holds what applies to this device: its notifications, theme and connection. In the desktop app it also has software updates and macOS permissions.',
+      'Settings holds what you set once: this device’s notifications, theme and connection, and what else works with Mother Claude. In the desktop app it also has software updates and macOS permissions.',
     keywords: ['preferences', 'theme', 'dark mode', 'light mode', 'update', 'upgrade', 'version'],
     sections: [
       {
@@ -179,7 +180,10 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Appearance',
             text: 'The language, the theme (**Dark**, **Light** or **System**), the accent colour and the background.',
           },
-          { term: 'Claude accounts', text: 'The **Accounts** and **Backup & sync** pages.' },
+          {
+            term: 'Connections',
+            text: 'What else works with Mother Claude, each with how it stands and its page: **Phone & devices**, **Sessions started elsewhere** (both in the desktop app), **Browser**, **HTTP API** and **Claude Code tools**.',
+          },
           { term: 'Plan usage', text: "How often your Claude plan's limits are read." },
           {
             term: 'Connection',
@@ -198,14 +202,14 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Permissions',
             text: 'macOS permissions such as Full Disk Access (desktop app only).',
           },
-          { term: 'About', text: 'The version, **Help**, **Services** and the **HTTP API**.' },
+          { term: 'About', text: 'The version, and **Help**.' },
         ],
         links: [{ label: 'Open Settings', path: '/settings' }],
       },
       {
         heading: 'Language, theme and colours',
         steps: [
-          'Open **Settings**.',
+          'Open **Settings** (on a phone, under **More**).',
           'Under **Appearance**, pick the **Language**: **English** or **Tiếng Việt**. The whole app switches at once.',
           'Pick the **Theme**: **Dark** (the default), **Light**, or **System** to follow your computer or phone.',
           'Pick an **Accent** colour, and a **Background**: **Standard**, **Midnight**, **Black** (true black, easy on OLED screens) or **Warm**.',
@@ -244,7 +248,7 @@ const TOPICS: HelpTopicSource[] = [
         ],
         notes: [
           'On Windows the app closes while the update installs.',
-          'After the restart the HTTP API is off until you start it again on the **API** screen.',
+          'After the restart the HTTP API is off until you start it again: **Settings › HTTP API**.',
         ],
       },
       {
@@ -353,7 +357,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Agents',
         intro:
-          '**Agents** shows every running subagent, workflow agent, background shell and monitor, grouped by session. On a phone it is a tab of its own.',
+          '**Agents**, a tab of **Sessions**, shows every running subagent, workflow agent, background shell and monitor, grouped by session.',
         points: [
           'Tap an agent to read its own transcript, live while it runs. A shell or monitor shows its output.',
           'Stop one where its session allows it.',
@@ -782,7 +786,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Start one',
         steps: [
-          'Open **New session**.',
+          'On **Sessions**, press **New session**.',
           'Pick a project under **Project**, or type a path under **Or any folder on this computer** (desktop app).',
           'With several Claude accounts, check **Runs under**.',
           'Under **Options**, pick a **Model**, **Effort** and **Permissions**, or leave them on **Default** to use your own Claude settings.',
@@ -840,7 +844,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Pair a phone on the same Wi-Fi',
         steps: [
-          'In the desktop app, open **Remote**.',
+          'In the desktop app, open **Settings › Phone & devices**.',
           'Under **Pair a device**, choose **Same Wi-Fi**.',
           'Press **Show pairing code**. A QR code and a 12-character code appear.',
           "Scan the QR code with the phone's camera.",
@@ -853,7 +857,7 @@ const TOPICS: HelpTopicSource[] = [
         notes: [
           'A **Same Wi-Fi** code works only on your own network. Pair only on a network you control.',
         ],
-        links: [{ label: 'Open Remote', path: '/remote' }],
+        links: [{ label: 'Open Phone & devices', path: '/remote' }],
       },
       {
         heading: "Trust your computer's certificate",
@@ -867,7 +871,7 @@ const TOPICS: HelpTopicSource[] = [
           'Reload the page.',
         ],
         points: [
-          "The Remote page shows the certificate's fingerprint, so you can compare it with what the phone shows.",
+          "**Phone & devices** on the desktop app shows the certificate's fingerprint, so you can compare it with what the phone shows.",
           'This certificate can only vouch for private addresses, so it cannot be used to impersonate a public website.',
         ],
       },
@@ -877,7 +881,7 @@ const TOPICS: HelpTopicSource[] = [
           'An app added to the Home Screen keeps its own storage, separate from Safari, so it pairs on its own.',
         steps: [
           'In Safari, tap Share › Add to Home Screen.',
-          'In a paired Safari tab, open **Settings** and press **Set up the Home Screen app**.',
+          'In a paired Safari tab, open **More › Settings** and press **Set up the Home Screen app**.',
           'Open the app from the Home Screen.',
           'Type the code on its Pair page and press **Pair**.',
         ],
@@ -891,7 +895,7 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           'Push reaches your phone even when the app is closed. It needs a trusted HTTPS address: your tunnel address, or your home address once the certificate is trusted. On iPhone it works only in the Home Screen app.',
         steps: [
-          'On the phone, open **Settings**.',
+          'On the phone, open **More › Settings**.',
           'Under **Notifications**, press **Enable** next to **Push notifications**.',
           'Allow notifications when the browser asks.',
           'Pick the events you want: **Permission requests**, **Questions**, **Plans**, **Finished**, **Failures**, **When Claude asks** and **Waiting for you**.',
@@ -908,20 +912,21 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'What a phone can do',
         points: [
+          'The tabs at the bottom are **Sessions** (with **Agents** as a tab), **Inbox**, **Teams** (with **Capacity**) and **More**: **Computers**, **Accounts** (with **Backups**), **Settings** and **Help**.',
           'Watch every session, answer approvals, questions and plans, send messages and images, start sessions and continue them.',
           'Pairing devices, changing remote access and installing the plugin happen only in the desktop app.',
-          'Dangerous actions need a grant for this device in the desktop app (**Remote › Paired devices**).',
+          'Dangerous actions need a grant for this device in the desktop app (**Settings › Phone & devices**, under **Paired devices**).',
         ],
       },
       {
         heading: 'Unpair this phone',
         steps: [
-          'On the phone, open **Settings**.',
+          'On the phone, open **More › Settings**.',
           'Under **Connection**, press **Unpair this device**.',
           'Press **Tap again to unpair**.',
         ],
         points: [
-          'Its push notifications stop and the desktop app forgets it. You can also revoke it from **Remote › Paired devices**.',
+          'Its push notifications stop and the desktop app forgets it. You can also revoke it on the desktop app, under **Settings › Phone & devices**.',
         ],
       },
     ],
@@ -940,7 +945,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Turn on internet access',
         where: 'desktop',
         steps: [
-          'Open **Remote**.',
+          'Open **Settings › Phone & devices**.',
           'Under **Internet access**, turn on **Allow access through a tunnel**.',
           'Under **Start a tunnel**, copy the command for the tunnel you use.',
           'Run it in a terminal on your computer.',
@@ -1065,7 +1070,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Install foreign-session control',
         where: 'desktop',
         steps: [
-          'Open **Remote**.',
+          'Open **Settings › Sessions started elsewhere**.',
           'Under **Foreign-session control**, press **Install foreign-session control**.',
           'Wait until **Status** says **installed**.',
           'In each session that was already running, type `/reload-plugins` (or restart it).',
@@ -1119,7 +1124,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Uninstall',
         where: 'desktop',
         steps: [
-          'Open **Remote › Foreign-session control**.',
+          'Open **Settings › Sessions started elsewhere**.',
           'Press **Uninstall**.',
           'Press **Tap again to uninstall**.',
         ],
@@ -2520,7 +2525,7 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           'Until your first backup exists, the page opens with **Set up backups in three steps**.',
         steps: [
-          'Open **Backup & sync** (in the sidebar; on a phone, under **More**).',
+          'Open **Accounts**, then the **Backups** tab.',
           'Step 1: press one of the suggested folders (iCloud Drive, Google Drive…), or **Type a folder…**, type its full path in **Backup folder** and press **Save**.',
           'Step 2: press **Set a passphrase…** and follow the dialog (below).',
           'Step 3: press **Back up now**.',
@@ -2744,7 +2749,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Pair the browser',
         steps: [
-          'In Mother Claude, open **Browser** (on a phone, **More › Browser**).',
+          'In Mother Claude, open **Settings › Browser**.',
           'Press **Pair a browser**. A code appears; it works once, for 5 minutes.',
           'In the browser, click the Mother Claude button: the side panel opens on **Pair this browser**.',
           'Type the code in **Pairing code** and check **Name of this browser**.',
@@ -3081,7 +3086,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Turn them on or off',
         where: 'desktop',
         steps: [
-          'Open **Settings** and, under **About**, choose **Services (daemon, MCP servers)**.',
+          'Open **Settings** and, under **Connections**, choose **Claude Code tools**.',
           "Under **Claude Code tools (MCP)**, switch **Give sessions Mother Claude's tools**.",
         ],
         points: [
@@ -3134,7 +3139,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Start the API',
         steps: [
-          'Open **API** (on a phone, **More › HTTP API**).',
+          'Open **Settings › HTTP API**.',
           'Under **Defaults**, fill in the **Working directory** (empty means your home folder).',
           'Pick **Model**, **Effort**, **Thinking** and **Permissions**, or leave them on **Default** to use your own Claude settings.',
           'Under **Conversation**, choose which conversation **Messages join**.',

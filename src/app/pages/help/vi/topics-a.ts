@@ -79,8 +79,9 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Làm quen với ứng dụng',
         points: [
-          'Trên ứng dụng máy tính, thanh bên có **Phiên**, **Hộp thư**, **Tác tử**, **Phiên mới** và **Nhóm**; trong **Dữ liệu của bạn** là **Tài khoản** và **Sao lưu & đồng bộ**; trong **Kết nối** là **Các máy**, **Từ xa**, **Trình duyệt** và **API**; trong **Hệ thống** là **Công suất** và **Cài đặt**; cùng **Trợ giúp** ở dưới cùng.',
-          'Trên điện thoại, các thẻ ở dưới cùng là **Phiên**, **Hộp thư**, **Tác tử** và **Thêm**. Mọi mục khác nằm trong **Thêm**.',
+          'Trên ứng dụng máy tính, thanh bên có phần việc của bạn trước — **Phiên**, **Hộp thư** và **Nhóm** — rồi đến những gì bạn quản lý: **Máy tính**, **Tài khoản** và **Cài đặt**. **Trợ giúp** nằm ở dưới cùng.',
+          'Nơi nào có nhiều trang sẽ hiện chúng thành các thẻ dưới tên của nó: **Phiên** và **Tác tử**; **Nhóm** và **Công suất**; **Tài khoản** và **Bản sao lưu**. **Cài đặt** mở phần còn lại trong **Các kết nối**: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**.',
+          'Trên điện thoại, các thẻ ở dưới cùng là **Phiên**, **Hộp thư**, **Nhóm** và **Thêm**. **Thêm** có **Máy tính**, **Tài khoản**, **Cài đặt** và **Trợ giúp**, mỗi mục kèm một dòng cho biết tình trạng của nó.',
           'Chấm ở cuối thanh bên (ở trên cùng trên điện thoại) cho biết trạng thái kết nối. **Trực tiếp** nghĩa là cập nhật đến ngay khi có.',
           'Nút bên cạnh đổi giao diện giữa tối, sáng và theo hệ thống. **Cài đặt › Hiển thị** còn có ngôn ngữ, màu nhấn và nền.',
           'Lần đầu, một ghi chú ngắn **Chào mừng đến với Mother Claude** giải thích cách ứng dụng hoạt động. Nhấn **Đã hiểu** để đóng nó.',
@@ -89,9 +90,9 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Bước tiếp theo',
         points: [
-          'Bắt đầu một phiên từ trang **Phiên mới**: phiên bắt đầu ở đó được điều khiển hoàn toàn.',
-          'Ghép nối điện thoại từ trang **Từ xa** trên ứng dụng máy tính.',
-          'Để trả lời các phiên bạn bắt đầu trong terminal hay VS Code, hãy cài đặt điều khiển phiên bên ngoài.',
+          'Bắt đầu một phiên bằng nút **Phiên mới** trên trang **Phiên**: phiên bắt đầu ở đó được điều khiển hoàn toàn.',
+          'Ghép nối điện thoại trên ứng dụng máy tính, trong **Cài đặt › Điện thoại & thiết bị**.',
+          'Để trả lời các phiên bạn bắt đầu trong terminal hay VS Code, hãy cài đặt điều khiển phiên bên ngoài trong **Cài đặt › Phiên bắt đầu ở nơi khác**.',
         ],
         links: [
           { label: 'Mở trang Phiên mới', path: '/new' },
@@ -164,7 +165,7 @@ const TOPICS: HelpTopicSource[] = [
     group: 'basics',
     summary: 'Thông báo, giao diện, mức dùng gói, kết nối và cập nhật phần mềm.',
     intro:
-      'Cài đặt chứa những gì áp dụng cho thiết bị này: thông báo, giao diện và kết nối. Trong ứng dụng máy tính, Cài đặt còn có cập nhật phần mềm và các quyền macOS.',
+      'Cài đặt chứa những gì bạn đặt một lần: thông báo, giao diện và kết nối của thiết bị này, cùng những gì khác hoạt động với Mother Claude. Trong ứng dụng máy tính, Cài đặt còn có cập nhật phần mềm và các quyền macOS.',
     keywords: [
       'tùy chọn',
       'giao diện',
@@ -186,7 +187,10 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Hiển thị',
             text: 'Ngôn ngữ, giao diện (**Tối**, **Sáng** hoặc **Theo hệ thống**), màu nhấn và nền.',
           },
-          { term: 'Tài khoản Claude', text: 'Các trang **Tài khoản** và **Sao lưu & đồng bộ**.' },
+          {
+            term: 'Các kết nối',
+            text: 'Những gì khác hoạt động với Mother Claude, mỗi mục kèm tình trạng và trang riêng của nó: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác** (cả hai trong ứng dụng máy tính), **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**.',
+          },
           { term: 'Mức dùng gói', text: 'Tần suất đọc giới hạn của gói Claude của bạn.' },
           {
             term: 'Kết nối',
@@ -208,14 +212,14 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Quyền',
             text: 'Các quyền macOS như Truy cập toàn bộ ổ đĩa (chỉ ứng dụng máy tính).',
           },
-          { term: 'Giới thiệu', text: 'Phiên bản, **Trợ giúp**, **Dịch vụ** và **HTTP API**.' },
+          { term: 'Giới thiệu', text: 'Phiên bản và **Trợ giúp**.' },
         ],
         links: [{ label: 'Mở trang Cài đặt', path: '/settings' }],
       },
       {
         heading: 'Ngôn ngữ, giao diện và màu sắc',
         steps: [
-          'Mở **Cài đặt**.',
+          'Mở **Cài đặt** (trên điện thoại, trong **Thêm**).',
           'Trong **Hiển thị**, chọn **Ngôn ngữ**: **English** hoặc **Tiếng Việt**. Toàn bộ ứng dụng đổi ngay.',
           'Chọn **Giao diện**: **Tối** (mặc định), **Sáng**, hoặc **Theo hệ thống** để theo máy tính hay điện thoại của bạn.',
           'Chọn một **Màu nhấn**, và một **Nền**: **Chuẩn**, **Nửa đêm**, **Đen** (đen tuyền, dịu mắt trên màn hình OLED) hoặc **Ấm**.',
@@ -254,7 +258,7 @@ const TOPICS: HelpTopicSource[] = [
         ],
         notes: [
           'Trên Windows, ứng dụng đóng lại trong lúc cài bản cập nhật.',
-          'Sau khi khởi động lại, HTTP API tắt cho đến khi bạn bật lại nó trên màn hình **API**.',
+          'Sau khi khởi động lại, HTTP API tắt cho đến khi bạn bật lại nó: **Cài đặt › HTTP API**.',
         ],
       },
       {
@@ -364,7 +368,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Tác tử',
         intro:
-          'Trang **Tác tử** hiện mọi tác tử con, tác tử quy trình, shell nền và trình giám sát đang chạy, nhóm theo phiên. Trên điện thoại, nó có thẻ riêng.',
+          '**Tác tử**, một thẻ của **Phiên**, hiện mọi tác tử con, tác tử quy trình, shell nền và trình giám sát đang chạy, nhóm theo phiên.',
         points: [
           'Chạm vào một tác tử để đọc bản ghi riêng của nó, cập nhật trực tiếp trong lúc nó chạy. Shell hoặc trình giám sát thì hiện đầu ra của nó.',
           'Bạn có thể dừng một tác tử khi phiên của nó cho phép.',
@@ -795,7 +799,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Bắt đầu một phiên',
         steps: [
-          'Mở trang **Phiên mới**.',
+          'Trên **Phiên**, nhấn **Phiên mới**.',
           'Chọn một dự án trong **Dự án**, hoặc gõ một đường dẫn vào **Hoặc bất kỳ thư mục nào trên máy tính này** (ứng dụng máy tính).',
           'Nếu có nhiều tài khoản Claude, kiểm tra **Chạy dưới tài khoản**.',
           'Trong **Tùy chọn**, chọn **Mô hình**, **Mức nỗ lực** và **Quyền**, hoặc để **Mặc định** để dùng cài đặt Claude của riêng bạn.',
@@ -852,7 +856,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Ghép nối điện thoại trên cùng Wi-Fi',
         steps: [
-          'Trong ứng dụng máy tính, mở trang **Từ xa**.',
+          'Trong ứng dụng máy tính, mở **Cài đặt › Điện thoại & thiết bị**.',
           'Trong **Ghép nối thiết bị**, chọn **Cùng Wi-Fi**.',
           'Nhấn **Hiện mã ghép nối**. Một mã QR và một mã 12 ký tự sẽ hiện ra.',
           'Quét mã QR bằng camera của điện thoại.',
@@ -865,7 +869,7 @@ const TOPICS: HelpTopicSource[] = [
         notes: [
           'Mã **Cùng Wi-Fi** chỉ dùng được trong mạng của chính bạn. Chỉ ghép nối trên mạng mà bạn kiểm soát.',
         ],
-        links: [{ label: 'Mở trang Từ xa', path: '/remote' }],
+        links: [{ label: 'Mở Điện thoại & thiết bị', path: '/remote' }],
       },
       {
         heading: 'Tin cậy chứng chỉ của máy tính',
@@ -879,7 +883,7 @@ const TOPICS: HelpTopicSource[] = [
           'Tải lại trang.',
         ],
         points: [
-          'Trang Từ xa hiện dấu vân tay của chứng chỉ, để bạn so sánh với dấu vân tay mà điện thoại hiện.',
+          '**Điện thoại & thiết bị** trên ứng dụng máy tính hiện dấu vân tay của chứng chỉ, để bạn so sánh với dấu vân tay mà điện thoại hiện.',
           'Chứng chỉ này chỉ bảo chứng được cho các địa chỉ riêng, nên không thể dùng nó để giả mạo một trang web công khai.',
         ],
       },
@@ -889,7 +893,7 @@ const TOPICS: HelpTopicSource[] = [
           'Ứng dụng thêm vào Màn hình chính giữ dữ liệu riêng, tách biệt với Safari, nên nó được ghép nối riêng.',
         steps: [
           'Trong Safari, chạm Chia sẻ › Thêm vào MH chính (Share › Add to Home Screen).',
-          'Trong một thẻ Safari đã ghép nối, mở **Cài đặt** và nhấn **Thiết lập ứng dụng trên Màn hình chính**.',
+          'Trong một thẻ Safari đã ghép nối, mở **Thêm › Cài đặt** và nhấn **Thiết lập ứng dụng trên Màn hình chính**.',
           'Mở ứng dụng từ Màn hình chính.',
           'Gõ mã vào trang Ghép nối của ứng dụng và nhấn **Ghép nối**.',
         ],
@@ -902,7 +906,7 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           'Thông báo đẩy đến được điện thoại ngay cả khi ứng dụng đang đóng. Nó cần một địa chỉ HTTPS đáng tin cậy: địa chỉ đường hầm của bạn, hoặc địa chỉ ở nhà sau khi đã tin cậy chứng chỉ. Trên iPhone, nó chỉ hoạt động trong ứng dụng Màn hình chính.',
         steps: [
-          'Trên điện thoại, mở **Cài đặt**.',
+          'Trên điện thoại, mở **Thêm › Cài đặt**.',
           'Trong **Thông báo**, nhấn **Bật** cạnh **Thông báo đẩy**.',
           'Cho phép thông báo khi trình duyệt hỏi.',
           'Chọn các sự kiện bạn muốn: **Yêu cầu cấp quyền**, **Câu hỏi**, **Kế hoạch**, **Hoàn tất**, **Lỗi**, **Khi Claude yêu cầu** và **Đang chờ bạn**.',
@@ -919,20 +923,21 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Điện thoại làm được gì',
         points: [
+          'Các thẻ ở dưới cùng là **Phiên** (có thẻ **Tác tử**), **Hộp thư**, **Nhóm** (có **Công suất**) và **Thêm**: **Máy tính**, **Tài khoản** (có **Bản sao lưu**), **Cài đặt** và **Trợ giúp**.',
           'Xem mọi phiên, trả lời yêu cầu duyệt, câu hỏi và kế hoạch, gửi tin nhắn và ảnh, bắt đầu phiên và tiếp tục phiên.',
           'Ghép nối thiết bị, thay đổi quyền truy cập từ xa và cài đặt plugin chỉ làm được trong ứng dụng máy tính.',
-          'Thao tác nguy hiểm cần được cấp quyền cho thiết bị này trong ứng dụng máy tính (**Từ xa › Thiết bị đã ghép nối**).',
+          'Thao tác nguy hiểm cần được cấp quyền cho thiết bị này trong ứng dụng máy tính (**Cài đặt › Điện thoại & thiết bị**, trong **Thiết bị đã ghép nối**).',
         ],
       },
       {
         heading: 'Hủy ghép nối điện thoại này',
         steps: [
-          'Trên điện thoại, mở **Cài đặt**.',
+          'Trên điện thoại, mở **Thêm › Cài đặt**.',
           'Trong **Kết nối**, nhấn **Hủy ghép nối thiết bị này**.',
           'Nhấn tiếp **Nhấn lần nữa để hủy ghép nối**.',
         ],
         points: [
-          'Thông báo đẩy của điện thoại dừng lại và ứng dụng máy tính quên thiết bị này. Bạn cũng có thể thu hồi nó từ **Từ xa › Thiết bị đã ghép nối**.',
+          'Thông báo đẩy của điện thoại dừng lại và ứng dụng máy tính quên thiết bị này. Bạn cũng có thể thu hồi nó trên ứng dụng máy tính, trong **Cài đặt › Điện thoại & thiết bị**.',
         ],
       },
     ],
@@ -951,7 +956,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Bật truy cập qua internet',
         where: 'desktop',
         steps: [
-          'Mở trang **Từ xa**.',
+          'Mở **Cài đặt › Điện thoại & thiết bị**.',
           'Trong **Truy cập Internet**, bật **Cho phép truy cập qua đường hầm**.',
           'Trong **Khởi chạy đường hầm**, sao chép lệnh cho loại đường hầm bạn dùng.',
           'Chạy lệnh đó trong terminal trên máy tính của bạn.',
@@ -1076,7 +1081,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Cài đặt điều khiển phiên bên ngoài',
         where: 'desktop',
         steps: [
-          'Mở trang **Từ xa**.',
+          'Mở **Cài đặt › Phiên bắt đầu ở nơi khác**.',
           'Trong **Điều khiển phiên bên ngoài**, nhấn **Cài điều khiển phiên bên ngoài**.',
           'Chờ đến khi **Trạng thái** ghi **đã cài**.',
           'Trong mỗi phiên đã chạy từ trước, gõ `/reload-plugins` (hoặc khởi động lại phiên).',
@@ -1134,7 +1139,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Gỡ cài đặt',
         where: 'desktop',
         steps: [
-          'Mở **Từ xa › Điều khiển phiên bên ngoài**.',
+          'Mở **Cài đặt › Phiên bắt đầu ở nơi khác**.',
           'Nhấn **Gỡ cài đặt**.',
           'Nhấn tiếp **Nhấn lần nữa để gỡ cài đặt**.',
         ],

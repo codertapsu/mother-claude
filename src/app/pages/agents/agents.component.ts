@@ -23,6 +23,7 @@ import {
   taskFromAgent,
 } from '../../shared/agents';
 import { ChipComponent } from '../../shared/chip.component';
+import { HubTabsComponent } from '../../shared/hub-tabs.component';
 import { IconComponent } from '../../shared/icon.component';
 import { ElapsedPipe } from '../../shared/time.pipes';
 import { formatTokens, sessionName } from '../../shared/util';
@@ -59,6 +60,7 @@ interface FleetGroup {
     AccountChipComponent,
     ActivityLineComponent,
     ChipComponent,
+    HubTabsComponent,
     IconComponent,
     ElapsedPipe,
     TaskOutputComponent,
@@ -72,6 +74,7 @@ interface FleetGroup {
           <span class="muted">{{ '{n} running' | t: { n: total() } }}</span>
         }
       </div>
+      <mc-hub-tabs place="sessions" />
 
       @if (error()) {
         <p class="notice error">

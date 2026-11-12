@@ -37,5 +37,18 @@
   "This device is offline.": "Thiết bị này đang ngoại tuyến.",
   "Can't reach your {computer}: it may be asleep, offline, or the tunnel is down.": "Không kết nối được {computer} của bạn: máy có thể đang ngủ, ngoại tuyến, hoặc đường hầm bị ngắt.",
   "This device is not paired.": "Thiết bị này chưa được ghép nối.",
-  "Connection: {state}": "Kết nối: {state}"
+  "Connection: {state}": "Kết nối: {state}",
+  "Setup: step {n} of 7": "Thiết lập: bước {n}/7",
+  "Not set up yet": "Chưa thiết lập",
+  "No computer paired yet": "Chưa ghép nối máy tính nào",
+  "{name} online": "{name} trực tuyến",
+  "{n} of {m} computers online": "{n}/{m} máy tính trực tuyến",
+  "No computer online": "Không có máy tính nào trực tuyến",
+  "1 to fix": "1 việc cần sửa",
+  "{n} to fix": "{n} việc cần sửa",
+  "{n} accounts": "{n} tài khoản",
+  "Notifications on": "Thông báo đang bật",
+  "Notifications off": "Thông báo đang tắt",
+  "Notifications blocked": "Thông báo bị chặn",
+  "{n} computers online": "{n} máy tính trực tuyến"
 }

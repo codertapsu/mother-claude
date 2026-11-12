@@ -1,11 +1,13 @@
 import { routes } from '../app.routes';
 import { helpTopic } from '../pages/help/help-topics';
 import {
+  CONNECTIONS,
   HELP_ENTRY,
   LINK_ONLY,
   MORE_ENTRY,
   PLACES,
   barPlaces,
+  connections,
   mapPaths,
   moreActive,
   moreEntries,
@@ -50,81 +52,94 @@ describe('the map (core/nav.ts)', () => {
   });
 
   it('points every Help topic at one that exists', () => {
-    for (const e of [...PLACES, HELP_ENTRY]) {
+    for (const e of [...PLACES, HELP_ENTRY, ...CONNECTIONS]) {
       if (e.help) expect(helpTopic(e.help), `${e.id}: ${e.help}`).toBeDefined();
     }
   });
 
-  it("keeps a tab's route inside its place", () => {
+  it("keeps a place's tabs and connections inside it", () => {
     for (const p of PLACES) {
       for (const t of tabsOf(p.id)) {
         expect(p.sections, `${p.id}: ${t.path}`).toContain(sectionOf(t.path));
       }
     }
+    const settings = PLACES.find((p) => p.id === 'settings')!;
+    for (const c of CONNECTIONS) {
+      expect(settings.sections, c.id).toContain(sectionOf(c.path));
+    }
     expect(tabsOf('no-such-place')).toEqual([]);
   });
 
-  it('draws the desktop sidebar as today: the work, then Your data, Connect and System', () => {
-    const side = sidebarPlaces(true);
-    expect(side.map((p) => p.label)).toEqual([
-      'Sessions',
-      'Inbox',
-      'Agents',
-      'New session',
-      'Teams',
-      'Accounts',
-      'Backup & sync',
-      'Machines',
-      'Remote',
-      'Browser',
-      'API',
-      'Capacity',
-      'Settings',
-    ]);
-    expect(side.map((p) => p.group ?? '')).toEqual([
-      '',
-      '',
-      '',
-      '',
-      '',
-      'Your data',
-      'Your data',
-      'Connect',
-      'Connect',
-      'Connect',
-      'Connect',
-      'System',
-      'System',
-    ]);
-    // Remote is the desktop's only.
-    expect(sidebarPlaces(false).map((p) => p.id)).not.toContain('remote');
+  it('has six places: the work, then what you look after', () => {
+    for (const desktop of [true, false]) {
+      expect(sidebarPlaces(desktop).map((p) => p.label)).toEqual([
+        'Sessions',
+        'Inbox',
+        'Teams',
+        'Computers',
+        'Accounts',
+        'Settings',
+      ]);
+    }
+    expect(PLACES.map((p) => p.group)).toEqual(['work', 'work', 'work', 'care', 'care', 'care']);
+    // Computers keeps Machines' health dot; Agents is a tab of Sessions.
+    expect(PLACES.find((p) => p.id === 'computers')).toEqual(
+      expect.objectContaining({ path: '/machines', badge: 'machines' }),
+    );
   });
 
-  it("draws the phone's bar and More as today", () => {
-    expect(barPlaces().map((p) => p.label)).toEqual(['Sessions', 'Inbox', 'Agents']);
-    expect(moreEntries(true).map((p) => p.moreLabel ?? p.label)).toEqual([
-      'New session',
-      'Teams',
-      'Accounts',
-      'Backup & sync',
-      'Machines',
-      'Remote',
-      'Settings',
-      'HTTP API',
-      'Capacity',
-      'Browser',
-      'Services',
-      'Help',
+  it('gives each place its tabs on the routes of today', () => {
+    expect(tabsOf('sessions').map((t) => [t.label, t.path])).toEqual([
+      ['Sessions', '/'],
+      ['Agents', '/agents'],
     ]);
-    expect(moreEntries(false).map((p) => p.id)).not.toContain('remote');
-    for (const e of moreEntries(true)) expect(e.hint, e.id).toBeTruthy();
+    expect(tabsOf('sessions')[1].badge).toBe('agents');
+    expect(tabsOf('teams').map((t) => [t.label, t.path])).toEqual([
+      ['Teams', '/teams'],
+      ['Capacity', '/capacity'],
+    ]);
+    expect(tabsOf('accounts').map((t) => [t.label, t.path])).toEqual([
+      ['Accounts', '/accounts'],
+      ['Backups', '/backup'],
+    ]);
+    for (const id of ['inbox', 'computers', 'settings']) expect(tabsOf(id), id).toEqual([]);
   });
 
-  it("titles the phone's top bar", () => {
+  it("draws the phone's bar as the work, and More as the rest in the same order", () => {
+    expect(barPlaces().map((p) => p.label)).toEqual(['Sessions', 'Inbox', 'Teams']);
+    for (const desktop of [true, false]) {
+      expect(moreEntries(desktop).map((p) => p.label)).toEqual([
+        'Computers',
+        'Accounts',
+        'Settings',
+        'Help',
+      ]);
+    }
+  });
+
+  it("lists Settings' connections, the desktop's own only there", () => {
+    expect(connections(true).map((c) => [c.label, c.path, c.fragment ?? ''])).toEqual([
+      ['Phone & devices', '/remote', ''],
+      ['Sessions started elsewhere', '/remote', 'foreign'],
+      ['Browser', '/browser', ''],
+      ['HTTP API', '/api', ''],
+      ['Claude Code tools', '/services', ''],
+    ]);
+    expect(connections(false).map((c) => c.id)).toEqual(['browser', 'api', 'tools']);
+  });
+
+  it("titles the phone's top bar by the place, or the page's own name", () => {
     expect(titleOf('')).toBe('Sessions');
-    expect(titleOf('backup')).toBe('Backup & sync');
+    expect(titleOf('agents')).toBe('Sessions');
+    expect(titleOf('capacity')).toBe('Teams');
+    expect(titleOf('teams')).toBe('Teams');
+    expect(titleOf('backup')).toBe('Accounts');
+    expect(titleOf('machines')).toBe('Computers');
+    expect(titleOf('settings')).toBe('Settings');
+    expect(titleOf('remote')).toBe('Remote');
     expect(titleOf('api')).toBe('API');
     expect(titleOf('services')).toBe('Services');
+    expect(titleOf('new')).toBe('New session');
     expect(titleOf('help')).toBe('Help');
     expect(titleOf('session')).toBe('Session');
     expect(titleOf('pair')).toBe('Pair this device');
@@ -133,11 +148,23 @@ describe('the map (core/nav.ts)', () => {
     expect(titleOf('nowhere')).toBe('Mother Claude');
   });
 
-  it("marks the phone's More tab on the pages only More leads to", () => {
-    for (const s of ['more', 'onboarding', 'machines', 'teams', 'capacity', 'help', 'services']) {
+  it("marks the phone's More tab on the pages of what it lists", () => {
+    for (const s of [
+      'more',
+      'machines',
+      'accounts',
+      'backup',
+      'settings',
+      'remote',
+      'browser',
+      'api',
+      'services',
+      'onboarding',
+      'help',
+    ]) {
       expect(moreActive(s), s).toBe(true);
     }
-    for (const s of ['', 'inbox', 'agents', 'session', 'pair']) {
+    for (const s of ['', 'inbox', 'agents', 'teams', 'capacity', 'new', 'session', 'pair']) {
       expect(moreActive(s), s).toBe(false);
     }
   });

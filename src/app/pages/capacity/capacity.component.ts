@@ -18,6 +18,7 @@ import { storageGet, storageSet, urlParam } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { HubTabsComponent } from '../../shared/hub-tabs.component';
 import { IconComponent } from '../../shared/icon.component';
 import { PlanMeterComponent } from '../../shared/plan-meter.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
@@ -59,6 +60,7 @@ function savedTab(): Tab {
   selector: 'mc-capacity',
   imports: [
     RouterLink,
+    HubTabsComponent,
     IconComponent,
     PlanMeterComponent,
     TimeAgoComponent,
