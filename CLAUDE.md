@@ -638,6 +638,21 @@ cargo test --manifest-path src-tauri/Cargo.toml --test bridge -- --ignored
 
 `just` targets mirror these (`just lint`, `just test`, `just build`, `just dev`).
 
+### Two machines, each its own OS's work
+
+Mother Claude is developed on a MacBook and a Windows desktop at once.
+**Platform-specific work runs on its own OS**: macOS builds, signing and
+macOS-only code and tests on the Mac; Windows builds, `tauri:dev`, PowerShell
+scripts, Windows-only code (Credential Manager, firewall/UAC, `.ps1` twins)
+and tests on the Windows desktop. `check-windows.sh` from the Mac and a
+`--target aarch64-apple-darwin` check from Windows are quick gates, not the
+other OS's result. The integration suites that start the Unix fake CLI
+(`accounts`, `foreign`, `owned`, `switch_account`, `teams`) only run on the
+Mac. The checkout is kept the same on both by Machines' code sync; either
+machine commits and pushes, while sync shows *In sync* and after `git pull
+--ff-only`. Work for the other OS is started there as a Claude Code session
+through Machines (its folder must be trusted by Claude Code on that machine).
+
 ## Coding conventions
 
 - **Rust**: edition 2021, `rustfmt` clean, `clippy -D warnings` clean. `anyhow` at
