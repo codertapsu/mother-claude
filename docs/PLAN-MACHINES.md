@@ -878,7 +878,8 @@ snapshot, transfer and landing; nothing new runs git differently.
 | `machines/setup.json` | the last result of each check on this machine, and of the readiness test per peer (for *Machines health*) |
 | `machines/leases.json` | `{ "<session>": {home, epoch, since} }` |
 | `machines/copies/<machine>/<account>/<session>/…` | copies, laid out like a config directory |
-| `machines/copies/index.json` | per copy: transcript size and prefix hash acknowledged, last turn time |
+| `machines/copies/index.json` | per copy: its source, account, folder there, sizes, its transcript's acknowledged mark (size and prefix check), the last turn's time; each file's state in `<copy>/.mc/files.json` |
+| `machines/copies.json` | this computer's side: each session's own choice of computers, and how each copy elsewhere stands |
 | `machines/moves/<id>.json` | a move's manifest and state, while it runs (§5.8) |
 | `machines/sync.json` | the projects kept in sync (§5.15): per pair its id, the other computer, both folders, each side's consent, the last synced state `{head, branch, idxTree, wtTree, snapshot, step}`, its status, a conflict's two sides and the kept refs; `machines/sync/<id>/` holds a step's files while it travels |
 | `machines/worktrees/…` | worktrees for moves into a busy checkout, and for machine tasks |
@@ -912,7 +913,8 @@ Local (desktop, or a device where noted):
 | `POST /api/sessions/:id/move` | Authed; DangerousOk when it carries ignored files or trust | starts a move: `{to, code: "bundle"\|"remote"\|"none", apply: "checkout"\|"worktree", recipe, trust, carryIgnored, keepDriving, takeOver, from}` — `takeOver` when the session's machine is offline, `from` a copy's time; `409 machines_off` while Machines is off here |
 | `POST /api/sessions/:id/move/preflight` | Authed | the move sheet's checks, the target's `/peer/moves/preflight` asked through the source; nothing written |
 | `GET /api/moves/:id` · `POST …/cancel` · `POST …/undo` | Authed | follow, cancel (before landed), undo |
-| `PUT /api/sessions/:id/copies` | Authed | which machines keep a copy |
+| `GET /api/sessions/:id/copies` · `PUT …` | Authed | which machines keep a copy (`{machines: [id…]}`, `null`: as its project says) and how each copy stands |
+| `GET /api/machines/copies` · `DELETE /api/machines/copies/:id` | ManageData | the copies held here and kept elsewhere; `held.<machine>.<session>` removes one held here, `kept.<machine>.<session>` stops keeping one there |
 | `GET /api/roots` · `PUT …` | ManageData | roots (§5.12): `{machine, machines: [{id, name, os, here, paired}], roots: [{id, name, paths: {"<machine id>": "<path>"}, updatedAt, by, pair?}], max}`; `PUT {upsert: [{id?, name, paths}], remove: [id]}` — all or nothing, a root without `id` is new, one with an `id` gets that name and that whole `paths` map; answers the same view |
 | `GET /api/machines/setup` | Authed | this machine's checks, and every peer's (fetched through `/peer/setup`) |
 | `POST /api/machines/setup/fix` | DesktopOnly | `{check}`: runs this machine's fix (or opens its settings page through the desktop) |
@@ -932,7 +934,7 @@ Peer-only (`Ingress::Peer`):
 | `GET /peer/roots` · `POST …` | PeerView · PeerMove | the roots with their tombstones and digest; `POST {roots}` merges the sender's (the `move` grant is the consent: roots steer where a move lands) and answers with the receiver's, which the sender takes only when it gave the receiver `move` too |
 | `POST /peer/moves/preflight` · `/receive` · `/land` | PeerMove | the target's half of a move |
 | `POST /peer/leases` | PeerMove | lease changes |
-| `POST /peer/copies/:session` | PeerMove | a copy's new bytes |
+| `POST /peer/copies/:session/offer` · `PUT …/rounds/:round` · `POST …/rounds/:round/apply` · `GET`/`DELETE /peer/copies/:session` | PeerMove (Machines on there, but for `DELETE`) | a copy: what it holds, a round's blob in chunks, applying it, its state, dropping it |
 | `POST /peer/run` · `/task` (Phase 4) | PeerRun | machine work |
 | everything a device may call | PeerView / PeerControl / dangerous rules | the proxied API |
 
@@ -1225,6 +1227,21 @@ choice open:
 - Exit: **the NAS round trip is one button**, both ways, with the code — after a setup that left nothing to discover during a move.
 
 ### Phase 3b — keep copies current (≈ 2 weeks)
+
+*Built (2026-11-12): `machines/copies/` (`check` — the prefix check: the
+size and the SHA-256 of a file's first and last 64 KiB; `source` — the turn
+watch and a round: offer, the blob in chunks, apply; `target` — the copy
+held, its cap, the move's and the take over's landings; `store`, `wire`,
+`routes`), the move's package from the copy (`wire::FromCopy`), *Continue
+here from the copy* in the take over, the session menu's *Keep a copy on
+…*, the *Copies* card, the project option and the cap, `tests/copies.rs`.
+Where §5.9 left a choice: opt-in per session or per project (a session's
+own choice wins), the target's `move` grant, after a turn plus five quiet
+seconds, the copy keyed `<source>/<account>/<session>`, the cap evicting
+the copy refreshed longest ago, never one leased here; the copy's
+`index.json` keeps per copy its sizes, its transcript's mark and the last
+turn, each file's state in `<copy>/.mc/files.json`. A first copy broken
+off restarts whole at the next round (no resume across rounds yet).*
 
 - `machines/copies.rs`: after-turn deltas, prefix hashes, the copies index, size cap.
 - *Continue here from the copy of …* (take over from a copy).

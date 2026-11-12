@@ -512,7 +512,7 @@ computer runs for the others; it does not unpair — revoking does.
 ### What a paired computer may do here
 
 - Its requests reach the peer router only: `/peer/*` (hello, setup, settings
-  offers, roots, moves, leases, code sync, runs, tasks), and — while Machines is on
+  offers, roots, moves, leases, copies, code sync, runs, tasks), and — while Machines is on
   here — the
   session stream `/ws` (this computer's own sessions — never a third
   computer's — and none of the desktop-only frames) and an allow-list of
@@ -525,7 +525,8 @@ computer runs for the others; it does not unpair — revoking does.
     continuing, keys, the message queue, and a new session (only in a folder
     Claude Code already trusts there, `untrusted_cwd`);
   - **move**: starting a move of a session that lives here, and cancelling,
-    undoing or retrying one.
+    undoing or retrying one; choosing which computers keep a copy of one
+    (its copies' state is **view**).
 
   Everything else answers `404`: the admin routes, accounts, backups,
   devices, deleting, Machines' own settings, `/hooks/*`, `/mcp`,
@@ -627,6 +628,45 @@ computer runs for the others; it does not unpair — revoking does.
 - **Recipes** (a project's commands for after a move) are never run by
   Mother Claude: they are a request in the first message Claude gets there,
   and go through that session's own approvals.
+
+### Copies kept current
+
+- **What a copy holds**: the files a move carries of one session — its
+  transcript, its subagents' and workflows' files, file-history snapshots,
+  its todo list, its session environment — and nothing else: never its
+  code, sign-ins (tokens, keys, `.credentials.json`), settings or any other
+  file of a config directory. Every path the source names must be one of
+  that session's own (the same rule as a backup archive's entries), and the
+  receiving computer checks every size, offset, SHA-256 and prefix mark
+  before it writes.
+- **Where**: only in Mother Claude's data folder on the computer that keeps
+  it, `machines/copies/<source>/<account>/<session>/` (folders `0700`,
+  files `0600`), with `machines/copies/index.json` and each copy's
+  `.mc/files.json` (sizes, times, marks — no content). It is never written
+  into a config directory in the background: only a move that lands from it,
+  or *Continue here from the copy* (a take over, audited), lands it there —
+  as a pull lands a session, one data job at a time, refused while the
+  session runs there, every replaced file kept for undo, a conversation that
+  went on on both kept as a conflict copy.
+- **Opt-in, and the grant.** Nothing is copied until someone chooses *Keep a
+  copy on …* for a session (`PUT /api/sessions/<id>/copies`, any
+  authenticated caller of this computer, or another computer through the
+  proxy with its `move` grant here) or the desktop sets it for a project.
+  The receiving computer takes a copy only through `/peer/copies/*`, which
+  needs **its** `move` grant for the sender on the path the request came
+  over, and Machines on there (`403 machines_off`; removing a copy is served
+  without it). A copy offered for a session whose lease names the receiving
+  computer is refused. Each receiving computer caps what it keeps of each
+  other computer's copies (`copiesCapBytes`, 2 GiB by default, set on its
+  desktop): the copy refreshed longest ago goes first, never one of a
+  session that lives there.
+- **Removing**: either computer may remove a copy (`DELETE
+  /api/machines/copies/<id>`, the desktop or a paired device); stopping a
+  copy on the source removes it there too, and revoking the computer stops
+  everything it could send.
+- Every copy is audited on both computers (`machine.copy.sent`,
+  `machine.copy.received`, `.evicted`, `.removed`, `.dropped`, `.landed`):
+  the session's id and sizes, never a byte of what it holds.
 
 ### Code sync
 

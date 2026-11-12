@@ -549,6 +549,98 @@ const TOPICS: HelpTopicSource[] = [
     ],
   },
 
+  {
+    id: 'machines-copies',
+    title: 'Giữ bản sao trên một máy tính khác',
+    icon: 'copy',
+    group: 'machines',
+    summary:
+      'Một phiên được sao chép sang máy tính khác sau mỗi lượt: việc chuyển phiên diễn ra tức thì, và phiên có thể tiếp tục ở đó trong khi máy này ngủ.',
+    intro:
+      'Một phiên mà bạn có thể sẽ tiếp tục ở nơi khác có thể giữ một bản sao ở đó: sau mỗi lượt của phiên, phần mới được sao chép sang máy tính kia. Khi đó việc chuyển phiên sang đó diễn ra tức thì, và nếu máy này đang ngủ hoặc vắng mặt, máy kia có thể tiếp tục từ bản sao. Tính năng này tắt cho đến khi bạn bật nó.',
+    keywords: [
+      'bản sao',
+      'giữ bản sao',
+      'các bản sao',
+      'tiếp tục từ bản sao',
+      'máy đang ngủ',
+      'ngoại tuyến',
+      'chuyển tức thì',
+      'giới hạn dung lượng',
+    ],
+    sections: [
+      {
+        heading: 'Bật tính năng',
+        steps: [
+          'Mở menu **⋯** của phiên và chọn **Giữ bản sao trên…**.',
+          'Đánh dấu các máy tính sẽ giữ bản sao; mỗi máy cho biết bản sao của nó đang ở trạng thái nào.',
+          'Nhấn **Lưu**.',
+        ],
+        tips: [
+          'Cho mọi phiên của một dự án: **Các máy › Tùy chọn**, phần tùy chọn của dự án, **Giữ bản sao các phiên của dự án trên**. Lựa chọn riêng của một phiên trong menu của nó được ưu tiên; **Theo dự án của nó** quay về lựa chọn của dự án.',
+        ],
+      },
+      {
+        heading: 'Cần những gì',
+        points: [
+          'Quyền **Di chuyển** mà máy kia cấp cho máy này: một bản sao là nửa đầu của một lần chuyển phiên.',
+          'Tính năng Các máy đã bật trên cả hai máy. Khi một trong hai máy tắt tính năng này, máy kia ngoại tuyến hoặc thiếu quyền, việc sao chép tạm dừng và cho biết lý do. Không có gì được xếp hàng chờ: khi trở ngại đó hết, lần sao chép tiếp theo gửi mọi phần đã thêm trong lúc đó.',
+        ],
+      },
+      {
+        heading: 'Khi nào, và những gì được gửi',
+        points: [
+          'Sau một lượt, không bao giờ giữa chừng: khi phiên đã rảnh và yên lặng được năm giây.',
+          'Chỉ phần mới: các dòng mới của cuộc trò chuyện, các dòng mới của tác tử con và quy trình của nó, các ảnh chụp lịch sử tệp mới, danh sách việc cần làm. Một tệp hội thoại bị cắt ngắn hoặc bị viết lại sẽ được gửi lại toàn bộ.',
+          'Không bao giờ có mã nguồn (mã nguồn đi theo một lần chuyển phiên), thông tin đăng nhập hay cài đặt. Bản sao được giữ trong thư mục dữ liệu của Mother Claude ở máy đó, không bao giờ trong các thư mục của Claude Code.',
+        ],
+      },
+      {
+        heading: 'Trạng thái',
+        terms: [
+          {
+            term: 'Đã sao chép lúc 14:32',
+            text: 'Bản sao ở đó giống phiên sau lượt cuối của nó.',
+          },
+          {
+            term: 'Sẽ sao chép khi lượt của nó kết thúc',
+            text: 'Một lượt đang chạy; bản sao sẽ được gửi khi lượt kết thúc.',
+          },
+          {
+            term: 'Tạm dừng',
+            text: 'Kèm lý do: máy kia ngoại tuyến, tính năng Các máy đang tắt trên một trong hai máy, thiếu quyền **Di chuyển**, Mother Claude ở đó cũ hơn, máy đó đã dọn chỗ cho các bản sao mới hơn, hoặc phiên giờ đang ở trên một máy khác.',
+          },
+        ],
+      },
+      {
+        heading: 'Chuyển phiên tức thì',
+        points: [
+          'Một lần chuyển sang máy đang giữ bản sao sẽ cập nhật bản sao trước, rồi chỉ gửi danh sách các tệp của phiên kèm dấu vân tay của chúng: máy kia đối chiếu bản sao với danh sách đó và đặt phiên từ bản sao. **Các lần chuyển gần đây** cho biết phiên đến từ bản sao.',
+          'Nếu không dùng được bản sao, lần chuyển sẽ gửi cuộc trò chuyện như bình thường.',
+        ],
+      },
+      {
+        heading: 'Tiếp tục ở đây từ bản sao',
+        steps: [
+          'Trên máy giữ bản sao, khi máy của chính phiên đó đang ngoại tuyến: mở phiên (các phiên của máy đó hiện màu xám), hoặc **Các máy › Bản sao**.',
+          'Nhấn **Tiếp tục ở đây từ bản sao lúc …** (trên thẻ: **Tiếp tục ở đây**), rồi xác nhận.',
+        ],
+        points: [
+          'Từ giờ phiên ở trên máy này: bản sao được đặt vào thư mục Claude Code của máy này, dưới tài khoản cùng tên và trong thư mục mà các thư mục dùng chung của bạn ánh xạ tới, rồi phiên khởi động ở đây với mô hình, mức nỗ lực và chế độ như trước. Mã nguồn là thư mục dự án hiện có của máy này.',
+          'Nếu máy đầu tiên vẫn tiếp tục phiên trong lúc vắng mặt, không có gì bị mất: khi phiên được chuyển sang đó lần sau, các lượt riêng của máy đó được giữ bên cạnh.',
+        ],
+      },
+      {
+        heading: 'Thẻ Bản sao',
+        points: [
+          '**Các máy › Bản sao** liệt kê các bản sao được giữ trên máy này (với **Tiếp tục ở đây** khi máy của chúng ngoại tuyến, và **Gỡ bỏ**) và các phiên của máy này được giữ trên máy khác (với **Ngừng giữ bản sao trên …**, thao tác này cũng gỡ bản sao ở đó).',
+          'Mỗi máy giữ tối đa 2 GB bản sao của mỗi máy khác (**Tùy chọn › Bản sao phiên của các máy khác**); bản sao được làm mới lâu nhất sẽ bị gỡ trước, không bao giờ là bản sao của một phiên đang ở trên máy đó.',
+          'Điện thoại đã ghép nối với máy của phiên có thể chọn nơi giữ bản sao và gỡ chúng; giới hạn dung lượng được đặt trong ứng dụng máy tính.',
+        ],
+      },
+    ],
+  },
+
   // ──────────────────────────────────────────────────── Khắc phục sự cố
   {
     id: 'machines-sync',

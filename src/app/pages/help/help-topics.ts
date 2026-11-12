@@ -1638,6 +1638,95 @@ const TOPICS: HelpTopicSource[] = [
   },
 
   {
+    id: 'machines-copies',
+    title: 'Keep a copy on another computer',
+    icon: 'copy',
+    group: 'machines',
+    summary:
+      'A session copied to another computer after each turn: moving it is instant, and it can go on there while this computer sleeps.',
+    intro:
+      'A session you will likely continue elsewhere can keep a copy there: after each of its turns, what grew is copied to the other computer. Moving it there is then instant, and if this computer is asleep or away, the other one can continue from the copy. It is off until you turn it on.',
+    keywords: [
+      'copy',
+      'keep a copy',
+      'copies',
+      'continue here from the copy',
+      'asleep',
+      'offline',
+      'instant move',
+      'cap',
+    ],
+    sections: [
+      {
+        heading: 'Turn it on',
+        steps: [
+          "Open the session's **⋯** menu and choose **Keep a copy on…**.",
+          'Tick the computers that keep a copy; each says how its copy stands.',
+          'Press **Save**.',
+        ],
+        tips: [
+          "For every session of a project: **Machines › Options**, the project's options, **Keep a copy of its sessions on**. A session's own choice in its menu wins; **As its project says** goes back to the project's.",
+        ],
+      },
+      {
+        heading: 'What it needs',
+        points: [
+          'The other computer’s **Move** permission for this one: a copy is the first half of a move.',
+          'Machines turned on on both computers. While either is off, the other computer is offline or the permission is missing, the copy is paused and says why. Nothing is queued: once that clears, the next copy sends what grew meanwhile.',
+        ],
+      },
+      {
+        heading: 'When, and what travels',
+        points: [
+          'After a turn, never in the middle of one: once the session is idle and has stayed quiet for five seconds.',
+          "Only what grew: the conversation's new lines, its subagents' and workflows' new lines, new file-history snapshots, its todo list. A conversation file that was cut short or rewritten goes again whole.",
+          "Never its code (that moves with a move), sign-ins or settings. The copy is kept in Mother Claude's data folder there, never in Claude Code's folders.",
+        ],
+      },
+      {
+        heading: 'How it stands',
+        terms: [
+          {
+            term: 'Copied at 14:32',
+            text: 'The copy there is as the session was after its last turn.',
+          },
+          { term: 'Copies once its turn ends', text: 'A turn runs; it goes when it ends.' },
+          {
+            term: 'Paused',
+            text: 'With the reason: the other computer is offline, Machines is off on one of the two, the **Move** permission is missing, Mother Claude there is older, it made room for newer copies, or the session lives on another computer now.',
+          },
+        ],
+      },
+      {
+        heading: 'Move it, instantly',
+        points: [
+          'A move to a computer that keeps a copy brings the copy up to date, then sends only the list of the session’s files with their fingerprints: the other computer checks its copy against it and lands from it. **Recent moves** shows it came from its copy.',
+          'If the copy can’t be used, the move sends the conversation as usual.',
+        ],
+      },
+      {
+        heading: 'Continue here from the copy',
+        steps: [
+          "On the computer that keeps the copy, while the session's own computer is offline: open the session (its computer's sessions are greyed), or **Machines › Copies**.",
+          'Press **Continue here from the copy of …** (on the card: **Continue here**), and confirm.',
+        ],
+        points: [
+          "The session lives here from now on: its copy lands in this computer's Claude Code folder, under the account of the same name and in the folder your shared folders map it to, and it starts here with the model, effort and mode it had. The code is this computer's project folder as it is.",
+          'If the first computer went on with it while it was away, nothing is lost: when the session next moves there, that computer’s own turns are kept beside it.',
+        ],
+      },
+      {
+        heading: 'The Copies card',
+        points: [
+          '**Machines › Copies** lists the copies held on this computer (with **Continue here** while their computer is offline, and **Remove**) and this computer’s sessions kept on others (with **Stop keeping it on …**, which removes the copy there too).',
+          'Each computer keeps at most 2 GB of another computer’s copies (**Options › Copies of other computers’ sessions**); the copy refreshed longest ago goes first, never one of a session that lives there.',
+          'A phone paired with the session’s computer can choose where it keeps copies and remove them; the cap is set in the desktop app.',
+        ],
+      },
+    ],
+  },
+
+  {
     id: 'machines-sync',
     title: 'Keep a project in sync between two computers',
     icon: 'refresh',

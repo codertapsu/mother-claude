@@ -419,7 +419,10 @@ bridge's Messages API client (an API key).
   as a pull does, through the same code (`claude/backup/session_pack.rs`),
   when the person moving it asked for it and this computer gave the source
   its `move` grant; carrying the folder's trust needs the dangerous right,
-  as the pull's does. Each of them refuses to write a shared
+  as the pull's does. A move from a copy and *Continue here from the copy*
+  land the copy this computer keeps in its data dir (`machines::copies`)
+  the same way; keeping that copy current never writes a config
+  directory. Each of them refuses to write a shared
   file (`.claude.json`, `history.jsonl`, a file it replaces) while a live
   process uses that directory (a pidfile with a living pid in its `sessions/`,
   or a `.claude.json.lock` younger than 10 s) — only adding new files runs
@@ -609,6 +612,24 @@ developed on `main`, as the rest of the app is. Invariants:
   there; the first message after it carries the move note (`write_user`).
   A foreign live session moves only as a copy. Tests record the target's
   resume, never start `claude`.
+- **Copies kept current** (`machines::copies`, plan §5.9, Phase 3b): a
+  session marked *Keep a copy on …* (its own choice, else its project's
+  options) is copied after each turn — never mid-turn (the backup's
+  `transfer::ops::is_busy`, its files read twice around a round), five
+  quiet seconds after — into the other computer's data dir
+  (`machines/copies/<source>/<account>/<session>/`, a config-dir layout,
+  0700/0600, `copies/index.json`), never a config directory. Append-only
+  files travel as appended bytes once the prefix check agrees (size +
+  SHA-256 of the first and last 64 KiB, `copies::check`), else whole. It
+  needs the target's `move` grant for the source and Machines on both
+  (`/peer/copies/*`); otherwise it pauses, nothing queued. A cap per source
+  computer (`copiesCapBytes`, 2 GiB): the copy refreshed longest ago goes
+  first, never one of a session leased there. A move to a computer holding
+  a copy brings it current and lands from it (only the file list with
+  SHA-256s travels, `wire::FromCopy`); *Continue here from the copy* (a
+  take over, `fromCopy`) lands it as a pull does and resumes it. Rounds run
+  only once `lib.rs` called `enable_copies()`: tests drive
+  `copies::source::tick`.
 - **Work on another computer** (`machines::work`, Phase 4): runs, tasks
   and **team roles** (`work::roles`, decision 9) all need the target's
   `run` grant for the asking computer (`work::target::running_peer`, the

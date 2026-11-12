@@ -64,6 +64,7 @@ describe('HelpComponent', () => {
       'machines-permissions',
       'machines-sessions',
       'machines-move',
+      'machines-copies',
       'machines-sync',
       'machines-run',
       'machines-task',
@@ -73,6 +74,8 @@ describe('HelpComponent', () => {
     expect(cardIds()).toContain('machines-move');
     search('keep in sync');
     expect(cardIds()).toContain('machines-sync');
+    search('keep a copy');
+    expect(cardIds()).toContain('machines-copies');
     search('machine_run');
     expect(cardIds()).toContain('machines-run');
     search('machine_task');

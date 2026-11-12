@@ -2,18 +2,18 @@
 
 Pair your computers once, then see and drive every computer's Claude Code
 sessions from any of them — and from a phone paired with any of them —
-move a session, with its code, to another computer and back, keep a
-project's code the same on two computers, let a session build and test on
-another computer, and hand a task to a session there. The design and the
-plan for what comes next (copies kept up to date, a team's role on another
-computer) are in [PLAN-MACHINES.md](PLAN-MACHINES.md).
+move a session, with its code, to another computer and back, keep a copy
+of a session current on another computer, keep a project's code the same
+on two computers, let a session build and test on another computer, and
+hand a task to a session there. The design is in
+[PLAN-MACHINES.md](PLAN-MACHINES.md).
 
 > **Status**: Phases 1 (pairing and setup), 2 (seeing and driving other
-> computers' sessions) and 3a (moving a session, with the setup's checks for
-> it) are built, and so are code sync (a project's code kept the same on two
-> computers) and Phase 4's first two parts: a session running commands on
-> another computer, and handing a task to a session there. A team's role on
-> another computer and keeping a copy there come next.
+> computers' sessions), 3a (moving a session, with the setup's checks for
+> it) and 3b (keeping a copy current, and continuing from it) are built,
+> and so are code sync (a project's code kept the same on two computers)
+> and Phase 4: a session running commands on another computer, handing a
+> task to a session there, and a team's role on another computer.
 
 ## Turning it on
 
@@ -350,6 +350,106 @@ A phone paired with any of your computers moves sessions the same way, one
 column. Carrying a folder's trust or files git ignores needs the phone's
 dangerous permission (set on the desktop); without it the trust option does
 not show, and those files stay where they are.
+
+## Keeping a copy on another computer
+
+A session you will likely continue elsewhere can **keep a copy** there:
+after each of its turns, what grew is copied to the other computer. Moving
+it there is then instant — the conversation does not travel again — and if
+this computer is asleep or away, the other one can **continue from the
+copy**. It is off until you turn it on.
+
+### Turning it on
+
+- **One session**: its ⋯ menu › **Keep a copy on…** lists your computers,
+  each with a switch and how its copy stands. Save.
+- **Every session of a project**: Machines › Options › the project's
+  options › *Keep a copy of its sessions on*, one switch per computer. A
+  session's own choice in its menu wins over its project's; *As its project
+  says* goes back to the project's.
+
+The other computer must have given this one its **Move** permission (a copy
+is the first half of a move), and Machines must be on on both. Otherwise —
+or while the other computer is offline — the copy is **paused** and says
+why; nothing is queued, and once that clears, the next copy sends
+everything that grew meanwhile.
+
+### When, and what travels
+
+- **After a turn**, never in the middle of one: once the session is idle (or
+  only waits for a scheduled wakeup) and has stayed quiet for five seconds.
+  Its files are read twice around each copy: if anything moved meanwhile,
+  that copy is dropped and goes again once the session is quiet.
+- **What grew**: the conversation's new lines, its subagents' and workflows'
+  new lines, new file-history snapshots, its todo list and its session
+  environment — the files a move would carry. A conversation file only ever
+  grows, so only its new bytes travel, once both computers agree that what
+  the other holds is the start of the file here (its size and a fingerprint
+  of its first and last 64 KB). A file that was cut short or rewritten goes
+  again whole, and so does any file whose bytes did not arrive as sent.
+- **Never**: the code (it moves with a move, as a snapshot), sign-ins,
+  settings, files outside the session's own.
+
+### Where a copy is kept
+
+In Mother Claude's own data folder on the other computer
+(`machines/copies/<this computer>/<account>/<session>/`, laid out like
+Claude Code's folder), readable by your user only — **never** in Claude
+Code's folders: the other computer's Claude Code doesn't see it until you
+move or continue the session there. Each computer keeps at most **2 GB** of
+another computer's copies (Machines › Options › *Copies of other computers'
+sessions*); past that, the copy refreshed longest ago goes first — never the
+copy of a session that lives on that computer now.
+
+### What it says
+
+- **Copied at 14:32** — the copy there is as the session was after its last
+  turn.
+- **Copies once its turn ends** — a turn runs; it goes when it ends.
+- **Paused: …** — the other computer can't be reached, Machines is off on
+  one of them, its Move permission is missing, its Mother Claude is older,
+  its cap made room for newer copies (it goes again after the next turn), or
+  the session lives on another computer now.
+
+### Moving a session that has a copy
+
+A move to a computer that keeps a copy brings the copy up to date first,
+then sends only the list of the session's files with their SHA-256: the
+other computer checks its copy against it, every file, and lands from it
+(as a pull lands a session). The move sheet says the copy is there; *Recent
+moves* shows **from its copy** and almost nothing sent. If the copy can't be
+used, the move sends the conversation as usual.
+
+### Continue here from the copy
+
+While the session's own computer is **offline**, the other one offers
+**Continue here from the copy of 14:32**: on the session's page (that
+computer's sessions are greyed in the list) and in the *Copies* card. It
+takes the session over (it lives here from now on), lands the copy in this
+computer's Claude Code folder — under the account of the same name, in the
+folder your roots map it to, kept for undo like a pull — and starts it as a
+session Mother Claude runs, with the model, effort and mode it had. Its
+first message tells Claude where it was and where it is now. The code is
+this computer's project folder as it is.
+
+If the first computer went on with the session while it was away, nothing
+is lost: when the session next moves there, that computer's own turns are
+kept beside it as a conflict copy, never merged.
+
+### The Copies card
+
+Machines › **Copies** lists the copies **held on this computer** (the
+session, its computer, its size, when it was last copied — *Continue here*
+while its computer is offline, *Remove*) and the ones **kept on other
+computers** (how each stands — *Stop keeping it on …*, which also removes
+it there). A copy removed here comes back after the session's next turn
+until its own computer stops keeping it.
+
+### From a phone
+
+A phone paired with the session's computer chooses where it keeps copies
+from the session's menu, and sees and removes copies on the Machines page.
+The cap is set on the desktop.
 
 ## Keeping code in sync
 
@@ -1000,3 +1100,13 @@ connection.
   checked out, or you committed onto it: Mother Claude never moves it under
   you. The task names the newer result's commit; make a branch of it with
   `git branch <name> <commit>`.
+- **A copy says *Paused: the other computer has not given this one the Move
+  permission*.** Tick *Move* for this computer on the other computer's
+  Machines page, in the column of the network you use now; the copy goes at
+  the session's next turn.
+- **A copy says *Paused: the other computer keeps less of this one's
+  copies*.** It is larger than that computer's cap for this one, or the cap
+  made room for newer copies: raise *Copies of other computers' sessions* in
+  its Options, or remove copies it keeps.
+- **"… doesn't trust … yet" when continuing from a copy.** Open the project
+  folder once with Claude Code on this computer, then continue again.
