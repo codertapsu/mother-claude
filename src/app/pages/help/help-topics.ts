@@ -1215,6 +1215,10 @@ const TOPICS: HelpTopicSource[] = [
             text: 'Sessions run in it, and one moved to an older version may not resume. **Update Claude Code** runs `claude update` when you press it.',
           },
           {
+            term: 'Claude Code tools',
+            text: "Sessions here run commands on your other computers through Mother Claude's tools. Recommended; once another computer lets this one run commands there, those tools wait for it, but Machines turns on without it. **Turn on** switches them on.",
+          },
+          {
             term: 'Each account',
             text: "Signed in on this computer. Only that account's sessions wait for it: Machines turns on without it. **Sign in…** starts its sign-in here.",
           },
@@ -1335,6 +1339,7 @@ const TOPICS: HelpTopicSource[] = [
       'see',
       'drive',
       'move',
+      'run',
       'dangerous',
       'audit',
       'internet',
@@ -1353,15 +1358,19 @@ const TOPICS: HelpTopicSource[] = [
             text: 'Send messages, answer ordinary approvals, interrupt, stop, and set model, effort and mode. On by default.',
           },
           { term: 'Move', text: 'Move sessions to this computer and away from it. On by default.' },
-          { term: 'Run', text: 'Run commands and tasks here. Not available yet: it stays off.' },
+          {
+            term: 'Run',
+            text: "Run commands here for its sessions, in a work folder of their own: this computer's copy of the project is never touched. Each run is approved on the other computer. Off by default.",
+          },
           {
             term: 'Dangerous',
-            text: "Bypass permissions, approve tool calls flagged dangerous, send raw keys, and carry a folder's trust and the files git ignores with a move. Off by default.",
+            text: "Bypass permissions, approve tool calls flagged dangerous, send raw keys, carry a folder's trust and the files git ignores with a move, and run commands flagged dangerous. Off by default.",
           },
         ],
         points: [
-          'Driving needs seeing; moving and dangerous actions need driving. Ticking one ticks what it needs; unticking one unticks what needs it.',
+          'Driving needs seeing; moving, running commands and dangerous actions need driving. Ticking one ticks what it needs; unticking one unticks what needs it.',
         ],
+        links: [{ label: 'See Run commands on another computer', path: '/help/machines-run' }],
       },
       {
         heading: 'Same network or internet',
@@ -1390,6 +1399,7 @@ const TOPICS: HelpTopicSource[] = [
           "A dangerous action on another computer needs both: that computer's **Dangerous** permission for this one, and your own right here. A phone without the dangerous permission on this computer can't reach for it through this computer. A move you start from here for another computer's session comes back to this one from it: carrying a folder's trust or the files git ignores then needs each computer's **Dangerous** permission for the other.",
           "Every change another computer makes here is written to this computer's audit log, with who acted through it; a dangerous one also shows a notice here.",
           'With **Dangerous**, another computer can run anything here: give it only to a computer you trust as much as this one.',
+          'With **Run**, another computer runs commands here as you, each approved on that computer, not on this one: give it only to a computer you would let type into a terminal here.',
         ],
       },
     ],
@@ -1713,6 +1723,191 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'From a phone',
         points: [
           'A phone sees **Code sync** and how each project stands, read only: turning it on or off, **Sync now** and choosing a side happen in the desktop app.',
+        ],
+      },
+    ],
+  },
+
+  {
+    id: 'machines-run',
+    title: 'Run commands on another computer',
+    icon: 'terminal',
+    group: 'machines',
+    summary:
+      'Let a session build and test on another of your computers, at its own code, without moving it.',
+    intro:
+      "A Claude Code session on one computer can run commands on another: a session on your Mac runs the tests on your Windows PC, at the code it has right now, and reads what they printed. Nothing moves, and you don't switch computers. It is off until the computer that runs the commands allows it, and you approve each run.",
+    keywords: [
+      'run',
+      'run commands',
+      'build',
+      'test',
+      'machine_run',
+      'work folder',
+      'always allow',
+      'output',
+      'artifacts',
+      'powershell',
+      'zsh',
+      'cancel',
+    ],
+    sections: [
+      {
+        heading: 'Turn it on',
+        where: 'desktop',
+        steps: [
+          'On the computer that will run the commands, open **Machines**.',
+          'On the card of the computer whose sessions will ask, next to **On this PC, … may** (or **On this Mac, … may**), press **Change**.',
+          'Tick **Run**, for **Same network**, **Internet** or both, and press **Save**.',
+          "On the computer whose sessions ask, keep **Give sessions Mother Claude's tools** on, under **Services**: sessions reach the other computer through those tools.",
+        ],
+        tips: [
+          '**Run** needs **Drive** and **See**: ticking it ticks them. It stays off for every computer until you tick it.',
+          'The setup checks **Claude Code tools**, and **Turn on** switches them on. Its test then runs a fixed `echo` each way the permission is given: **Run there** and **Run here**.',
+        ],
+        links: [
+          { label: 'Open Machines', path: '/machines' },
+          { label: 'See Claude Code tools', path: '/help/claude-code-tools' },
+        ],
+      },
+      {
+        heading: 'Ask a session to use it',
+        intro:
+          "Ask in your own words, such as “run the tests on DESKTOP-PC”. Claude finds your computers, writes the command for that computer's shell (zsh on a Mac, PowerShell on Windows) and runs it. It has five tools for it:",
+        terms: [
+          {
+            term: '`machine_list`',
+            text: 'Your other computers: their system and shell, whether they are online, and whether this computer may run commands there.',
+          },
+          {
+            term: '`machine_run`',
+            text: 'Runs one command on one of them, in the folder the session works in or another folder of the project, and waits up to 10 minutes for it.',
+          },
+          { term: '`machine_wait`', text: 'Waits again for a run that is still running.' },
+          {
+            term: '`machine_output`',
+            text: 'Reads all a run printed, page by page, or brings a file it made into the project.',
+          },
+          { term: '`machine_cancel`', text: 'Stops a run, with everything it started.' },
+        ],
+        points: [
+          'The session must work in a git repository: its code goes to the other computer as a git snapshot.',
+          "In Claude Code's default permission mode the session first asks to use the tool, as for any of Mother Claude's tools. That only lets it ask: each run still waits for your approval, in every mode.",
+        ],
+      },
+      {
+        heading: 'Approve each run',
+        intro:
+          "Each run waits for your approval on the computer whose session asks: in **Inbox**, on the session's page and on your phone. The card shows:",
+        terms: [
+          { term: 'Computer', text: 'Where it runs.' },
+          {
+            term: 'Folder',
+            text: "That computer's copy of the project, and the folder in it. The command runs in a work folder there, at the session's code: the copy itself is not touched.",
+          },
+          { term: 'Command', text: 'The command line, exactly as it will run.' },
+          { term: 'Shell', text: 'zsh on a Mac, PowerShell on Windows.' },
+          {
+            term: 'Time limit',
+            text: '30 minutes unless the session asks for another; 2 hours at most.',
+          },
+          {
+            term: 'Files to list',
+            text: 'Files the run makes that Claude wants to see, such as `target/release/*.exe`.',
+          },
+        ],
+        points: [
+          '**Allow once** runs it. **Deny** tells Claude not to try again; **Deny with feedback…** also tells it what to do instead.',
+          'Nobody answers within 10 minutes: it does not run.',
+        ],
+      },
+      {
+        heading: 'Always allow a command',
+        steps: [
+          "On a run's card, press **Always…**.",
+          'Choose **Always allow … on … for this project**. It names the first words of the command, such as `cargo test`, and the computer.',
+        ],
+        points: [
+          'From then on, a command of this project that starts with those words runs on that computer without asking. Whole words only: `cargo test` covers `cargo test --lib`, never `cargo test-foo`.',
+          'A command holding `;`, `&`, `|`, `$`, `(`, `)`, `{`, `}`, `<`, `>`, a backtick or a line break always asks, whatever it starts with: nothing can ride along after an allowed command.',
+          'A dangerous command is never allowed this way. Nothing is offered for a shell or an interpreter alone, such as `bash`, `pwsh` or `python`: Mother Claude offers the program and what it runs, such as `npm run build` or `python -m pytest`.',
+          '**Always…** needs the dangerous right: the desktop app, or a phone allowed dangerous actions.',
+          "They are saved in Mother Claude, not in Claude Code's settings. **Machines › Runs** lists them under **Always allowed runs**; **Revoke** takes one back (desktop app), and that command asks again.",
+        ],
+      },
+      {
+        heading: 'Dangerous commands',
+        points: [
+          "A command that touches Claude Code's configuration (`.claude/`, `.mcp.json`), Mother Claude's data, `~/.ssh`, a shell startup file or git hooks is dangerous: only the desktop app, or a phone allowed dangerous actions, can allow it, and never always.",
+          'It also needs the **Dangerous** permission the computer that runs it gives this one. That computer checks the command too, before you are asked: a command only its own rules find dangerous is a dangerous run all the same.',
+        ],
+      },
+      {
+        heading: 'Where it runs',
+        points: [
+          "In a work folder of its own on the other computer: one per project and per computer that asks, in Mother Claude's data folder there. It is a git worktree of that computer's copy of the project, the folder your shared folders point to.",
+          "Before each run, the work folder is set to the session's code as it is now: committed or not, new files included. Files git ignores, such as `target/` and `node_modules/`, stay between runs, so the next build picks up where the last one stopped.",
+          'Your own copy of the project on that computer is never changed: its files, branch and staged changes stay as they are.',
+          "The project must be on that computer. If it isn't, the run is refused: clone it there first, with **Clone it on …** in the setup's **Accounts and folders** step.",
+        ],
+      },
+      {
+        heading: 'How it runs',
+        points: [
+          'On a Mac in zsh, as a login shell: what your `.zprofile` puts on the `PATH` is there, but `.zshrc` is not read. On Windows in PowerShell 7 when it is installed, else in Windows PowerShell, without your PowerShell profile.',
+          'Without your tokens or API keys, and with nothing to type into: a command that asks a question fails instead of waiting.',
+          'One run at a time per work folder: the next one waits its turn, and its time limit counts meanwhile.',
+          'When the time limit runs out, or you cancel, the command stops with everything it started. Whatever it leaves running in the background stops when it ends.',
+        ],
+      },
+      {
+        heading: 'What comes back',
+        points: [
+          'Claude gets the exit code, how long it took and the last 64 KiB of what it printed. A run longer than 10 minutes answers that it is still running, and Claude waits again.',
+          'All it printed stays a day on the computer that ran it, and Claude can read it page by page.',
+          'Files it made are listed with their sizes. Claude can bring one, up to 64 MiB, into the project under `.mother-claude/artifacts/`, which git ignores, until the next run resets the work folder.',
+        ],
+      },
+      {
+        heading: 'Follow and stop runs',
+        points: [
+          "On the session's page, a run is a background task: open **Agents**, then **Background tasks**. **Output** shows what it printed; **Cancel** stops it.",
+          '**Machines › Runs** lists the recent runs both ways: the computer, the project, the command, how it stands, its exit code and time. **Output** shows the end of what it printed; **Cancel** stops a run, from either computer.',
+          'Each computer keeps its runs a day after they end.',
+          'Turning Machines off, revoking a computer or taking back its **Run** permission stops what it runs here at once.',
+        ],
+        links: [{ label: 'Open Machines', path: '/machines' }],
+      },
+      {
+        heading: 'From a phone',
+        points: [
+          "A phone answers a run's approval like any other, follows runs on the session's page and under **Runs**, and cancels them.",
+          "**Always…** and dangerous runs need the phone's dangerous permission, set in the desktop app. A phone sees **Always allowed runs** but can't revoke them.",
+        ],
+      },
+      {
+        heading: "If it doesn't run",
+        terms: [
+          {
+            term: '… has not given this computer the Run permission',
+            text: "Tick **Run** for this computer on that computer's **Machines** page, in the column of the network you use now.",
+          },
+          {
+            term: "… isn't on …",
+            text: "That computer has no copy of the project, or no shared folder points to it. Clone it there (**Clone it on …**, in the setup's **Accounts and folders** step), then try again.",
+          },
+          {
+            term: 'Update Mother Claude on …',
+            text: "That computer's Mother Claude is older and doesn't run commands for other computers yet: update it.",
+          },
+          {
+            term: 'running scripts is disabled on this system',
+            text: 'Windows PowerShell follows your execution policy, which blocks `npm.ps1` and other scripts. Install PowerShell 7 and restart Mother Claude there, write `npm.cmd`, or allow your own scripts there: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.',
+          },
+          {
+            term: 'A program is not found',
+            text: 'On a Mac, put what adds it to the `PATH` in `.zprofile`, not only `.zshrc`. On Windows, restart Mother Claude after installing it: a run gets the `PATH` Mother Claude started with.',
+          },
         ],
       },
     ],
@@ -2542,7 +2737,7 @@ const TOPICS: HelpTopicSource[] = [
     group: 'advanced',
     summary: "Mother Claude's own tools for your sessions: the browser, the task board and more.",
     intro:
-      'Mother Claude gives every Claude Code session on your computer its own tools: the browser, the team task board, teams, and Mother Claude itself. Sessions see them as `mcp__plugin_mother-claude_mc__<tool>`.',
+      'Mother Claude gives every Claude Code session on your computer its own tools: the browser, the team task board, teams, your other computers (`machine_run` and the rest), and Mother Claude itself. Sessions see them as `mcp__plugin_mother-claude_mc__<tool>`.',
     keywords: ['mcp', 'tools', 'server', 'services', 'plugin', 'reload-plugins'],
     sections: [
       {

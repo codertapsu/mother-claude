@@ -855,7 +855,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
     summary:
       'Công cụ riêng của Mother Claude cho các phiên của bạn: trình duyệt, bảng tác vụ và nhiều thứ khác.',
     intro:
-      'Mother Claude cấp cho mọi phiên Claude Code trên máy tính của bạn các công cụ riêng: trình duyệt, bảng tác vụ của nhóm, các nhóm, và chính Mother Claude. Phiên thấy chúng dưới tên `mcp__plugin_mother-claude_mc__<tool>`.',
+      'Mother Claude cấp cho mọi phiên Claude Code trên máy tính của bạn các công cụ riêng: trình duyệt, bảng tác vụ của nhóm, các nhóm, các máy tính khác của bạn (`machine_run` và các công cụ đi kèm), và chính Mother Claude. Phiên thấy chúng dưới tên `mcp__plugin_mother-claude_mc__<tool>`.',
     keywords: ['công cụ', 'máy chủ MCP', 'dịch vụ', 'bật công cụ', 'tắt công cụ'],
     sections: [
       {

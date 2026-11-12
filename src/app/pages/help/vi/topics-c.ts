@@ -6,8 +6,8 @@ import { HelpTopicSource } from '../help-model';
  * as its English one in `help-topics.ts`; section ids, `where`, embeds and
  * link paths come from the English, only the link labels from here.
  * `**bold**` names a label as the Vietnamese interface shows it
- * (`i18n/vi/machines.json`, `moves.json`); `…` stands for a computer's or an
- * account's name.
+ * (`i18n/vi/machines.json`, `moves.json`, `runs.json`); `…` stands for a
+ * computer's or an account's name.
  */
 const TOPICS: HelpTopicSource[] = [
   // ─────────────────────────────────────────────────── Máy tính của bạn
@@ -113,6 +113,10 @@ const TOPICS: HelpTopicSource[] = [
           {
             term: 'Claude Code',
             text: 'Các phiên chạy trong Claude Code, và một phiên chuyển sang phiên bản cũ hơn có thể không tiếp tục được. **Cập nhật Claude Code** chạy `claude update` khi bạn nhấn nút.',
+          },
+          {
+            term: 'Công cụ cho Claude Code',
+            text: 'Các phiên ở đây chạy lệnh trên các máy tính khác của bạn qua công cụ của Mother Claude. Đây là mục khuyến nghị; khi một máy khác cho máy này chạy lệnh trên đó, các công cụ ấy phải chờ mục này, nhưng tính năng Các máy vẫn bật được khi thiếu nó. **Bật** sẽ bật chúng.',
           },
           {
             term: 'Từng tài khoản',
@@ -245,6 +249,7 @@ const TOPICS: HelpTopicSource[] = [
       'xem',
       'điều khiển',
       'di chuyển',
+      'chạy lệnh',
       'nguy hiểm',
       'nhật ký kiểm tra',
       'cùng mạng',
@@ -265,15 +270,19 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Di chuyển',
             text: 'Chuyển phiên đến máy này và đi khỏi máy này. Bật theo mặc định.',
           },
-          { term: 'Chạy', text: 'Chạy lệnh và tác vụ ở đây. Chưa có: quyền này luôn tắt.' },
+          {
+            term: 'Chạy',
+            text: 'Chạy lệnh ở đây cho các phiên của máy đó, trong một thư mục làm việc riêng: bản sao dự án của máy này không bao giờ bị động đến. Mỗi lần chạy được duyệt trên máy kia. Tắt theo mặc định.',
+          },
           {
             term: 'Nguy hiểm',
-            text: 'Bỏ qua quyền, cho phép các lệnh gọi công cụ bị đánh dấu nguy hiểm, gửi phím thô, và mang theo sự tin cậy của thư mục cùng các tệp git bỏ qua khi chuyển phiên. Tắt theo mặc định.',
+            text: 'Bỏ qua quyền, cho phép các lệnh gọi công cụ bị đánh dấu nguy hiểm, gửi phím thô, mang theo sự tin cậy của thư mục cùng các tệp git bỏ qua khi chuyển phiên, và chạy các lệnh bị đánh dấu nguy hiểm. Tắt theo mặc định.',
           },
         ],
         points: [
-          'Điều khiển cần quyền xem; di chuyển và thao tác nguy hiểm cần quyền điều khiển. Đánh dấu một quyền sẽ đánh dấu cả những quyền nó cần; bỏ một quyền sẽ bỏ cả những quyền cần nó.',
+          'Điều khiển cần quyền xem; di chuyển, chạy lệnh và thao tác nguy hiểm cần quyền điều khiển. Đánh dấu một quyền sẽ đánh dấu cả những quyền nó cần; bỏ một quyền sẽ bỏ cả những quyền cần nó.',
         ],
+        links: [{ label: 'Xem “Chạy lệnh trên máy tính khác”', path: '/help/machines-run' }],
       },
       {
         heading: 'Cùng mạng hay qua Internet',
@@ -302,6 +311,7 @@ const TOPICS: HelpTopicSource[] = [
           'Một thao tác nguy hiểm trên máy khác cần cả hai: quyền **Nguy hiểm** mà máy đó cấp cho máy này, và quyền của chính bạn ở đây. Một điện thoại không có quyền thao tác nguy hiểm trên máy này không thể dùng máy này để làm việc đó. Một lần chuyển bạn bắt đầu từ đây cho phiên của máy khác sẽ quay về máy này từ máy đó: khi đó việc mang theo sự tin cậy của thư mục hay các tệp git bỏ qua cần quyền **Nguy hiểm** mà mỗi máy cấp cho máy kia.',
           'Mọi thay đổi mà máy khác thực hiện ở đây đều được ghi vào nhật ký kiểm tra của máy này, kèm người đã thao tác qua máy đó; thao tác nguy hiểm còn hiện thông báo ở đây.',
           'Có quyền **Nguy hiểm**, máy kia có thể chạy bất cứ thứ gì ở đây: chỉ cấp cho máy tính bạn tin cậy như chính máy này.',
+          'Có quyền **Chạy**, máy kia chạy lệnh ở đây với tư cách của bạn, mỗi lần chạy được duyệt trên máy đó chứ không phải trên máy này: chỉ cấp cho máy tính mà bạn sẵn lòng để nó gõ lệnh vào terminal ở đây.',
         ],
       },
     ],
@@ -630,6 +640,192 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Từ điện thoại',
         points: [
           'Điện thoại thấy **Đồng bộ mã nguồn** và tình trạng của từng dự án, chỉ để đọc: bật hay tắt, **Đồng bộ ngay** và chọn một bên được thực hiện trong ứng dụng máy tính.',
+        ],
+      },
+    ],
+  },
+
+  {
+    id: 'machines-run',
+    title: 'Chạy lệnh trên máy tính khác',
+    icon: 'terminal',
+    group: 'machines',
+    summary:
+      'Cho một phiên build và chạy kiểm thử trên một máy tính khác của bạn, với mã nguồn của chính nó, mà không phải chuyển phiên.',
+    intro:
+      'Một phiên Claude Code trên máy này có thể chạy lệnh trên máy khác: một phiên trên máy Mac chạy bộ kiểm thử trên máy PC Windows của bạn, với đúng mã nguồn nó đang có, rồi đọc những gì được in ra. Không có gì bị chuyển đi, và bạn không phải đổi sang máy khác. Tính năng này tắt cho đến khi máy chạy lệnh cho phép, và bạn duyệt từng lần chạy.',
+    keywords: [
+      'chạy lệnh',
+      'máy khác',
+      'biên dịch',
+      'kiểm thử',
+      'thư mục làm việc',
+      'luôn cho phép',
+      'đầu ra',
+      'tệp kết quả',
+      'hủy lần chạy',
+      'lệnh nguy hiểm',
+    ],
+    sections: [
+      {
+        heading: 'Bật tính năng',
+        where: 'desktop',
+        steps: [
+          'Trên máy tính sẽ chạy lệnh, mở **Các máy**.',
+          'Trên thẻ của máy tính có các phiên sẽ nhờ chạy lệnh, cạnh **Trên máy PC này, … được** (hoặc **Trên máy Mac này, … được**), nhấn **Thay đổi**.',
+          'Đánh dấu **Chạy**, cho **Cùng mạng**, **Internet** hoặc cả hai, rồi nhấn **Lưu**.',
+          'Trên máy tính có các phiên nhờ chạy lệnh, hãy giữ **Cấp công cụ của Mother Claude cho các phiên** ở trạng thái bật, trong **Dịch vụ**: các phiên tới được máy kia qua những công cụ đó.',
+        ],
+        tips: [
+          '**Chạy** cần **Điều khiển** và **Xem**: đánh dấu quyền này sẽ đánh dấu cả hai. Quyền này tắt với mọi máy cho đến khi bạn đánh dấu.',
+          'Phần thiết lập kiểm tra **Công cụ cho Claude Code**, và **Bật** sẽ bật chúng. Sau đó bài kiểm tra chạy một lệnh `echo` cố định theo mỗi chiều đã được cấp quyền: **Chạy ở đó** và **Chạy ở đây**.',
+        ],
+        links: [
+          { label: 'Mở trang Các máy', path: '/machines' },
+          { label: 'Xem “Công cụ Claude Code”', path: '/help/claude-code-tools' },
+        ],
+      },
+      {
+        heading: 'Nhờ một phiên dùng tính năng này',
+        intro:
+          'Hãy nói bằng lời của bạn, chẳng hạn “chạy bộ kiểm thử trên DESKTOP-PC”. Claude tìm các máy tính của bạn, viết lệnh cho shell của máy đó (zsh trên máy Mac, PowerShell trên Windows) rồi chạy nó. Claude có năm công cụ cho việc này:',
+        terms: [
+          {
+            term: '`machine_list`',
+            text: 'Các máy tính khác của bạn: hệ điều hành và shell của chúng, chúng có đang trực tuyến không, và máy này có được chạy lệnh ở đó không.',
+          },
+          {
+            term: '`machine_run`',
+            text: 'Chạy một lệnh trên một máy trong số đó, trong thư mục phiên đang làm việc hoặc một thư mục khác của dự án, và chờ tối đa 10 phút.',
+          },
+          { term: '`machine_wait`', text: 'Chờ tiếp một lần chạy vẫn đang chạy.' },
+          {
+            term: '`machine_output`',
+            text: 'Đọc toàn bộ những gì một lần chạy đã in ra, từng trang một, hoặc đưa một tệp nó tạo ra vào dự án.',
+          },
+          {
+            term: '`machine_cancel`',
+            text: 'Dừng một lần chạy, cùng mọi thứ nó đã khởi chạy.',
+          },
+        ],
+        points: [
+          'Phiên phải làm việc trong một kho git: mã nguồn của nó được gửi sang máy kia dưới dạng một bản chụp git.',
+          'Ở chế độ quyền mặc định của Claude Code, phiên sẽ hỏi trước khi dùng công cụ, như với mọi công cụ của Mother Claude. Việc đó chỉ cho phép phiên hỏi: mỗi lần chạy vẫn phải chờ bạn duyệt, ở mọi chế độ.',
+        ],
+      },
+      {
+        heading: 'Duyệt từng lần chạy',
+        intro:
+          'Mỗi lần chạy đều chờ bạn duyệt trên máy tính có phiên đang nhờ: trong **Hộp thư**, trên trang của phiên và trên điện thoại của bạn. Thẻ yêu cầu duyệt hiện:',
+        terms: [
+          { term: 'Máy tính', text: 'Nơi lệnh chạy.' },
+          {
+            term: 'Thư mục',
+            text: 'Bản sao dự án trên máy đó, và thư mục bên trong nó. Lệnh chạy trong một thư mục làm việc ở đó, với mã nguồn của phiên: bản thân bản sao không bị động đến.',
+          },
+          { term: 'Lệnh', text: 'Dòng lệnh, đúng như nó sẽ chạy.' },
+          { term: 'Shell', text: 'zsh trên máy Mac, PowerShell trên Windows.' },
+          {
+            term: 'Giới hạn thời gian',
+            text: '30 phút, trừ khi phiên yêu cầu khác; tối đa 2 giờ.',
+          },
+          {
+            term: 'Tệp cần liệt kê',
+            text: 'Các tệp do lần chạy tạo ra mà Claude muốn xem, chẳng hạn `target/release/*.exe`.',
+          },
+        ],
+        points: [
+          '**Cho phép một lần** để chạy lệnh. **Từ chối** báo Claude đừng thử lại; **Từ chối kèm góp ý…** còn nói cho Claude nên làm gì thay vào đó.',
+          'Không ai trả lời trong 10 phút: lệnh không được chạy.',
+        ],
+      },
+      {
+        heading: 'Luôn cho phép một lệnh',
+        steps: [
+          'Trên thẻ yêu cầu duyệt của một lần chạy, nhấn **Luôn cho phép…**.',
+          'Chọn **Luôn cho phép “…” trên … cho dự án này**. Dòng này nêu các từ đầu tiên của lệnh, chẳng hạn `cargo test`, và máy tính.',
+        ],
+        points: [
+          'Từ đó trở đi, một lệnh của dự án này bắt đầu bằng đúng những từ đó sẽ chạy trên máy đó mà không hỏi. Chỉ tính nguyên từ: `cargo test` bao gồm `cargo test --lib`, nhưng không bao giờ bao gồm `cargo test-foo`.',
+          'Một lệnh có chứa `;`, `&`, `|`, `$`, `(`, `)`, `{`, `}`, `<`, `>`, dấu backtick hoặc dấu xuống dòng thì luôn phải hỏi, dù nó bắt đầu bằng gì: không gì có thể đi kèm sau một lệnh đã được cho phép.',
+          'Lệnh nguy hiểm không bao giờ được cho phép theo cách này. Không có gì được đề xuất cho một shell hay một trình thông dịch đứng riêng, như `bash`, `pwsh` hay `python`: Mother Claude đề xuất chương trình cùng thứ nó chạy, chẳng hạn `npm run build` hay `python -m pytest`.',
+          '**Luôn cho phép…** cần quyền thao tác nguy hiểm: ứng dụng máy tính, hoặc điện thoại được phép thực hiện thao tác nguy hiểm.',
+          'Chúng được lưu trong Mother Claude, không phải trong cài đặt của Claude Code. **Các máy › Các lần chạy** liệt kê chúng trong **Lệnh chạy luôn được phép**; **Thu hồi** để rút lại một lệnh (ứng dụng máy tính), và lệnh đó sẽ lại hỏi.',
+        ],
+      },
+      {
+        heading: 'Lệnh nguy hiểm',
+        points: [
+          'Lệnh động đến cấu hình của Claude Code (`.claude/`, `.mcp.json`), dữ liệu của Mother Claude, `~/.ssh`, tệp khởi động shell hay git hook là lệnh nguy hiểm: chỉ ứng dụng máy tính, hoặc điện thoại được phép thực hiện thao tác nguy hiểm, mới cho phép được, và không bao giờ cho phép luôn.',
+          'Lệnh đó còn cần quyền **Nguy hiểm** mà máy chạy lệnh cấp cho máy này. Máy đó cũng tự kiểm tra lệnh trước khi bạn được hỏi: lệnh mà chỉ quy tắc của riêng nó coi là nguy hiểm vẫn là một lần chạy nguy hiểm.',
+        ],
+      },
+      {
+        heading: 'Lệnh chạy ở đâu',
+        points: [
+          'Trong một thư mục làm việc riêng trên máy kia: mỗi dự án và mỗi máy nhờ chạy có một thư mục, nằm trong thư mục dữ liệu của Mother Claude ở máy đó. Đó là một git worktree của bản sao dự án trên máy đó, tức thư mục mà các thư mục dùng chung của bạn trỏ tới.',
+          'Trước mỗi lần chạy, thư mục làm việc được đặt về đúng mã nguồn hiện tại của phiên: đã commit hay chưa, kể cả các tệp mới. Các tệp git bỏ qua, như `target/` và `node_modules/`, được giữ lại giữa các lần chạy, nên lần build sau tiếp tục từ chỗ lần trước dừng.',
+          'Bản sao dự án của chính bạn trên máy đó không bao giờ bị thay đổi: các tệp, nhánh và thay đổi đã stage vẫn giữ nguyên.',
+          'Dự án phải có trên máy đó. Nếu chưa có, lần chạy bị từ chối: hãy sao chép dự án sang đó trước, bằng **Sao chép sang …** ở bước **Tài khoản và thư mục** của phần thiết lập.',
+        ],
+      },
+      {
+        heading: 'Lệnh chạy thế nào',
+        points: [
+          'Trên máy Mac, lệnh chạy trong zsh dưới dạng login shell: những gì `.zprofile` thêm vào `PATH` đều có, nhưng `.zshrc` không được đọc. Trên Windows, lệnh chạy trong PowerShell 7 nếu đã cài, nếu không thì trong Windows PowerShell, không dùng profile PowerShell của bạn.',
+          'Lệnh chạy mà không có token hay khóa API của bạn, và không ai gõ gì vào được: một lệnh đặt câu hỏi sẽ thất bại thay vì chờ.',
+          'Mỗi thư mục làm việc chỉ có một lần chạy tại một thời điểm: lần sau chờ đến lượt, và giới hạn thời gian của nó vẫn được tính trong lúc chờ.',
+          'Khi hết giới hạn thời gian, hoặc khi bạn hủy, lệnh dừng cùng mọi thứ nó đã khởi chạy. Những gì nó để lại chạy nền cũng dừng khi lệnh kết thúc.',
+        ],
+      },
+      {
+        heading: 'Những gì nhận lại',
+        points: [
+          'Claude nhận mã thoát, thời gian chạy và 64 KiB cuối của những gì đã in ra. Lần chạy dài hơn 10 phút sẽ trả lời là vẫn đang chạy, và Claude chờ tiếp.',
+          'Toàn bộ những gì đã in ra được giữ một ngày trên máy đã chạy lệnh, và Claude có thể đọc từng trang.',
+          'Các tệp lệnh tạo ra được liệt kê kèm kích thước. Claude có thể đưa một tệp, tối đa 64 MiB, vào dự án trong `.mother-claude/artifacts/`, thư mục mà git bỏ qua, cho đến khi lần chạy tiếp theo đặt lại thư mục làm việc.',
+        ],
+      },
+      {
+        heading: 'Theo dõi và dừng các lần chạy',
+        points: [
+          'Trên trang của phiên, một lần chạy là một tác vụ nền: mở **Tác tử**, rồi **Tác vụ nền**. **Đầu ra** hiện những gì nó đã in ra; **Hủy** để dừng nó.',
+          '**Các máy › Các lần chạy** liệt kê các lần chạy gần đây theo cả hai chiều: máy tính, dự án, lệnh, tình trạng, mã thoát và thời gian. **Đầu ra** hiện phần cuối những gì đã in ra; **Hủy** dừng một lần chạy, từ bất kỳ máy nào trong hai máy.',
+          'Mỗi máy giữ các lần chạy của mình một ngày sau khi chúng kết thúc.',
+          'Tắt tính năng Các máy, thu hồi một máy hoặc rút lại quyền **Chạy** của máy đó sẽ dừng ngay những gì máy đó đang chạy ở đây.',
+        ],
+        links: [{ label: 'Mở trang Các máy', path: '/machines' }],
+      },
+      {
+        heading: 'Từ điện thoại',
+        points: [
+          'Điện thoại trả lời yêu cầu duyệt một lần chạy như mọi yêu cầu khác, theo dõi các lần chạy trên trang của phiên và trong **Các lần chạy**, và hủy được chúng.',
+          '**Luôn cho phép…** và các lần chạy nguy hiểm cần quyền thao tác nguy hiểm của điện thoại, được đặt trong ứng dụng máy tính. Điện thoại thấy **Lệnh chạy luôn được phép** nhưng không thu hồi được.',
+        ],
+      },
+      {
+        heading: 'Khi lệnh không chạy',
+        terms: [
+          {
+            term: 'Máy kia chưa cấp quyền Chạy cho máy này',
+            text: 'Hãy đánh dấu **Chạy** cho máy này trên trang **Các máy** của máy kia, ở cột của loại mạng bạn đang dùng.',
+          },
+          {
+            term: 'Dự án chưa có trên máy kia',
+            text: 'Máy đó chưa có bản sao của dự án, hoặc không có thư mục dùng chung nào trỏ tới nó. Hãy sao chép dự án sang đó (**Sao chép sang …**, ở bước **Tài khoản và thư mục** của phần thiết lập), rồi thử lại.',
+          },
+          {
+            term: 'Cần cập nhật Mother Claude trên …',
+            text: 'Mother Claude trên máy đó cũ hơn và chưa chạy lệnh cho máy tính khác: hãy cập nhật nó.',
+          },
+          {
+            term: 'running scripts is disabled on this system',
+            text: 'Windows PowerShell tuân theo chính sách thực thi (execution policy) của bạn, vốn chặn `npm.ps1` và các script khác. Hãy cài PowerShell 7 rồi khởi động lại Mother Claude trên máy đó, dùng `npm.cmd`, hoặc cho phép script của chính bạn trên máy đó: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.',
+          },
+          {
+            term: 'Không tìm thấy một chương trình',
+            text: 'Trên máy Mac, hãy đặt dòng thêm chương trình vào `PATH` trong `.zprofile`, không chỉ trong `.zshrc`. Trên Windows, hãy khởi động lại Mother Claude sau khi cài chương trình: lần chạy nhận `PATH` từ lúc Mother Claude khởi động.',
+          },
         ],
       },
     ],
