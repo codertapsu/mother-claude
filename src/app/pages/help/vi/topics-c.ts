@@ -463,7 +463,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Điện thoại đã ghép nối với bất kỳ máy tính nào của bạn sẽ xem và điều khiển được mọi máy thông qua máy đó.',
           'Thao tác nguy hiểm trên máy khác cần quyền thao tác nguy hiểm của điện thoại trên máy mà nó ghép nối, và quyền **Nguy hiểm** mà máy kia cấp cho máy đó.',
-          'Điện thoại ở trạng thái **Hạn chế** (tự làm mới vài giây một lần thay vì cập nhật trực tiếp) hiện chỉ thấy các phiên của máy mà nó kết nối.',
+          'Điện thoại ở trạng thái **Hạn chế** (tự làm mới vài giây một lần thay vì cập nhật trực tiếp) vẫn thấy các phiên của các máy khác, trong cùng lần làm mới đó.',
           'Việc thiết lập Các máy, ghép nối máy tính và thay đổi quyền của chúng được thực hiện trong ứng dụng máy tính.',
         ],
       },

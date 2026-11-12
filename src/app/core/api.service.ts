@@ -39,6 +39,7 @@ import type {
   SyncView,
   Readiness,
   RemoteCheckView,
+  RemoteSessionsView,
   RootsChange,
   RootsView,
   SetupView,
@@ -219,8 +220,8 @@ import {
  *   Servers   addBridgeServer(body) · updateBridgeServer(id, patch) ·
  *             removeBridgeServer(id) · startBridgeServer(id, defaults) ·
  *             stopBridgeServer(id) · setBridgeServerThread(id, threadId)
- *   Machines  getMachines() · renameThisMachine(name) · startPairing() ·
- *             cancelPairing() · joinMachine(code, name?) ·
+ *   Machines  getMachines() · pollMachineSessions(etag) · renameThisMachine(name) ·
+ *             startPairing() · cancelPairing() · joinMachine(code, name?) ·
  *             confirmPairing(grants, digits?) · nearbyMachines() ·
  *             getMachinesSetup(fresh?) · recheckMachines() ·
  *             fixMachineCheck(check) · askMachineFix(machine, check) ·
@@ -1249,6 +1250,25 @@ export class ApiService {
 
   getMachines(): Promise<MachinesView> {
     return this.req<MachinesView>('/machines');
+  }
+
+  /** Polling fallback: the other computers' sessions as this computer last
+   * heard them, with a conditional GET. Resolves to null when the server
+   * answered 304 (nothing changed). */
+  async pollMachineSessions(
+    etag?: string,
+  ): Promise<{ view: RemoteSessionsView; etag?: string } | null> {
+    const res = await this.send(
+      '/machines/sessions',
+      { method: 'GET', headers: etag ? { 'If-None-Match': etag } : {} },
+      { allowNotModified: true },
+    );
+    if (res.status === 304) return null;
+    const view = ((await readJson(res)) as RemoteSessionsView | null) ?? {
+      enabled: false,
+      machines: [],
+    };
+    return { view, etag: res.headers.get('etag') ?? undefined };
   }
 
   /** Desktop: this computer's name as the others see it. */

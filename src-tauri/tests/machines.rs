@@ -836,6 +836,135 @@ async fn another_computers_sessions_arrive_live_and_go_grey_when_it_stops() {
     .await;
 }
 
+/// `GET /api/machines/sessions` on `m` with `token`, conditional on `etag`:
+/// the status, the ETag and the body.
+async fn remote_sessions(
+    m: &Machine,
+    token: &str,
+    etag: Option<&str>,
+) -> (StatusCode, Option<String>, Value) {
+    let mut req = reqwest::Client::new()
+        .get(format!("{}/api/machines/sessions", m.url))
+        .bearer_auth(token);
+    if let Some(e) = etag {
+        req = req.header("If-None-Match", e);
+    }
+    let resp = req.send().await.unwrap();
+    let status = resp.status();
+    let etag = resp
+        .headers()
+        .get("etag")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let v = resp.json::<Value>().await.unwrap_or(Value::Null);
+    (status, etag, v)
+}
+
+/// A dashboard on the polling fallback (a phone whose socket cannot connect)
+/// reads the other computers' sessions from the federation's cache, as the
+/// `remote` frames carry them (plan Phase 2 "Left for later", UX §6.1).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_polling_dashboard_reads_another_computers_sessions() {
+    let lookup = MemoryLookup::new();
+    let a = machine(&lookup).await;
+    let b = machine(&lookup).await;
+    pair(&a, &b, grants(false), grants(false)).await;
+    turn_on(&[&a, &b]);
+    session_on(&b);
+    let from = b.id();
+    let phone =
+        a.st.devices
+            .issue(
+                "Phone",
+                "ios",
+                None,
+                server::Ingress::Lan,
+                "192.168.1.20".parse().unwrap(),
+            )
+            .1;
+
+    // A paired phone (any authenticated caller) reads B's sessions through
+    // A, each stamped with B.
+    let deadline = Instant::now() + Duration::from_secs(45);
+    let (etag, v) = loop {
+        let (s, etag, v) = remote_sessions(&a, &phone, None).await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        let listed = v["machines"].as_array().and_then(|l| {
+            l.iter().find(|m| {
+                m["machine"] == from
+                    && m["sessions"]
+                        .as_array()
+                        .is_some_and(|s| s.iter().any(|x| x["id"] == SID))
+            })
+        });
+        if listed.is_some() {
+            break (etag.expect("an ETag"), v);
+        }
+        assert!(Instant::now() < deadline, "B's session never showed: {v}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+    assert_eq!(v["enabled"], true);
+    let m = &v["machines"][0];
+    assert_eq!(m["name"], "Joiner", "named as the user knows it: {m}");
+    assert_eq!(m["online"], true);
+    assert_eq!(m["since"], Value::Null);
+    assert_eq!(m["loaded"], true);
+    let s = m["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["id"] == SID)
+        .unwrap();
+    assert_eq!(s["machine"], from, "stamped with its computer: {s}");
+
+    // Nothing changed: a conditional GET is a 304, until something does.
+    let (s, _, _) = remote_sessions(&a, &phone, Some(&etag)).await;
+    if s != StatusCode::NOT_MODIFIED {
+        // A diff arrived between the two reads (the monitor's next pass):
+        // the next one settles.
+        let (_, again, _) = remote_sessions(&a, &phone, None).await;
+        let (s, _, _) = remote_sessions(&a, &phone, again.as_deref()).await;
+        assert_eq!(s, StatusCode::NOT_MODIFIED);
+    }
+
+    // B stops: it reads offline since then, its sessions kept as last heard.
+    let stopped = chrono::Utc::now().timestamp_millis();
+    transport::go_offline(&b.st).await;
+    let deadline = Instant::now() + Duration::from_secs(45);
+    loop {
+        let (_, _, v) = remote_sessions(&a, &phone, None).await;
+        let m = &v["machines"][0];
+        if m["online"] == false {
+            assert!(
+                m["since"].as_i64().is_some_and(|s| s >= stopped),
+                "offline since then: {m}"
+            );
+            assert!(
+                m["sessions"]
+                    .as_array()
+                    .is_some_and(|s| s.iter().any(|x| x["id"] == SID)),
+                "greyed, not gone: {m}"
+            );
+            break;
+        }
+        assert!(Instant::now() < deadline, "B never read offline: {v}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    // Machines off here: the lists are this computer's alone.
+    machines::set_enabled(&a.st, false);
+    let (s, _, v) = remote_sessions(&a, &phone, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v, json!({ "enabled": false, "machines": [] }));
+
+    // Never another computer's to read: not allow-listed for a peer (so
+    // not through its proxy either).
+    assert_eq!(
+        machines::routes::peer_route_grant(&axum::http::Method::GET, "/machines/sessions"),
+        None
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_approval_is_answered_from_either_computer_and_the_first_answer_wins() {
     let lookup = MemoryLookup::new();

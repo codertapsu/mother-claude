@@ -1571,7 +1571,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'A phone paired with any of your computers sees and drives all of them through it.',
           "A dangerous action on another computer needs the phone's dangerous permission on the computer it is paired with, and that computer's **Dangerous** permission on the other.",
-          "A phone on **Limited** (refreshing every few seconds instead of live updates) sees only its own computer's sessions for now.",
+          "A phone on **Limited** (refreshing every few seconds instead of live updates) sees the other computers' sessions too, on the same refresh.",
           'Setting up Machines, pairing computers and changing their permissions are done in the desktop app.',
         ],
       },

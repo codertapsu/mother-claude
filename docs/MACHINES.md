@@ -194,8 +194,10 @@ and opening it in VS Code.
   many run, with *Open its sessions*.
 
 A phone paired with any of your computers sees and drives them all through
-it. (A phone whose live connection fails and falls back to refreshing every
-few seconds sees only that computer's own sessions for now.)
+it. A phone whose live connection fails and falls back to refreshing every
+few seconds (*Limited*) still sees the other computers' sessions: it reads
+them, as that computer last heard them, on the same refresh — every few
+seconds while a computer is paired, about every half minute while none is.
 
 A dangerous action on another computer needs both its **Dangerous**
 permission for this computer *and* your own right here: a phone without the

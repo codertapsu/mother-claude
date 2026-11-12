@@ -38,6 +38,8 @@ use crate::state::{AppState, Inner};
 struct Remote {
     /// Session summaries by id, as the other machine sent them.
     sessions: BTreeMap<String, Value>,
+    /// A whole list of them arrived (until then: "Loading its sessions…").
+    loaded: bool,
     online: bool,
     /// Offline since (ms), once it was heard and lost.
     since: Option<i64>,
@@ -111,6 +113,50 @@ pub fn initial_frames(state: &AppState) -> Vec<ServerEvent> {
             });
         }
         out
+    })
+}
+
+/// Every paired computer's sessions as last heard, for a dashboard that
+/// cannot keep a WebSocket (the polling fallback's `GET
+/// /api/machines/sessions`): per computer whether it is online, since when
+/// it is not, whether a whole list arrived, and its sessions, each stamped
+/// with `machine`. Ordered by computer, then session, so the same state
+/// always reads the same (the route's ETag). Computers no longer paired are
+/// left out.
+pub fn snapshot(state: &AppState) -> Vec<Value> {
+    let names: HashMap<String, String> = state.machines.store_read(|f| {
+        f.peers
+            .iter()
+            .map(|p| (p.id.clone(), p.display_name().to_string()))
+            .collect()
+    });
+    state.machines.federation.with(|r| {
+        let mut ids: Vec<&String> = r.keys().filter(|id| names.contains_key(*id)).collect();
+        ids.sort();
+        ids.into_iter()
+            .map(|id| {
+                let m = &r[id];
+                let sessions: Vec<Value> = m
+                    .sessions
+                    .values()
+                    .map(|s| {
+                        let mut s = s.clone();
+                        if let Some(o) = s.as_object_mut() {
+                            o.insert("machine".into(), json!(id));
+                        }
+                        s
+                    })
+                    .collect();
+                json!({
+                    "machine": id,
+                    "name": names.get(id),
+                    "online": m.online,
+                    "since": if m.online { None } else { m.since },
+                    "loaded": m.loaded,
+                    "sessions": sessions,
+                })
+            })
+            .collect()
     })
 }
 
@@ -394,6 +440,7 @@ fn cache_sessions(state: &AppState, machine: &str, frame: &Value) {
         let m = r.entry(machine.to_string()).or_default();
         let id_of = |s: &Value| s.get("id").and_then(Value::as_str).map(str::to_string);
         if frame.get("full").and_then(Value::as_bool).unwrap_or(false) {
+            m.loaded = true;
             m.sessions = frame
                 .get("sessions")
                 .and_then(Value::as_array)
@@ -434,6 +481,91 @@ mod tests {
             serde_json::from_str::<Value>(&sub_frame("sub", "s1", Some("a1"), Some("12"))).unwrap(),
             json!({"t": "sub", "session": "s1", "agent": "a1", "since": "12"})
         );
+    }
+
+    /// The polling fallback's view: paired computers only, each session
+    /// stamped with its computer, whether a whole list arrived, offline
+    /// since when — and the same state always reads the same.
+    #[test]
+    fn the_snapshot_lists_paired_computers_sessions_stamped() {
+        const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const GONE: &str = "cccccccccccccccccccccccccccccccc";
+        let tmp = tempfile::tempdir().unwrap();
+        let st = crate::state::Inner::new(
+            crate::claude::ClaudeHome::with_base(tmp.path().join("home")),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            crate::server::auth::Auth::ephemeral(),
+        );
+        let mut peer = crate::machines::pairing::peer_record(
+            &crate::machines::protocol::MachineInfo {
+                id: B.into(),
+                name: "DESKTOP-PC".into(),
+                os: "windows".into(),
+                os_version: None,
+                versions: crate::machines::protocol::Versions {
+                    app: "0.11.0".into(),
+                    protocol: crate::machines::protocol::PROTOCOL,
+                    claude: None,
+                },
+                key: "d".repeat(64),
+                shell: None,
+            },
+            crate::machines::grants::Grants::defaults(),
+            None,
+        );
+        peer.alias = Some("Desk".into());
+        st.machines.store_write(|f| f.peers.push(peer));
+        assert!(snapshot(&st).is_empty(), "nothing heard yet");
+
+        let tx = mpsc::unbounded_channel().0;
+        handle(
+            &st,
+            B,
+            &tx,
+            json!({"t": "sessions", "full": true, "seq": 1,
+                   "sessions": [{"id": "s2", "live": true}, {"id": "s1"}]}),
+        );
+        // A computer no longer paired is never listed.
+        handle(
+            &st,
+            GONE,
+            &tx,
+            json!({"t": "sessions", "full": true, "seq": 1, "sessions": [{"id": "x"}]}),
+        );
+        st.machines
+            .federation
+            .with(|r| r.get_mut(B).unwrap().online = true);
+        let v = snapshot(&st);
+        assert_eq!(
+            v,
+            vec![json!({
+                "machine": B, "name": "Desk", "online": true, "since": null, "loaded": true,
+                "sessions": [{"id": "s1", "machine": B}, {"id": "s2", "live": true, "machine": B}],
+            })]
+        );
+        assert_eq!(snapshot(&st), v, "the same state reads the same");
+
+        // A diff, then the link drops: its sessions stay, offline since then.
+        handle(
+            &st,
+            B,
+            &tx,
+            json!({"t": "sessions", "seq": 2, "upsert": [{"id": "s3"}], "remove": ["s2"]}),
+        );
+        went_offline(&st, B);
+        let v = snapshot(&st);
+        assert_eq!(v[0]["online"], false);
+        assert!(v[0]["since"].as_i64().is_some());
+        let ids: Vec<&str> = v[0]["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|s| s["id"].as_str())
+            .collect();
+        assert_eq!(ids, ["s1", "s3"]);
     }
 
     #[test]

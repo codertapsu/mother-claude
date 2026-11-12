@@ -4,7 +4,7 @@ import { MachineApiError, describeError } from './api.service';
 import { AuthService } from './auth.service';
 import { MachineScopes } from './machine-scope';
 import { MachinesService } from './machines.service';
-import { FakeBackend, me, useFakeServer } from './mock/fake-server.testing';
+import { FakeBackend, flush, me, useFakeServer } from './mock/fake-server.testing';
 import { setActiveMock } from './mock/mock-api';
 import {
   PEER_ID,
@@ -146,5 +146,67 @@ describe("other computers' sessions (docs/PLAN-MACHINES.md §6)", () => {
 
     TestBed.inject(MachinesService).apply(machinesView({ enabled: false, peers: [peer()] }));
     expect(list.list()).toEqual([]);
+  });
+
+  it('reads them from /machines/sessions on the polling fallback', async () => {
+    const rt = TestBed.inject(RealtimeService);
+    await rt.start();
+    let view: unknown = {
+      enabled: true,
+      machines: [
+        {
+          machine: PEER_ID,
+          name: 'DESKTOP-PC',
+          online: true,
+          since: null,
+          loaded: true,
+          sessions: [{ ...remoteSession('r1', { pending: [ask('q1')] }), machine: PEER_ID }],
+        },
+      ],
+    };
+    backend.routes.set('/sessions', () => ({ status: 200, body: { sessions: [] } }));
+    backend.routes.set('/inbox', () => ({ status: 200, body: { items: [] } }));
+    backend.routes.set('/machines/sessions', () => ({ status: 200, body: view }));
+    const events: string[] = [];
+    rt.remote$.subscribe((e) => events.push(`${e.machine}:${e.frame.t}`));
+    const internals = rt as unknown as { startPolling(): void; pollOnce(): Promise<void> };
+    internals.startPolling();
+    await flush();
+    expect(rt.connection()).toBe('limited');
+    expect(rt.remote().get(PEER_ID)).toMatchObject({ loaded: true, online: true, since: null });
+    expect(rt.remote().get(PEER_ID)?.sessions.get('r1')?.machine).toBe(PEER_ID);
+    // Never one of this computer's own.
+    expect(rt.sessions()).toEqual([]);
+    expect(events).toEqual([`${PEER_ID}:sessions`]);
+
+    // Listed, it is asked on every poll; it goes offline, then is revoked.
+    view = {
+      ...(view as object),
+      machines: [{ ...(view as { machines: object[] }).machines[0], online: false, since: 7 }],
+    };
+    await internals.pollOnce();
+    expect(rt.remote().get(PEER_ID)).toMatchObject({ online: false, since: 7 });
+    expect(rt.remote().get(PEER_ID)?.sessions.size).toBe(1);
+    expect(events.slice(1)).toEqual([`${PEER_ID}:sessions`, `${PEER_ID}:offline`]);
+    view = { enabled: true, machines: [] };
+    await internals.pollOnce();
+    expect(rt.remote().has(PEER_ID)).toBe(false);
+    expect(events.at(-1)).toBe(`${PEER_ID}:forgotten`);
+
+    // None listed: asked every tenth poll only.
+    const asked = () => backend.calls.filter((c) => c === 'GET /machines/sessions').length;
+    const before = asked();
+    for (let i = 0; i < 9; i++) await internals.pollOnce();
+    expect(asked()).toBe(before);
+    await internals.pollOnce();
+    expect(asked()).toBe(before + 1);
+
+    // A server without the route is never asked again.
+    backend.routes.delete('/machines/sessions');
+    for (let i = 0; i < 10; i++) await internals.pollOnce();
+    const gone = asked();
+    for (let i = 0; i < 20; i++) await internals.pollOnce();
+    expect(asked()).toBe(gone);
+    rt.stop();
   });
 });

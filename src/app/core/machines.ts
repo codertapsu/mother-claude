@@ -4,6 +4,8 @@
 // helpers every Machines screen shares. Labels here are English; they are
 // translated where they are shown.
 
+import type { SessionSummary } from './models';
+
 export type MachineOs = 'macos' | 'windows' | 'linux' | 'other';
 
 export type GrantName = 'view' | 'control' | 'move' | 'run' | 'dangerous';
@@ -641,6 +643,29 @@ export interface RemoteFrame {
   t: 'remote';
   machine: string;
   frame: unknown;
+}
+
+/** One other computer in `GET /api/machines/sessions`: its sessions as this
+ * computer last heard them, each stamped with `machine`. */
+export interface RemoteSessionsEntry {
+  machine: string;
+  name?: string | null;
+  online: boolean;
+  /** Offline since (ms), once it was heard and lost. */
+  since: number | null;
+  /** A whole list of its sessions arrived. */
+  loaded: boolean;
+  sessions: SessionSummary[];
+}
+
+/**
+ * `GET /api/machines/sessions`: what the `remote` frames carry, for a
+ * dashboard on the polling fallback (UX §6.1). Empty while Machines is off
+ * there.
+ */
+export interface RemoteSessionsView {
+  enabled: boolean;
+  machines: RemoteSessionsEntry[];
 }
 
 // ─────────────────────────────────────────────────────────────── Helpers

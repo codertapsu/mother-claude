@@ -45,6 +45,7 @@ use crate::state::AppState;
 pub fn api_router() -> Router<AppState> {
     Router::new()
         .route("/machines", get(get_view))
+        .route("/machines/sessions", get(remote_sessions))
         .route("/machines/self", patch(rename_self))
         .route("/machines/pair", post(pair).delete(cancel_pair))
         .route("/machines/join", post(join))
@@ -136,6 +137,54 @@ async fn get_view(Authed(_): Authed, State(state): State<AppState>) -> Json<Valu
 
 async fn view_json(state: &AppState) -> ApiResult<Json<Value>> {
     Ok(Json(super::view(state).await))
+}
+
+/// `GET /api/machines/sessions`: the other computers' sessions as this one
+/// last heard them, for a dashboard on the polling fallback (one that cannot
+/// keep the WebSocket that carries the `remote` frames; UX §6.1):
+/// `{enabled, machines: [{machine, name, online, since, loaded, sessions}]}`,
+/// each session stamped with `machine`. None while Machines is off here, as
+/// the lists then show this computer's alone. A conditional GET (`ETag`,
+/// `If-None-Match`) answers `304` while nothing changed, as `/sessions`
+/// does.
+async fn remote_sessions(
+    Authed(_): Authed,
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    use axum::http::{header, HeaderValue};
+
+    let enabled = state.machines.enabled();
+    let machines = if enabled {
+        super::federation::snapshot(&state)
+    } else {
+        Vec::new()
+    };
+    let text = json!({ "enabled": enabled, "machines": machines }).to_string();
+    let etag = format!("\"{}\"", &crate::server::auth::sha256_hex(&text)[..32]);
+    let fresh = headers
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(|t| t.trim().trim_start_matches("W/"))
+        .any(|t| t == etag || t == "*");
+    let etag_value =
+        HeaderValue::from_str(&etag).unwrap_or_else(|_| HeaderValue::from_static("\"\""));
+    if fresh {
+        return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag_value)]).into_response();
+    }
+    (
+        [
+            (header::ETAG, etag_value),
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            ),
+        ],
+        text,
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]

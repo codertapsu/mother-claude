@@ -39,7 +39,7 @@ import {
 } from './models';
 import { NowService } from './now.service';
 import { normalizeAccountUsages, normalizePlanUsage } from './plan-usage';
-import type { MachinesFrame, RemoteFrame } from './machines';
+import type { MachinesFrame, RemoteFrame, RemoteSessionsView } from './machines';
 import { MoveFrame, normalizeMove } from './moves';
 import type { TeamsFrame } from './teams';
 import { TranscriptStore, TranscriptStoreOptions } from './transcript-store';
@@ -139,6 +139,10 @@ const WS_RETRY_LIMITED_MS = 60_000;
 /** While limited, fetch the plan usage at most this often (the server reads
  * the account itself; this only copies its last answer). */
 const USAGE_POLL_MS = 5 * 60_000;
+/** While limited and no other computer is listed (none paired, or Machines
+ * off), ask for their sessions only every this many polls: a pairing made
+ * meanwhile shows within half a minute, and a lone computer costs little. */
+const REMOTE_POLL_IDLE_EVERY = 10;
 /** States a frame on an authed socket proves wrong. */
 const RESTORABLE: ReadonlySet<ConnectionState> = new Set<ConnectionState>([
   'connecting',
@@ -246,7 +250,10 @@ export interface RemoteEvent {
  * free tunnel's request quota), the service switches to `limited`: it polls
  * `/sessions` (ETag) and `/inbox` every 3 s (15 s hidden) and `/usage` every
  * 5 min, ticks `pollTick$` for open transcripts, and retries the socket
- * every 60 s.
+ * every 60 s. The other computers' sessions come from
+ * `/machines/sessions` (ETag) on the same loop — every poll while one is
+ * listed, every tenth otherwise, never from a server without it — and reach
+ * `remote` and `remote$` as their frames would.
  *
  * Other computers (docs/PLAN-MACHINES.md §5.6): `remote` frames keep
  * `remote` (each computer's sessions, whether it is online) and feed
@@ -382,6 +389,13 @@ export class RealtimeService {
   private checkingLimited = false;
   /** This client may not poll (a tunnel client): don't ask again. */
   private noPolling = false;
+  /** The other computers' sessions while polling: the last answer's ETag,
+   * the polls left before asking again, whether that answer listed one, and
+   * whether the server has no such route (an older one). */
+  private remoteEtag?: string;
+  private remotePollWait = 0;
+  private remoteListed = false;
+  private noRemotePolling = false;
   /** Set while a gap reload is in flight: the diffs applied meanwhile. */
   private diffsDuringReload: SessionsDiffFrame[] | null = null;
   /** Full `sessions` frames applied so far. */
@@ -409,6 +423,7 @@ export class RealtimeService {
     this.attempt = 0;
     this.helloFailures = 0;
     this.noPolling = false;
+    this.noRemotePolling = false;
     this.stopPolling();
     this.teardown();
     this.connect();
@@ -849,6 +864,8 @@ export class RealtimeService {
     this.pollTimer = undefined;
     this.transcriptPoll = undefined;
     this.pollEtag = undefined;
+    this.remoteEtag = undefined;
+    this.remotePollWait = 0;
   }
 
   private async pollOnce(): Promise<void> {
@@ -870,6 +887,7 @@ export class RealtimeService {
       this.lastDataAtS.set(Date.now());
       const inbox = await this.api.getInbox();
       for (const item of inbox.items ?? []) this.pendingS.next({ t: 'pending', item });
+      await this.pollRemoteSessions();
       if (Date.now() - this.lastUsagePollAt >= USAGE_POLL_MS) {
         this.lastUsagePollAt = Date.now();
         void this.pollPlanUsage();
@@ -890,6 +908,73 @@ export class RealtimeService {
     const wait = document.visibilityState === 'visible' ? POLL_VISIBLE_MS : POLL_HIDDEN_MS;
     clearTimeout(this.pollTimer);
     this.pollTimer = setTimeout(() => void this.pollOnce(), wait);
+  }
+
+  /** The other computers' sessions while polling (`GET /machines/sessions`,
+   * docs/PLAN-MACHINES.md UX §6.1): every poll while one is listed, every
+   * tenth otherwise. A network failure is the sessions poll's business. */
+  private async pollRemoteSessions(): Promise<void> {
+    if (this.noRemotePolling) return;
+    if (this.remotePollWait > 0) {
+      this.remotePollWait -= 1;
+      return;
+    }
+    try {
+      const res = await this.api.pollMachineSessions(this.remoteEtag);
+      if (res) {
+        this.remoteEtag = res.etag;
+        this.applyRemoteSnapshot(res.view);
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.kind === 'network') throw e;
+      // An older server has no such route (a 404, or a 405 from
+      // `/machines/{id}`): stop asking until the next start.
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
+        this.noRemotePolling = true;
+        return;
+      }
+    }
+    this.remotePollWait = this.remoteListed ? 0 : REMOTE_POLL_IDLE_EVERY - 1;
+  }
+
+  /** A `/machines/sessions` answer, applied as the `remote` frames would
+   * be: each computer's whole list (stamped with it), its online state, and
+   * the computers no longer listed forgotten. */
+  private applyRemoteSnapshot(view: RemoteSessionsView): void {
+    const listed = new Set<string>();
+    for (const m of Array.isArray(view?.machines) ? view.machines : []) {
+      const machine = typeof m?.machine === 'string' ? m.machine : '';
+      if (!machine) continue;
+      listed.add(machine);
+      const prev = this.remoteS().get(machine);
+      const sessions = new Map<string, SessionSummary>();
+      for (const s of Array.isArray(m.sessions) ? m.sessions : []) {
+        if (s?.id) sessions.set(s.id, { ...s, machine });
+      }
+      const online = !!m.online;
+      const since = online ? null : typeof m.since === 'number' ? m.since : null;
+      this.setRemote(machine, { sessions, loaded: !!m.loaded, online, since });
+      this.remoteEventS.next({
+        machine,
+        frame: { t: 'sessions', full: true, sessions: [...sessions.values()], seq: -1 },
+      });
+      if (prev && prev.online !== online) {
+        this.remoteEventS.next({
+          machine,
+          frame: online ? { t: 'online' } : { t: 'offline', since },
+        });
+      }
+    }
+    for (const machine of [...this.remoteS().keys()]) {
+      if (listed.has(machine)) continue;
+      this.remoteS.update((prev) => {
+        const next = new Map(prev);
+        next.delete(machine);
+        return next;
+      });
+      this.remoteEventS.next({ machine, frame: { t: 'forgotten' } });
+    }
+    this.remoteListed = listed.size > 0;
   }
 
   /** Copy the server's plan usage (Limited only; never on the 3 s loop). */

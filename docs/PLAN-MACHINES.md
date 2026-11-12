@@ -907,6 +907,7 @@ Local (desktop, or a device where noted):
 | Route | Guard | Does |
 |---|---|---|
 | `GET /api/machines` | Authed | this machine and its peers: online, versions, grants |
+| `GET /api/machines/sessions` | Authed | the polling fallback's view of the other machines' sessions (the federation's cache; ETag), empty while Machines is off |
 | `POST /api/machines/pair` · `/join` · `/confirm` | DesktopOnly | pairing (§5.4) |
 | `PATCH /api/machines/:id` · `DELETE …` | DesktopOnly | rename, grants, revoke |
 | `ANY /api/machines/:id/proxy/<allowed path>` | Authed (+ the route's own guard, checked locally first) | forwards to the peer (§5.6) |
@@ -1099,8 +1100,14 @@ session routes (`machines::routes::peer_route_grant`), `X-MC-Acting`
 scopes (`src/app/core/machine-scope.ts`). **Exit test passed by hand
 (2026-11-11)**: from the Mac and from a phone paired with it, Windows'
 sessions were listed, started, driven, approved (session page and Inbox),
-stopped, greyed while Windows was offline and back after. Left for later: a client on the polling fallback sees only its
-own computer's sessions (UX §6.1 has `/api/sessions` carry the others).*
+stopped, greyed while Windows was offline and back after. A client on
+the polling fallback reads the others from `GET /api/machines/sessions`
+(`Authed`; the federation's cache per paired computer: `{enabled,
+machines: [{machine, name, online, since, loaded, sessions}]}`, each
+session stamped with `machine`, a conditional GET like `/sessions`'),
+every poll while one is listed and every tenth otherwise (built
+2026-11-12; UX §6.1 had `/api/sessions` carry them, a separate route keeps
+that one's answer and ETag this computer's alone).*
 
 - `machines/federation.rs`: subscriptions, merge, offline state; frames tagged `machine`.
 - The proxy route; `X-MC-Acting`; the dangerous intersection; audit on the target.
