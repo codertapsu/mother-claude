@@ -1317,6 +1317,15 @@ follows `HELP_GROUPS`. README, CLAUDE.md and the docs that name pages
 
 ## 11. Decisions for you
 
+> **Taken on 2026-11-12:** 1 — **A**; 2 — **Computers**; 3 — **Teams**;
+> 4 — **everything waiting**. Decisions 5–9 follow the recommendations
+> below (Backups as a tab of Accounts; Phone & devices under *Settings ›
+> Connections*; one *Recent changes* list, computer moves in *Computers ›
+> Activity*; permissions and Claude Code's background service under
+> *Computers › This Mac*; the borrowed stages last). Built after the
+> remaining Machines work (Phases 3b and 5, and the gaps), as the user
+> asked: finish the features, then redesign, then one release.
+
 1. **The direction** — **A** *(recommended)*, B or C.
 2. **Machines' name** — **Computers** *(recommended: Help's group and every
    sentence already say computer; the alternative UX.md decision 3 set
