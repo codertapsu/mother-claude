@@ -15,7 +15,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
-tauri = { version = "2.12.5", features = [] }
+# `tray-icon`: Tauri's own tray, for *Start Mother Claude when you sign in,
+# in the tray* (`autostart`); the `tray-icon` crate it builds is already in
+# Cargo.lock (Tauri's optional dependency), so nothing new is downloaded.
+tauri = { version = "2.12.5", features = ["tray-icon"] }
 # In-app auto-updater (desktop-only; registered behind cfg(desktop) in lib.rs)
 # and process control for relaunching into the new version after an update.
 # Use native-tls (OS trust store) for the updater's downloads so its reqwest does
@@ -105,10 +108,11 @@ security-framework = "3.7.0"
 # `kill(pid, 0)` tells elsewhere, Windows Credential Manager for the
 # accounts' secrets (`secrets::CredentialStore`), and a job object holding
 # each run another computer asked for, so a cancel or a timeout ends its
-# whole process tree (`machines::work::shell`). Already in the dependency
-# graph.
+# whole process tree (`machines::work::shell`), and the per-user `Run` key
+# that starts Mother Claude at sign-in (`autostart`). Already in the
+# dependency graph.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Power", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Power", "Win32_System_Registry", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

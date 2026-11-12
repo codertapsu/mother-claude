@@ -335,6 +335,8 @@ pub fn api_router() -> Router<AppState> {
         .merge(crate::orchestration::routes::router())
         // ── your other computers (machines::routes, docs/PLAN-MACHINES.md) ──
         .merge(crate::machines::routes::api_router())
+        // ── starting at sign-in, in the tray (autostart, plan §5.13) ──
+        .merge(crate::autostart::api_router())
         .route_layer(axum::middleware::from_fn(auth::require_api_principal))
         // Outermost, so a route's own limit (set closer to its handler)
         // overrides it.

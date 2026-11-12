@@ -316,7 +316,11 @@ pub async fn run_local(state: &AppState) -> Vec<Check> {
     let relay = state.machines.settings().relay;
     // The network checks block only without a relay (B†).
     let net_required = relay.mode == RelayMode::None;
-    let mut out = vec![app_check(state).await, awake_check(state).await];
+    let mut out = vec![
+        app_check(state).await,
+        awake_check(state).await,
+        autostart_check(state),
+    ];
     out.extend(network_checks(net_required).await);
     out.push(relay_check(state).await);
     out.push(pairing_check(state));
@@ -416,6 +420,32 @@ async fn awake_check(state: &AppState) -> Check {
             fix(FixKind::Auto, "Keep awake while used"),
         )
     }
+}
+
+/// Starts at sign-in (plan §5.14, "W"): a restarted computer is reachable
+/// again without anyone opening Mother Claude there.
+fn autostart_check(state: &AppState) -> Check {
+    let c = Check::new(
+        "autostart",
+        "app",
+        "Starts when you sign in",
+        "After a restart, your other computers reach this one only once Mother Claude runs again.",
+    );
+    let s = state.autostart.status();
+    if !s.supported {
+        let mut c = c.ok("Not available on this system.");
+        c.state = CheckState::Na;
+        return c;
+    }
+    if s.on && !s.overridden {
+        return c.ok("It starts when you sign in, in the tray.");
+    }
+    let detail = if s.overridden {
+        "It is turned off in the system's startup apps."
+    } else {
+        "It doesn't start when you sign in."
+    };
+    c.failed(false, detail, fix(FixKind::Auto, "Turn on"))
 }
 
 /// The page the dashboard opens for *Update Mother Claude* (the `app`
@@ -959,6 +989,13 @@ pub async fn fix_check(state: &AppState, id: &str) -> Result<(), ApiError> {
         // updates page, which the dashboard opens (`APP_UPDATE_PAGE`);
         // nothing runs here.
         "app" => {}
+        // *Start Mother Claude when you sign in, in the tray* (plan §5.13).
+        "autostart" => {
+            state
+                .autostart
+                .set(true)
+                .map_err(|e| ApiError::unprocessable("fix_failed", e))?;
+        }
         "localNetwork" | "firewall" | "networkProfile" => {
             let pane = match (id, cfg!(windows)) {
                 ("localNetwork", _) => "local-network",
