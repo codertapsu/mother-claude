@@ -424,11 +424,16 @@ pub struct MachinesFile {
     /// (`setup::options`). This machine's own: not replicated.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub projects: BTreeMap<String, ProjectSettings>,
+    /// *Revoke everywhere* (Phase 5, `revocation`): each computer revoked
+    /// here and on the others, with the paired computers still to be told —
+    /// kept until each was, so an offline one applies it when it is back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub revocations: Vec<super::revocation::Revocation>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
 }
 
-const KNOWN: [&str; 8] = [
+const KNOWN: [&str; 9] = [
     "name",
     "enabled",
     "peers",
@@ -437,6 +442,7 @@ const KNOWN: [&str; 8] = [
     "roots",
     "rootsImported",
     "projects",
+    "revocations",
 ];
 
 /// A key `projects` may hold: 1 to 1100 characters, no control character.
@@ -519,6 +525,15 @@ impl MachinesFile {
                     }
                     Ok(_) => tracing::warn!("machines.json: a project with a bad key was skipped"),
                     Err(e) => tracing::warn!(error = %e, "machines.json: a project was skipped"),
+                }
+            }
+        }
+        if let Some(list) = obj.get("revocations").and_then(Value::as_array) {
+            for r in list {
+                match serde_json::from_value::<super::revocation::Revocation>(r.clone()) {
+                    Ok(rev) if rev.well_formed() => out.revocations.push(rev),
+                    Ok(_) => tracing::warn!("machines.json: a malformed revocation was skipped"),
+                    Err(e) => tracing::warn!(error = %e, "machines.json: a revocation was skipped"),
                 }
             }
         }

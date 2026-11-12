@@ -39,6 +39,7 @@ pub mod move_routes;
 pub mod moves;
 pub mod pairing;
 pub mod protocol;
+pub mod revocation;
 pub mod roots;
 pub mod routes;
 pub mod setup;
@@ -534,6 +535,17 @@ pub fn audit(state: &AppState, action: &str, machine: &str, name: &str) {
     });
 }
 
+/// [`audit`] with what else it needs to say (ids and names, never a key).
+pub fn audit_detail(state: &AppState, action: &str, machine: &str, name: &str, detail: Value) {
+    state.devices.audit.record(AuditEntry {
+        action: action.to_string(),
+        device_id: Some(machine.to_string()),
+        device_name: Some(name.to_string()),
+        detail: Some(detail),
+        ..AuditEntry::now()
+    });
+}
+
 /// Stores a newly paired machine (replacing an earlier pairing of the same
 /// machine or key).
 pub fn add_peer(
@@ -570,12 +582,19 @@ pub fn add_peer(
 
 /// Forgets a paired machine and cuts its connections.
 pub fn revoke(state: &AppState, machine: &str) -> bool {
+    revoke_with(state, machine, None)
+}
+
+/// [`revoke`], its audit line saying how (`everywhere`, and who asked).
+pub fn revoke_with(state: &AppState, machine: &str, how: Option<Value>) -> bool {
     let removed = state.machines.store_write(|f| {
         let before = f.peers.len();
         let key = f
             .peer(machine)
             .map(|p| (p.key.clone(), p.display_name().to_string()));
         f.peers.retain(|p| p.id != machine);
+        // Nothing is asked of it any more (`revocation`).
+        revocation::forget_peer(f, machine);
         (before != f.peers.len()).then_some(key).flatten()
     });
     let Some((key, name)) = removed else {
@@ -591,7 +610,10 @@ pub fn revoke(state: &AppState, machine: &str) -> bool {
     federation::forget(state, machine);
     sync::on::forget_machine(state, machine);
     work::stop_from(state, Some(machine), "This computer was unpaired.");
-    audit(state, "machine.revoked", machine, &name);
+    match how {
+        Some(detail) => audit_detail(state, "machine.revoked", machine, &name, detail),
+        None => audit(state, "machine.revoked", machine, &name),
+    }
     publish(state, "peers");
     true
 }
@@ -760,6 +782,10 @@ pub async fn greet(state: AppState, machine: String, key: String) {
                 let changed = lease::accept(&state, &machine, lan, &hello.leases).await;
                 moves::on_leases_changed(&state, &changed).await;
                 moves::follow_up(&state, &machine).await;
+                // A *Revoke everywhere* it has not taken yet (it was away).
+                if revocation::pending_for(&state, &machine) {
+                    revocation::deliver_to(&state, &machine).await;
+                }
             }
             _ => mark_unanswered(&state, &machine, "it answered something unexpected"),
         },
@@ -919,6 +945,8 @@ pub async fn view(state: &AppState) -> Value {
         "setupStep": file.setup_step,
         // What other computers asked this one to do (`setup::asks`).
         "asks": setup::asks::view(state),
+        // Computers revoked here and on the others (`revocation`).
+        "revocations": revocation::view(state),
     })
 }
 

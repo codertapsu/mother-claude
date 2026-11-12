@@ -34,7 +34,7 @@ use super::grants::{Grant, Grants};
 use super::protocol::Hello;
 use super::store::RelaySetting;
 use super::transport::{self, PathKind};
-use super::{pairing, roots, setup};
+use super::{pairing, revocation, roots, setup};
 use crate::server::auth::{Authed, DesktopOnly, ManageData};
 use crate::server::context::{ClientContext, Ingress, PeerCaller, Principal};
 use crate::server::error::{ApiError, ApiResult};
@@ -59,6 +59,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/machines/settings", get(get_settings).put(put_settings))
         .route("/machines/settings/offer", post(answer_offer))
         .route("/machines/enable", post(enable))
+        .route("/machines/{id}/revoke-everywhere", post(revoke_everywhere))
         .route("/machines/{id}", patch(update_peer).delete(revoke_peer))
         .route(
             "/machines/{id}/proxy/{*rest}",
@@ -87,6 +88,7 @@ pub fn peer_router() -> Router<AppState> {
         .route("/peer/pair/confirm", post(peer_pair_confirm))
         .route("/peer/pair/status", get(peer_pair_status))
         .route("/peer/pair/cancel", post(peer_pair_cancel))
+        .route(revocation::PEER_PATH, post(peer_revoke))
         .route("/peer/setup", get(peer_setup))
         .route("/peer/setup/ask", post(peer_setup_ask))
         .route("/peer/settings", post(peer_settings))
@@ -594,6 +596,24 @@ async fn revoke_peer(
     view_json(&state).await
 }
 
+/// *Revoke everywhere*: revokes the computer here and asks every other
+/// paired computer to (`revocation`); answers the view, whose
+/// `revocations` say which took it and which will when they are back.
+async fn revoke_everywhere(
+    DesktopOnly(_): DesktopOnly,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    if !super::ids::is_machine_id(&id) {
+        return Err(ApiError::not_found(
+            "machines_unknown",
+            "Not a paired computer.",
+        ));
+    }
+    revocation::revoke_everywhere(&state, &id).await?;
+    view_json(&state).await
+}
+
 // ─── driving another machine through this one ───────────────────────────────────
 
 /// `/api/machines/{id}/proxy/<path>`: forwards a dashboard call to the paired
@@ -899,7 +919,24 @@ async fn peer_hello(
     // The same hello it sends (its roots' digest, its leases).
     let reply: Hello = super::hello_for(&state, &peer);
     roots::after_hello(&state, &machine, &hello);
+    // A *Revoke everywhere* it has not taken yet: it is back.
+    if revocation::pending_for(&state, &machine) {
+        let st = state.clone();
+        tokio::spawn(async move { revocation::deliver_to(&st, &machine).await });
+    }
     Ok(Json(serde_json::to_value(reply).unwrap_or(Value::Null)))
+}
+
+/// A paired computer asks this one to revoke a third (*Revoke
+/// everywhere*): it only removes trust, so it is applied at once, audited
+/// and shown here (`revocation`).
+async fn peer_revoke(
+    ctx: ClientContext,
+    State(state): State<AppState>,
+    Json(req): Json<revocation::RevokeRequest>,
+) -> ApiResult<Json<Value>> {
+    let (machine, _) = paired(&ctx)?;
+    Ok(Json(revocation::receive(&state, &machine, req)?))
 }
 
 async fn peer_pair_join(

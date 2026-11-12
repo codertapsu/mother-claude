@@ -15,7 +15,7 @@ use super::store::PeerRecord;
 
 /// The capabilities the Machines page names when another computer lacks
 /// them: what a user does with it (moves, code sync, runs, tasks, team
-/// roles). The handshake's own
+/// roles, *Revoke everywhere*). The handshake's own
 /// (`hello`, `setup`, `settings`, `bulk`) came with protocol 1 and are left
 /// out.
 pub const NAMED: &[&str] = &[
@@ -26,6 +26,7 @@ pub const NAMED: &[&str] = &[
     super::work::CAPABILITY,
     super::work::tasks::CAPABILITY,
     super::work::roles::CAPABILITY,
+    protocol::REVOKE_EVERYWHERE,
 ];
 
 /// Another computer's version against this one's.

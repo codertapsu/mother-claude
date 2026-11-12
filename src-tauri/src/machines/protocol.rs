@@ -33,6 +33,7 @@ pub const CAPABILITIES: &[&str] = &[
     super::work::tasks::CAPABILITY,
     super::work::roles::CAPABILITY,
     SYNC,
+    REVOKE_EVERYWHERE,
 ];
 
 /// The capability a machine needs to take (and send) sessions.
@@ -46,6 +47,10 @@ pub const IGNORED_FILES: &str = "ignoredFiles";
 /// name it when another computer lacks it; sync itself does not require it
 /// (builds made before it was advertised keep syncing).
 pub const SYNC: &str = "sync";
+
+/// Taking another computer's *Revoke everywhere* (`revocation`):
+/// `/peer/revoke`.
+pub const REVOKE_EVERYWHERE: &str = "revokeEverywhere";
 
 /// Versions a machine reports.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
