@@ -1239,6 +1239,63 @@ choice open:
 - Tests: approval gating; worktree isolation (the user's checkout untouched); a task's branch round trip; a role on another machine claiming and finishing a task.
 - Exit: a Mac session builds and tests the Windows target, and hands a Windows-only change to a Windows session, without the user switching machines.
 
+**Decisions taken for building it (2026-11-12)**, where §5.11 left a choice
+open:
+
+1. **A run happens in a kept work folder** (the user's choice over a fresh
+   worktree per run, which rebuilds everything every time): one per project
+   and source machine, `<app data>/machines/work/<id>/`, a `git worktree`
+   of that computer's own checkout of the project (the folder a root maps
+   it to). Before each run it is set to the session's code — the source
+   snapshots it (`code::snapshot`, chained, a bundle of what is new) and the
+   target resets the work folder to that snapshot, tracked and untracked
+   files alike — while the files git ignores (`target/`, `node_modules/`)
+   stay between runs, so caches survive. The user's own checkout there is
+   never touched. No checkout there: a blocker naming *Clone it there*.
+2. **Who agrees**: the target's `run` grant for the source (off until the
+   target's desktop turns it on, LAN and internet apart), and an approval
+   on the source for every `machine_run` / `machine_task` (a `crate::pending`
+   item naming the computer, the folder and the command; the Inbox, the
+   session page, a phone) unless a **standing grant** covers it: project +
+   machine + command prefix (`cargo test`, `npm run build`), attached from
+   the approval card. Attaching one needs the dangerous right (as every
+   standing grant does); they are listed and revocable on the Machines page.
+   A command `pending::classify_dangerous` flags (config directories, shell
+   startup files, …) is a dangerous approval, and the target also requires
+   its `dangerous` grant (the `X-MC-Acting` rule).
+3. **How it runs there**: macOS through `/bin/zsh -lc` (the login shell's
+   `PATH`, as the app resolves it for `claude`), Windows through PowerShell
+   7 when present, else Windows PowerShell (`-NoProfile -NonInteractive
+   -Command`); `machine_list` names each computer's OS and shell, so Claude
+   writes the command for that OS. The environment is scrubbed as for owned
+   children (no tokens, no API keys), plus `MOTHER_CLAUDE_RUN=1`. One run
+   at a time per work folder (a second waits, up to its timeout); a timeout
+   (default 30 min, at most 2 h) or a cancel kills the whole process tree.
+4. **What comes back**: the exit code, the duration and the output's last
+   64 KiB at once; the whole output kept there for a day
+   (`machine_output {id, from}` pages it); files named by a glob listed
+   with sizes and fetched on request (≤ 64 MiB each, into the session's
+   project under `.mother-claude/artifacts/<run>/`, git-ignored).
+5. **Long runs**: `machine_run` waits up to 10 minutes, then answers *still
+   running* with the run's id; `machine_wait {id, timeout}` waits again,
+   `machine_cancel {id}` stops it. A run's lines also stream to the
+   dashboards as a background task of the session.
+6. **`machine_task`** starts an owned session there with the task, in its
+   own worktree at the snapshot (not the run folder: it edits code); when it
+   ends its changes come back as a bundle and become the branch
+   `mother-claude/<machine>/<task>` in the asking session's repository
+   (never checked out, never merged), with the task session's summary. The
+   task session is an ordinary owned session there: listed, driven and
+   approved from either computer.
+7. **Records**: every run and task is audited on both computers with the
+   program's name and a hash of the command line (never the whole line: it
+   can carry secrets), the folder, the exit code and the duration.
+8. **Order**: runs first (`machine_list`, `machine_run`, `machine_wait`,
+   `machine_output`, `machine_cancel`, the grant, approvals and standing
+   grants, the setup's `run` column and readiness echo, the runs list on the
+   Machines page); then `machine_task` and its branch; Teams' `machine` on a
+   role last.
+
 ### Phase 5 — more machines and polish (≈ 3 weeks)
 
 - Introductions in the setup's step 2 for a third machine and more; *revoke everywhere*.
