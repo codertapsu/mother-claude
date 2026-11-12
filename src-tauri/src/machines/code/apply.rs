@@ -4,7 +4,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::check::{
-    now_rfc3339, read_json, safe_name, sha256_hex, stamp, valid_remote_name, write_json,
+    now_rfc3339, read_json, safe_name, sha256_hex, stamp, valid_remote_name, valid_session,
+    write_json,
 };
 use super::git::{GitOp, GitRunner};
 use super::repo::{
@@ -773,6 +774,68 @@ fn unchanged_since(
             .find(|c| !limit(c.kind))
         {
             return Err(CodeError::ChangedSinceApply(format!("{} changed", c.path)));
+        }
+    }
+    Ok(())
+}
+
+/// *Remove the worktree* (plan §5.10): the worktree `dir` a move's code
+/// landed in, from the repository at `repo` — only while everything in it
+/// is in a snapshot of one of `sessions` (its HEAD a snapshot's base, its
+/// staged and working trees that snapshot's: the move that left it, or the
+/// one that landed it when nothing changed since; F7's parked rule), else
+/// [`CodeError::Unsaved`] and nothing changes. Its branch (`wt_branch`,
+/// `refs/heads/mother-claude/…` only) goes with it; the snapshots' refs
+/// stay. A worktree already gone leaves only its admin entry to prune.
+pub fn remove_move_worktree(
+    git: &GitRunner,
+    repo: &Path,
+    dir: &Path,
+    sessions: &[&str],
+    wt_branch: Option<&str>,
+) -> Result<(), CodeError> {
+    if sessions.is_empty() || sessions.iter().any(|s| !valid_session(s)) {
+        return Err(CodeError::Invalid {
+            what: "session id",
+            value: sessions.join(","),
+        });
+    }
+    if let Some(b) = wt_branch.filter(|b| !b.starts_with("refs/heads/mother-claude/")) {
+        return Err(CodeError::Invalid {
+            what: "worktree branch",
+            value: b.to_string(),
+        });
+    }
+    let op = git.begin()?;
+    let info = repo_info(&op, repo)?;
+    if dir.exists() {
+        let wt = repo_info(&op, dir)?;
+        if !same_place(&wt.common_dir, &info.common_dir) || same_place(&wt.top, &info.top) {
+            return Err(CodeError::Invalid {
+                what: "worktree",
+                value: dir.display().to_string(),
+            });
+        }
+        let mut saved = false;
+        for s in sessions {
+            if parked_state(&op, &wt, s)?.is_some() {
+                saved = true;
+                break;
+            }
+        }
+        if !saved {
+            return Err(CodeError::Unsaved);
+        }
+        op.cmd(&info.top)
+            .args(["worktree", "remove", "--force"])
+            .arg(dir)
+            .raw()?;
+    }
+    op.cmd(&info.top).args(["worktree", "prune"]).raw()?;
+    if let Some(b) = wt_branch {
+        // Not while another worktree has it checked out (git refuses too).
+        if op.rev(&info.top, b)?.is_some() && other_worktree_on(&op, &info.top, b)?.is_none() {
+            op.cmd(&info.top).args(["update-ref", "-d", b]).raw()?;
         }
     }
     Ok(())

@@ -64,6 +64,10 @@ pub enum CodeError {
     AlreadyUndone,
     #[error("The files changed after the move, and undo would lose that: {0}")]
     ChangedSinceApply(String),
+    /// *Remove the worktree*: its HEAD, staged or working tree is in no
+    /// snapshot of the session (work nothing carried away).
+    #[error("Something in the worktree is in no snapshot of the session.")]
+    Unsaved,
     #[error("Invalid {what}: {value:?}")]
     Invalid { what: &'static str, value: String },
     #[error("Could not {what}: {source}")]

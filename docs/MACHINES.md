@@ -367,7 +367,13 @@ there.
   the account there is the one of the same name, signed in there.
 - **The worktree** a move made on the other computer (in Mother Claude's
   data folder there) stays when the session leaves it (its work went with
-  the session); remove it there.
+  the session). Once the session left it or ended there, the move offers
+  **Remove the worktree** — in *Recent moves* and on the session's Info
+  tab, from either computer, with a second tap. It is refused while the
+  session runs in it, and while anything in it is in no snapshot of the
+  session (work done there that did not travel: move the session first).
+  Its branch goes with it; the snapshots' refs stay, and *Undo move* is no
+  longer offered.
 
 ### From a phone
 

@@ -94,7 +94,7 @@ use crate::state::AppState;
 pub use source::{preflight, start, MoveBody, Preflight};
 pub use target::{
     peer_create, peer_drop, peer_file_size, peer_land, peer_leases, peer_preflight, peer_put_chunk,
-    peer_state, peer_undo,
+    peer_remove_worktree, peer_state, peer_undo,
 };
 
 /// The largest chunk a source sends in one request.
@@ -431,6 +431,10 @@ pub struct MoveRecord {
     /// Until when *Undo move* is offered.
     #[serde(default)]
     pub undo_until: Option<i64>,
+    /// When the worktree its code landed in on the target was removed
+    /// (*Remove the worktree*, plan §5.10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_removed_at: Option<i64>,
 }
 
 impl MoveRecord {
@@ -443,6 +447,63 @@ impl MoveRecord {
             obj.insert("finished".into(), json!(self.state.is_final()));
         }
         v
+    }
+
+    /// The worktree the move's code landed in on the target, and its
+    /// branch (none: it landed in the project folder, or carried no code).
+    pub fn worktree(&self) -> Option<(PathBuf, Option<String>)> {
+        let landed = self.code.as_ref()?.landed.as_ref()?;
+        (landed.landing == super::code::LandingKind::Worktree)
+            .then(|| (landed.path.clone(), landed.wt_branch.clone()))
+    }
+
+    /// [`Self::view`] with what this computer knows of the worktree its
+    /// code landed in: `worktree: {path, removable, removedAt?}` —
+    /// *Remove the worktree* is offered once the session left it or ended
+    /// there (the target checks again, and refuses while anything in it is
+    /// in no snapshot of the session).
+    pub fn view_for(&self, state: &AppState) -> Value {
+        let mut v = self.view();
+        if let (Some((path, _)), Some(obj)) = (self.worktree(), v.as_object_mut()) {
+            let removable = self.worktree_removed_at.is_none()
+                && self.state == MoveState::Resumed
+                && match self.role {
+                    Role::In => {
+                        path.is_dir()
+                            && !crate::claude::transfer::ops::is_live(state, self.session_there())
+                    }
+                    Role::Out => {
+                        // It left the target (the lease names another
+                        // home), or ended there (as the target's sessions
+                        // last said).
+                        let left = !self.as_copy
+                            && state
+                                .machines
+                                .leases
+                                .get(&self.session)
+                                .is_some_and(|l| l.home != self.to.id);
+                        left || super::federation::session_live(
+                            state,
+                            &self.to.id,
+                            self.session_there(),
+                        ) == Some(false)
+                    }
+                };
+            obj.insert(
+                "worktree".into(),
+                json!({
+                    "path": path,
+                    "removable": removable,
+                    "removedAt": self.worktree_removed_at,
+                }),
+            );
+        }
+        v
+    }
+
+    /// The session's id on the target (a copy's is new).
+    pub fn session_there(&self) -> &str {
+        self.target_session.as_deref().unwrap_or(&self.session)
     }
 
     /// Moves to `state`, noting when.
@@ -674,7 +735,9 @@ pub(crate) fn save(state: &AppState, rec: &MoveRecord) {
         let _g = lock(&state.machines.moves.write);
         write_record(state, rec);
     }
-    state.broadcast(ServerEvent::Move { record: rec.view() });
+    state.broadcast(ServerEvent::Move {
+        record: rec.view_for(state),
+    });
 }
 
 /// Changes a record — read from disk and written back under one lock, so
@@ -692,7 +755,9 @@ pub(crate) fn update(
         write_record(state, &rec);
         rec
     };
-    state.broadcast(ServerEvent::Move { record: rec.view() });
+    state.broadcast(ServerEvent::Move {
+        record: rec.view_for(state),
+    });
     Some(rec)
 }
 
@@ -983,6 +1048,32 @@ pub async fn undo(state: &AppState, ctx: &ClientContext, id: &str) -> ApiResult<
     }
 }
 
+/// `POST /api/moves/{id}/remove-worktree` (*Remove the worktree*, plan
+/// §5.10): the worktree the move's code landed in, on the computer it went
+/// to — here for a move that came here, asked of that computer for one this
+/// computer sent — once the session left it or ended there, and only while
+/// everything in it is in a snapshot of the session.
+pub async fn remove_worktree(
+    state: &AppState,
+    ctx: &ClientContext,
+    id: &str,
+) -> ApiResult<MoveRecord> {
+    let rec = load(state, id).ok_or_else(not_found)?;
+    if rec.worktree().is_none() {
+        return Err(ApiError::conflict(
+            "no_worktree",
+            "This move's code did not land in a separate folder.",
+        ));
+    }
+    if rec.worktree_removed_at.is_some() {
+        return Ok(rec);
+    }
+    match rec.role {
+        Role::In => target::remove_worktree_here(state, &rec).await,
+        Role::Out => source::remove_worktree_there(state, ctx, &rec).await,
+    }
+}
+
 /// `POST /api/moves/{id}/retry`: a move that landed and moved the lease but
 /// did not start there is started again (nothing is sent twice).
 pub async fn retry(state: &AppState, ctx: &ClientContext, id: &str) -> ApiResult<MoveRecord> {
@@ -1147,7 +1238,7 @@ fn prune(state: &AppState) {
 
 /// `{moves: [...]}` for `GET /api/moves`.
 pub fn list_view(state: &AppState) -> Value {
-    json!({ "moves": list(state).iter().map(MoveRecord::view).collect::<Vec<_>>() })
+    json!({ "moves": list(state).iter().map(|r| r.view_for(state)).collect::<Vec<_>>() })
 }
 
 #[cfg(test)]
@@ -1219,6 +1310,7 @@ mod tests {
             updated_at: 1,
             finished_at: None,
             undo_until: None,
+            worktree_removed_at: None,
         };
         r.reach(MoveState::Freezing);
         r.reach(MoveState::Freezing);

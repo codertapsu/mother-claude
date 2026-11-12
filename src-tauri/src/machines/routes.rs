@@ -898,7 +898,9 @@ pub fn peer_route_grant(method: &axum::http::Method, path: &str) -> Option<Grant
             Grant::Move
         }
         (["moves"] | ["moves", _], true, _) => Grant::View,
-        (["moves", _, "cancel" | "undo" | "retry"], _, true) if *method == Method::POST => {
+        (["moves", _, "cancel" | "undo" | "retry" | "remove-worktree"], _, true)
+            if *method == Method::POST =>
+        {
             Grant::Move
         }
         // Keeping a copy of one of its sessions (Phase 3b): the first half

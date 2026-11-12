@@ -303,5 +303,12 @@
   "Its commits there are kept: Undo move puts them back.": "Các commit của nó ở đó được giữ lại: Hoàn tác việc chuyển sẽ đưa chúng trở lại.",
 
   "The code went through your remote {remote}: machine to machine it would have been {size} (over {limit}).": "Mã nguồn đã đi qua remote {remote} của bạn: nếu gửi trực tiếp giữa hai máy thì sẽ là {size} (vượt quá {limit}).",
-  "Packed — conversation {conversation}, code through your remote {remote}": "Đã đóng gói — cuộc trò chuyện {conversation}, mã nguồn qua remote {remote} của bạn"
+  "Packed — conversation {conversation}, code through your remote {remote}": "Đã đóng gói — cuộc trò chuyện {conversation}, mã nguồn qua remote {remote} của bạn",
+
+  "Remove the worktree": "Gỡ bỏ worktree",
+  "Its work went with the session; the snapshots stay 7 days.": "Công việc trong đó đã đi theo phiên; các bản chụp được giữ 7 ngày.",
+  "Its worktree on {name} was removed {time}.": "Worktree của nó trên {name} đã được xoá lúc {time}.",
+  "Something in its worktree on {name} is not in a snapshot yet: move the session (its work goes along) before removing it.": "Có thứ trong worktree của nó trên {name} chưa nằm trong bản chụp nào: hãy chuyển phiên đi (công việc sẽ đi theo) trước khi xoá.",
+  "The session runs in its worktree on {name} right now: stop it or move it away first.": "Phiên đang chạy trong worktree của nó trên {name}: hãy dừng nó hoặc chuyển nó đi trước.",
+  "This move's code did not land in a separate folder.": "Mã nguồn của lần chuyển này không được đặt vào một thư mục riêng."
 }

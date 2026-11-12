@@ -616,7 +616,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Các tệp git bỏ qua, như tệp `.env`, `node_modules` và kết quả build, vẫn ở nguyên chỗ, trừ vài tệp mà dự án liệt kê để mang theo (**Ngoài git**). Hãy thiết lập dự án ở máy kia bằng công thức.',
           'Thông tin đăng nhập: token, khóa và `.credentials.json` ở lại trên từng máy. Phiên chạy với tài khoản cùng tên ở máy kia, đã đăng nhập ở đó.',
-          'Worktree mà một lần chuyển tạo ra trên máy kia, trong thư mục dữ liệu của Mother Claude ở đó, vẫn ở lại khi phiên rời đi; công việc của nó đã đi cùng phiên. Hãy xóa nó ở máy đó.',
+          'Worktree mà một lần chuyển tạo ra trên máy kia, trong thư mục dữ liệu của Mother Claude ở đó, vẫn ở lại khi phiên rời đi; công việc của nó đã đi cùng phiên. Khi phiên đã rời đi hoặc đã kết thúc ở đó, **Gỡ bỏ worktree** trên lần chuyển (**Các lần chuyển gần đây**, thẻ **Thông tin** của phiên) sẽ xoá nó, từ bất kỳ máy nào. Việc này bị từ chối khi trong đó còn thứ chưa nằm trong bản chụp nào của phiên: hãy chuyển phiên đi trước.',
         ],
       },
       {

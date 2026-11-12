@@ -803,6 +803,7 @@ pub async fn peer_create(
                 updated_at: now,
                 finished_at: None,
                 undo_until: None,
+                worktree_removed_at: None,
             };
             rec.reach(MoveState::Sending);
             save(state, &rec);
@@ -1734,6 +1735,98 @@ pub(super) async fn undo_here(
     )
     .await;
     Ok(rec)
+}
+
+/// *Remove the worktree* here (plan §5.10): the worktree a move's code
+/// landed in on this computer, once its session left it or ended here —
+/// refused while the session runs here (`409 worktree_in_use`) or while
+/// anything in it is in no snapshot of the session (`409
+/// worktree_unsaved`: its work did not travel). The snapshots' refs stay;
+/// *Undo move* is no longer offered (it would take the worktree back out).
+pub(super) async fn remove_worktree_here(
+    state: &AppState,
+    rec: &MoveRecord,
+) -> ApiResult<MoveRecord> {
+    let _one = state.machines.moves.landing.lock().await;
+    let rec = load(state, &rec.id).ok_or_else(super::not_found)?;
+    if rec.worktree_removed_at.is_some() {
+        return Ok(rec);
+    }
+    let Some((dir, branch)) = rec.worktree() else {
+        return Err(ApiError::conflict(
+            "no_worktree",
+            "This move's code did not land in a separate folder.",
+        ));
+    };
+    // Only ever a folder under this computer's worktrees (the record is
+    // this computer's, but the path came from a landing).
+    let inside =
+        worktrees_root(state).is_some_and(|root| crate::claude::paths::is_within(&dir, &root));
+    let repo = rec
+        .target_folder
+        .clone()
+        .filter(|_| inside)
+        .ok_or_else(|| {
+            ApiError::conflict(
+                "no_worktree",
+                "This move's code did not land in a separate folder.",
+            )
+        })?;
+    if crate::claude::transfer::ops::is_live(state, rec.session_there()) {
+        return Err(ApiError::conflict(
+            "worktree_in_use",
+            "The session runs in that worktree right now: stop it or move it away first.",
+        ));
+    }
+    let (g, r, d, branch) = (
+        state.machines.moves.git(),
+        PathBuf::from(&repo),
+        dir.clone(),
+        branch,
+    );
+    let sessions = [rec.session.clone(), rec.session_there().to_string()];
+    let removed = tokio::task::spawn_blocking(move || {
+        let ids: Vec<&str> = sessions.iter().map(String::as_str).collect();
+        code::remove_move_worktree(&g, &r, &d, &ids, branch.as_deref())
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?;
+    match removed {
+        Ok(()) => {}
+        Err(code::CodeError::Unsaved) => {
+            return Err(ApiError::conflict(
+                "worktree_unsaved",
+                "Something in the worktree is in no snapshot of the session: move the session \
+                 (its work goes along) before removing it.",
+            ))
+        }
+        Err(e) => {
+            return Err(ApiError::internal(format!(
+                "The worktree could not be removed: {e}"
+            )))
+        }
+    }
+    let now = m::now();
+    let rec = update(state, &rec.id, |r| {
+        r.worktree_removed_at = Some(now);
+        r.undo_until = None;
+    })
+    .ok_or_else(super::not_found)?;
+    super::audit(
+        state,
+        "machine.move.worktree_removed",
+        &rec,
+        json!({ "worktree": dir }),
+    );
+    Ok(rec)
+}
+
+/// `POST /peer/moves/{id}/remove-worktree`: the source asks this computer
+/// to remove the worktree a move it sent landed in here.
+pub async fn peer_remove_worktree(state: &AppState, from: &str, id: &str) -> ApiResult<Value> {
+    let rec = incoming(state, id, from)?;
+    let rec = remove_worktree_here(state, &rec).await?;
+    Ok(json!({ "removed": true, "move": rec.view() }))
 }
 
 /// Takes back what a move that did not land left here (the source failed,

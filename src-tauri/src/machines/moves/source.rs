@@ -1069,6 +1069,7 @@ pub async fn start(
         updated_at: now,
         finished_at: None,
         undo_until: None,
+        worktree_removed_at: None,
     };
     rec.reach(MoveState::Preflight);
     save(state, &rec);
@@ -2025,6 +2026,47 @@ pub(super) async fn fail_after_restart(state: &AppState, rec: &MoveRecord) {
 }
 
 // ─── undo, coming home, take over ──────────────────────────────────────────────
+
+/// `POST /api/moves/{id}/remove-worktree` for a move this machine sent: the
+/// target removes the worktree the code landed in there (it checks that the
+/// session left it or ended, and that its work is in a snapshot), and this
+/// record says so too.
+pub(super) async fn remove_worktree_there(
+    state: &AppState,
+    ctx: &ClientContext,
+    rec: &MoveRecord,
+) -> ApiResult<MoveRecord> {
+    let acting = m::acting::header_for(state, ctx);
+    let (status, v) = call(
+        state,
+        &rec.to.id,
+        "POST",
+        &format!("/peer/moves/{}/remove-worktree", rec.id),
+        Some(&json!({})),
+        &acting,
+        LAND_TIMEOUT,
+    )
+    .await
+    .map_err(|e| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "machine_unreachable",
+            format!("{} can't be reached right now: {e}", rec.to.name),
+        )
+    })?;
+    if status != 200 {
+        return Err(refusal(status, &v, &rec.to.name));
+    }
+    let at = v
+        .pointer("/move/worktreeRemovedAt")
+        .and_then(Value::as_i64)
+        .unwrap_or_else(m::now);
+    update(state, &rec.id, |r| {
+        r.worktree_removed_at = Some(at);
+        r.undo_until = None;
+    })
+    .ok_or_else(super::not_found)
+}
 
 /// `POST /api/moves/{id}/undo` for a move this machine sent: the target
 /// undoes it and gives the lease back.

@@ -125,6 +125,27 @@ export class MockMoves {
       box.sessions.set(cache.id, this.copyFor(cache, box, { live: false, status: 'idle' }));
       cache.livesOn = { machine: box.id, name: box.name, since: now - 5 * H, epoch: 1 };
     }
+    // Three days ago "Summarise this week's commits" went to DESKTOP-PC into a
+    // separate folder (a worktree) and came back since: *Remove the
+    // worktree* is offered.
+    const haiku = this.host.sessions().find((s) => s.id === 's-haiku');
+    if (haiku) {
+      const rec = this.record(haiku, desk, now - 3 * 24 * H, { to: desk.id, apply: 'worktree' });
+      this.walk(
+        rec,
+        ['freezing', 'packaging', 'sending', 'landing', 'landed', 'committed', 'resumed'],
+        3 * S,
+      );
+      const wt = `C:\\Users\\marcus\\AppData\\Roaming\\dev.motherclaude.desktop\\machines\\worktrees\\${haiku.id}`;
+      rec.finished = true;
+      rec.finishedAt = rec.updatedAt;
+      rec.bytesSent = rec.bytesTotal;
+      rec.targetCwd = wt;
+      rec.targetFolder = 'D:\\development\\projects\\mother-claude';
+      rec.code = { ...rec.code!, landed: { landing: 'worktree', path: wt } };
+      rec.worktree = { path: wt, removable: true, removedAt: null };
+      this.moves.set(rec.id, rec);
+    }
     desk.sessions.set('r-tray', {
       ...this.copyFor(
         {
@@ -300,12 +321,22 @@ export class MockMoves {
     if (path === '/moves' && method === 'GET') {
       return json({ moves: [...this.moves.values()].sort((x, y) => y.createdAt - x.createdAt) });
     }
-    const one = /^\/moves\/(mv_[0-9a-f]{16})(?:\/(cancel|undo|retry))?$/.exec(path);
+    const one = /^\/moves\/(mv_[0-9a-f]{16})(?:\/(cancel|undo|retry|remove-worktree))?$/.exec(path);
     if (one) {
       const rec = this.moves.get(one[1]);
       if (!rec) return err(404, 'move_not_found', 'No such move here.');
       if (!one[2]) return json(rec);
       if (method !== 'POST') return null;
+      if (one[2] === 'remove-worktree') {
+        if (!rec.worktree) {
+          return err(409, 'no_worktree', "This move's code did not land in a separate folder.");
+        }
+        rec.worktree = { ...rec.worktree, removable: false, removedAt: Date.now() };
+        rec.undoUntil = null;
+        rec.updatedAt = Date.now();
+        this.publish(rec);
+        return json(rec);
+      }
       return this.act(rec, one[2] as 'cancel' | 'undo' | 'retry');
     }
     const move = /^\/sessions\/([^/]+)\/move(\/preflight)?$/.exec(path);

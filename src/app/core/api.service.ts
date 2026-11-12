@@ -244,7 +244,7 @@ import {
  *   Startup   getAutostart() · setAutostart(enabled)
  *   Moves     moveSessionPreflight(id, body) · moveSession(id, body) ·
  *             takeOverSession(id, self, opts?) · listMoves() · getMove(id) ·
- *             cancelMove(id) · undoMove(id) · retryMove(id)
+ *             cancelMove(id) · undoMove(id) · retryMove(id) · removeMoveWorktree(id)
  *   Copies    getSessionCopies(id) · setSessionCopies(id, machines) ·
  *             getCopies() · removeCopy(id)
  */
@@ -1644,6 +1644,13 @@ export class ApiService {
   /** A move that landed but did not start there starts again. */
   async retryMove(id: string): Promise<MoveRecord> {
     return moveOf(await this.post<unknown>(`/moves/${enc(id)}/retry`, {}));
+  }
+
+  /** *Remove the worktree*: the separate folder the move's code landed in,
+   * on the computer it went to, once the session left it or ended there
+   * (`409 worktree_unsaved` while anything in it is not in a snapshot). */
+  async removeMoveWorktree(id: string): Promise<MoveRecord> {
+    return moveOf(await this.post<unknown>(`/moves/${enc(id)}/remove-worktree`, {}));
   }
 
   // ──────────────────────────────────────────────────────────── Transport

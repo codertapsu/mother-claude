@@ -13,6 +13,7 @@
 //! | `POST /api/moves/{id}/cancel` | desktop, device, another computer | until the target starts placing it (`409 move_too_late` after) |
 //! | `POST /api/moves/{id}/undo` | desktop, device, another computer | undone on the target (asked from the source) |
 //! | `POST /api/moves/{id}/retry` | desktop, device, another computer | a move that landed but did not start there starts again |
+//! | `POST /api/moves/{id}/remove-worktree` | desktop, device, another computer | *Remove the worktree* the code landed in there, once the session left it or ended (`409 worktree_in_use`, `409 worktree_unsaved` while anything in it is in no snapshot) |
 //!
 //! The body of a move: `{to, code: "bundle"|"remote"|"none", apply:
 //! "checkout"|"worktree", folder?, keepDriving?, asCopy?, recipe?, trust?,
@@ -23,7 +24,8 @@
 //! needing this machine's `move` grant for the caller on the path the
 //! request came over: `POST /peer/moves/preflight`, `POST|GET|DELETE
 //! /peer/moves/{id}`, `GET|PUT /peer/moves/{id}/files/{name}?offset=`,
-//! `POST /peer/moves/{id}/land`, `POST /peer/moves/{id}/undo`, `GET|POST
+//! `POST /peer/moves/{id}/land`, `POST /peer/moves/{id}/undo`, `POST
+//! /peer/moves/{id}/remove-worktree`, `GET|POST
 //! /peer/leases`.
 //!
 //! While Machines is off here, `POST /api/sessions/{id}/move` and its
@@ -59,6 +61,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/moves/{id}/cancel", post(cancel))
         .route("/moves/{id}/undo", post(undo))
         .route("/moves/{id}/retry", post(retry))
+        .route("/moves/{id}/remove-worktree", post(remove_worktree))
 }
 
 /// The other machines' move routes.
@@ -81,6 +84,10 @@ pub fn peer_router() -> Router<AppState> {
         )
         .route("/peer/moves/{id}/land", post(peer_land))
         .route("/peer/moves/{id}/undo", post(peer_undo))
+        .route(
+            "/peer/moves/{id}/remove-worktree",
+            post(peer_remove_worktree),
+        )
         .route("/peer/leases", get(peer_leases_get).post(peer_leases_post))
 }
 
@@ -117,7 +124,7 @@ pub(crate) fn changes_a_move(method: &axum::http::Method, path: &str) -> bool {
     let segs: Vec<&str> = path.trim_matches('/').split('/').collect();
     matches!(
         segs.as_slice(),
-        ["sessions", _, "move"] | ["moves", _, "cancel" | "undo" | "retry"]
+        ["sessions", _, "move"] | ["moves", _, "cancel" | "undo" | "retry" | "remove-worktree"]
     )
 }
 
@@ -167,7 +174,7 @@ async fn get_one(
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     let rec = moves::load(&state, &id).ok_or_else(moves::not_found)?;
-    Ok(Json(rec.view()))
+    Ok(Json(rec.view_for(&state)))
 }
 
 async fn cancel(
@@ -178,7 +185,7 @@ async fn cancel(
 ) -> ApiResult<Json<Value>> {
     may_move(&ctx, acting_of(&acting))?;
     let rec = moves::cancel(&state, &id).await?;
-    Ok(Json(rec.view()))
+    Ok(Json(rec.view_for(&state)))
 }
 
 async fn undo(
@@ -189,7 +196,7 @@ async fn undo(
 ) -> ApiResult<Json<Value>> {
     may_move(&ctx, acting_of(&acting))?;
     let rec = moves::undo(&state, &ctx, &id).await?;
-    Ok(Json(rec.view()))
+    Ok(Json(rec.view_for(&state)))
 }
 
 async fn retry(
@@ -200,7 +207,20 @@ async fn retry(
 ) -> ApiResult<Json<Value>> {
     may_move(&ctx, acting_of(&acting))?;
     let rec = moves::retry(&state, &ctx, &id).await?;
-    Ok(Json(rec.view()))
+    Ok(Json(rec.view_for(&state)))
+}
+
+/// *Remove the worktree*: who may change a move may (never the
+/// local-script token).
+async fn remove_worktree(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    acting: ActingExt,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    may_move(&ctx, acting_of(&acting))?;
+    let rec = moves::remove_worktree(&state, &ctx, &id).await?;
+    Ok(Json(rec.view_for(&state)))
 }
 
 // ─── the other machines ──────────────────────────────────────────────────────────
@@ -344,6 +364,16 @@ async fn peer_undo(
     Ok(Json(moves::peer_undo(&state, &from, &id).await?))
 }
 
+async fn peer_remove_worktree(
+    ctx: ClientContext,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let (from, _) = moving_here(&state, &ctx)?;
+    move_id(&id)?;
+    Ok(Json(moves::peer_remove_worktree(&state, &from, &id).await?))
+}
+
 async fn peer_leases_get(
     ctx: ClientContext,
     State(state): State<AppState>,
@@ -375,6 +405,7 @@ mod tests {
             "moves/mv_0123456789abcdef/cancel",
             "moves/mv_0123456789abcdef/undo",
             "moves/mv_0123456789abcdef/retry",
+            "moves/mv_0123456789abcdef/remove-worktree",
         ] {
             assert!(changes_a_move(&Method::POST, path), "{path}");
         }

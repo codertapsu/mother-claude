@@ -761,6 +761,18 @@ export function moveErrorText(e: unknown, names: MoveNames = {}): string {
       return tr("It can't move yet: fix the checks first.");
     case 'move_underway':
       return tr('This session is moving already.');
+    case 'worktree_unsaved':
+      return tr(
+        'Something in its worktree on {name} is not in a snapshot yet: move the session (its work goes along) before removing it.',
+        { name: target },
+      );
+    case 'worktree_in_use':
+      return tr(
+        'The session runs in its worktree on {name} right now: stop it or move it away first.',
+        { name: target },
+      );
+    case 'no_worktree':
+      return tr("This move's code did not land in a separate folder.");
     case 'move_not_found':
       return tr('That move is not kept there any more.');
     case 'move_finished':

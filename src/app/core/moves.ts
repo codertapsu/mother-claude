@@ -88,6 +88,18 @@ export interface MoveCode {
   landed?: { landing?: string; path?: string; action?: string; undoRef?: string } | null;
 }
 
+/** A move whose code landed in a separate folder (a worktree) on the
+ * computer it went to (plan §5.10's *Remove the worktree*). */
+export interface MoveWorktree {
+  /** The folder on that computer. */
+  path: string;
+  /** Offered now: the session moved away from it or ended there (that
+   * computer still refuses while anything in it is not in a snapshot). */
+  removable: boolean;
+  /** When it was removed (ms). */
+  removedAt?: number | null;
+}
+
 /** What the target did with the conversation. */
 export interface MoveLanding {
   job?: string | null;
@@ -160,6 +172,9 @@ export interface MoveRecord {
   finishedAt?: number | null;
   /** Until when *Undo move* is offered. */
   undoUntil?: number | null;
+  /** Its code landed in a separate folder there (null: in the project
+   * folder, or no code). */
+  worktree?: MoveWorktree | null;
 }
 
 /** `POST /api/sessions/:id/move` and `…/move/preflight`. */
@@ -465,7 +480,21 @@ export function normalizeMove(v: unknown): MoveRecord | null {
     updatedAt: num(r['updatedAt']),
     finishedAt: optNum(r['finishedAt']),
     undoUntil: optNum(r['undoUntil']),
+    worktree: worktreeOf(r['worktree']),
   };
+}
+
+function worktreeOf(v: unknown): MoveWorktree | null {
+  const w = obj(v);
+  const path = str(w['path']);
+  if (!path) return null;
+  return { path, removable: w['removable'] === true, removedAt: optNum(w['removedAt']) };
+}
+
+/** *Remove the worktree* is offered (a separate folder the session left or
+ * ended in, not removed yet). */
+export function canRemoveWorktree(m: MoveRecord): boolean {
+  return !!m.worktree?.removable && !m.worktree.removedAt;
 }
 
 /** `{moves: […]}`, the records that parse, newest first. */

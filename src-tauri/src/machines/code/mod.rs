@@ -48,7 +48,7 @@ mod work;
 #[cfg(test)]
 mod tests;
 
-pub use apply::{apply, undo};
+pub use apply::{apply, remove_move_worktree, undo};
 pub use check::{
     is_lfs_oid, is_oid, safe_name, safe_rel_path, valid_branch, valid_remote_name, valid_session,
 };

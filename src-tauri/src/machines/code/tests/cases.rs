@@ -446,3 +446,62 @@ fn a_missing_submodule_commit_is_a_limit_not_a_failed_fetch() {
         "a2\n"
     );
 }
+
+/// *Remove the worktree* (plan §5.10): a move's worktree goes only while a
+/// snapshot of the session holds everything in it; its branch goes with
+/// it, the snapshots' refs stay, and no other branch is ever deleted.
+#[test]
+fn a_moves_worktree_goes_only_while_a_snapshot_holds_it() {
+    use crate::machines::code::{remove_move_worktree, CodeError};
+    let w = World::new();
+    w.seed_with(&[BASE_FILES]);
+    w.clones();
+    put(&w.src, "a.txt", "alpha 2\n");
+    let r = w.round(
+        "ses_wt",
+        Transfer::Bundle,
+        Landing::Worktree {
+            root: w.worktrees(),
+        },
+    );
+    let a = r.applied().clone();
+    let branch = a.wt_branch.clone();
+    assert!(branch.is_some());
+    // Never a branch of the user's.
+    assert!(matches!(
+        remove_move_worktree(
+            &runner(),
+            &w.dst,
+            &a.path,
+            &["ses_wt"],
+            Some("refs/heads/main")
+        ),
+        Err(CodeError::Invalid { .. })
+    ));
+    // Work made there that no snapshot holds: refused, nothing removed.
+    put(&a.path, "made-there.txt", "not in a snapshot\n");
+    match remove_move_worktree(&runner(), &w.dst, &a.path, &["ses_wt"], branch.as_deref()) {
+        Err(CodeError::Unsaved) => {}
+        other => panic!("want Unsaved, got {other:?}"),
+    }
+    assert!(a.path.join("made-there.txt").is_file());
+    // As it landed: held by the snapshot that came, so it goes.
+    std::fs::remove_file(a.path.join("made-there.txt")).expect("rm");
+    remove_move_worktree(&runner(), &w.dst, &a.path, &["ses_wt"], branch.as_deref())
+        .expect("removed");
+    assert!(!a.path.exists());
+    assert!(w
+        .fx
+        .git(&w.dst, &["for-each-ref", "refs/heads/mother-claude/"])
+        .is_empty());
+    assert!(!w
+        .fx
+        .git(
+            &w.dst,
+            &["for-each-ref", "refs/mother-claude/moves/ses_wt/"]
+        )
+        .is_empty());
+    // Gone already: nothing more to do.
+    remove_move_worktree(&runner(), &w.dst, &a.path, &["ses_wt"], branch.as_deref())
+        .expect("again");
+}

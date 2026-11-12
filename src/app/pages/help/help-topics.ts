@@ -1724,7 +1724,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Files git ignores, such as `.env` files, `node_modules` and build output, stay where they are, except the few the project lists to carry (**Not in git**). Set the project up there with a recipe.',
           'Sign-ins: tokens, keys and `.credentials.json` stay on each computer. The session runs under the account of the same name there, signed in there.',
-          "The worktree a move made on the other computer, in Mother Claude's data folder there, stays when the session leaves it; its work went with the session. Remove it there.",
+          "The worktree a move made on the other computer, in Mother Claude's data folder there, stays when the session leaves it; its work went with the session. Once the session left it or ended there, **Remove the worktree** on the move (**Recent moves**, the session's **Info** tab) removes it, from either computer. It is refused while anything in it is in no snapshot of the session: move the session first.",
         ],
       },
       {

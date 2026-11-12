@@ -216,14 +216,19 @@ export class MovesService {
 
   /** Cancel (until it is being placed), undo (until `undoUntil`) or try
    * starting it there again; answers the record as it is after. */
-  async act(e: MoveEntry, what: 'cancel' | 'undo' | 'retry'): Promise<MoveRecord> {
+  async act(
+    e: MoveEntry,
+    what: 'cancel' | 'undo' | 'retry' | 'removeWorktree',
+  ): Promise<MoveRecord> {
     const c = this.client(e.at);
     const m =
       what === 'cancel'
         ? await c.cancelMove(e.move.id)
         : what === 'undo'
           ? await c.undoMove(e.move.id)
-          : await c.retryMove(e.move.id);
+          : what === 'removeWorktree'
+            ? await c.removeMoveWorktree(e.move.id)
+            : await c.retryMove(e.move.id);
     this.mine.add(keyOf(e.at, m.id));
     this.put(e.at, m);
     if (e.at && !moveFinal(m)) this.follow(e.at, m.id);

@@ -1825,3 +1825,75 @@ async fn a_bundle_over_the_limit_stays_one_when_the_remote_does_not_answer() {
         .any(|f| f["name"] == "move.bundle"));
     assert_eq!(read(&w.repos.t, "b.txt"), "bravo, not staged\n");
 }
+
+/// *Remove the worktree* (plan §5.10): the worktree a move landed in is
+/// removed — asked from either computer, done where it is — only once
+/// everything in it is in a snapshot of the session (its work went along
+/// when it moved away); its branch goes, the snapshots' refs stay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_worktree_a_move_landed_in_goes_only_once_its_work_went_along() {
+    let w = world().await;
+    dirty(&w.repos.s);
+    let rec = move_session(&w.s, to_t(&w, json!({ "apply": "worktree" }))).await;
+    assert_eq!(rec["state"], "resumed", "{rec:#}");
+    let id = rec["id"].as_str().unwrap().to_string();
+    let wt = PathBuf::from(rec["targetCwd"].as_str().unwrap());
+    assert!(wt.is_dir());
+    let (_, mine) = w.s.call("GET", &format!("/moves/{id}"), None).await;
+    assert_eq!(mine["worktree"]["path"], rec["targetCwd"], "{mine:#}");
+    assert!(mine["worktree"]["removable"].is_boolean());
+
+    // Work done there that no snapshot holds: refused (asked from here,
+    // refused there), and the worktree stays.
+    put(&wt, "made-there.txt", "not in a snapshot yet\n");
+    let (s, v) =
+        w.s.call("POST", &format!("/moves/{id}/remove-worktree"), None)
+            .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "worktree_unsaved", "{v}");
+    assert!(wt.join("made-there.txt").is_file());
+
+    // It comes home with that work: now it is offered on both, and goes.
+    w.t.refresh().await;
+    let (s, v) =
+        w.t.call(
+            "POST",
+            &format!("/sessions/{SID}/move"),
+            Some(json!({ "to": w.s.id(), "code": "bundle" })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{v}");
+    let back = wait_move(&w.t, v["id"].as_str().unwrap(), |r| r["finished"] == true).await;
+    assert_eq!(back["state"], "resumed", "{back:#}");
+    assert_eq!(
+        read(&w.repos.s, "made-there.txt"),
+        "not in a snapshot yet\n"
+    );
+    let (_, theirs) = w.t.call("GET", &format!("/moves/{id}"), None).await;
+    assert_eq!(theirs["worktree"]["removable"], true, "{theirs:#}");
+    let (_, mine) = w.s.call("GET", &format!("/moves/{id}"), None).await;
+    assert_eq!(mine["worktree"]["removable"], true, "{mine:#}");
+    let (s, v) =
+        w.s.call("POST", &format!("/moves/{id}/remove-worktree"), None)
+            .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v["worktree"]["removedAt"].as_i64().is_some(), "{v:#}");
+    assert_eq!(v["worktree"]["removable"], false);
+    assert!(!wt.exists(), "the worktree is gone");
+    let (_, theirs) = w.t.call("GET", &format!("/moves/{id}"), None).await;
+    assert!(theirs["worktreeRemovedAt"].as_i64().is_some(), "{theirs:#}");
+    assert_eq!(theirs["undoUntil"], Value::Null, "no undo after it");
+    // Its branch went; the snapshots' refs stay (7 days).
+    let branches = git(&w.repos.t, &["for-each-ref", "refs/heads/mother-claude/"]);
+    assert!(branches.is_empty(), "{branches}");
+    let snaps = git(
+        &w.repos.t,
+        &["for-each-ref", &format!("refs/mother-claude/moves/{SID}/")],
+    );
+    assert!(!snaps.is_empty());
+    // Asked again: nothing more to do.
+    let (s, _) =
+        w.s.call("POST", &format!("/moves/{id}/remove-worktree"), None)
+            .await;
+    assert_eq!(s, StatusCode::OK);
+}

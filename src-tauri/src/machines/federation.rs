@@ -86,6 +86,17 @@ impl Federation {
     }
 }
 
+/// Whether `machine`'s session `session` runs there, as its sessions last
+/// said (`None`: not heard of).
+pub fn session_live(state: &AppState, machine: &str, session: &str) -> Option<bool> {
+    state.machines.federation.with(|r| {
+        r.get(machine)?
+            .sessions
+            .get(session)
+            .map(|s| s.get("live").and_then(Value::as_bool).unwrap_or(false))
+    })
+}
+
 /// The frames a dashboard gets when it connects: every other machine's
 /// sessions as last heard, then whether it is online.
 pub fn initial_frames(state: &AppState) -> Vec<ServerEvent> {

@@ -157,6 +157,54 @@ describe('MachinesComponent: Recent moves', () => {
     ]);
   });
 
+  it("removes a move's worktree there with a second tap, or says why it stays", async () => {
+    const wt = 'C:\\Users\\me\\AppData\\Roaming\\dev.motherclaude.desktop\\machines\\worktrees\\s1';
+    const landed = movedTo('resumed', {
+      worktree: { path: wt, removable: true, removedAt: null },
+    });
+    backend.routes.set('/moves', () => ({ status: 200, body: { moves: [landed] } }));
+    let saved = false;
+    backend.routes.set(`/moves/${MOVE_ID}/remove-worktree`, () =>
+      saved
+        ? {
+            status: 200,
+            body: {
+              ...landed,
+              updatedAt: landed.updatedAt + 1,
+              worktree: { path: wt, removable: false, removedAt: Date.now() },
+            },
+          }
+        : {
+            status: 409,
+            body: {
+              error: {
+                code: 'worktree_unsaved',
+                message: 'Something in the worktree is in no snapshot of the session.',
+              },
+            },
+          },
+    );
+    const el = await render();
+    const tapTwice = async () => {
+      button(cards(el)[0], 'Remove the worktree')!.click();
+      fixture.detectChanges();
+      button(cards(el)[0], 'Tap again to remove')!.click();
+      await settle();
+    };
+    // Something in it is in no snapshot: it stays, and the card says why.
+    await tapTwice();
+    expect(text(cards(el)[0].querySelector('[role="alert"]'))).toBe(
+      'Something in its worktree on DESKTOP-PC is not in a snapshot yet: move the session (its work goes along) before removing it.',
+    );
+    // Saved: it goes, and the card says when.
+    saved = true;
+    await tapTwice();
+    const calls = backend.calls.filter((c) => c === `POST /moves/${MOVE_ID}/remove-worktree`);
+    expect(calls.length).toBe(2);
+    expect(button(cards(el)[0], 'Remove the worktree')).toBeUndefined();
+    expect(text(cards(el)[0])).toContain('Its worktree on DESKTOP-PC was removed');
+  });
+
   it('shows nothing while there was no move', async () => {
     backend.routes.set('/moves', () => ({ status: 200, body: { moves: [] } }));
     const el = await render();

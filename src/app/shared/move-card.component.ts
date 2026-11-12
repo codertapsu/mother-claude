@@ -11,7 +11,15 @@ import { RouterLink } from '@angular/router';
 
 import { locale, tr } from '../core/i18n/i18n';
 import { TPipe } from '../core/i18n/t.pipe';
-import { canCancel, canRetry, canUndo, moveFinal, moveFraction, movedSession } from '../core/moves';
+import {
+  canCancel,
+  canRemoveWorktree,
+  canRetry,
+  canUndo,
+  moveFinal,
+  moveFraction,
+  movedSession,
+} from '../core/moves';
 import {
   moveErrorText,
   moveRoute,
@@ -77,7 +85,15 @@ function dateTime(ms: number): string {
         }
       </ul>
     }
-    @if (cancellable() || retryable() || openLink() || undoable()) {
+    @if (m.worktree?.removedAt) {
+      <p class="muted small sum">
+        {{
+          'Its worktree on {name} was removed {time}.'
+            | t: { name: worktreeHost(), time: removedAt() }
+        }}
+      </p>
+    }
+    @if (cancellable() || retryable() || openLink() || undoable() || removable()) {
       <div class="acts">
         @if (cancellable()) {
           <button class="btn small" type="button" [disabled]="busy()" (click)="act('cancel')">
@@ -112,6 +128,25 @@ function dateTime(ms: number): string {
           @if (m.undoUntil) {
             <span class="muted small">{{ 'Possible until {time}.' | t: { time: until() } }}</span>
           }
+        }
+        @if (removable()) {
+          <button
+            class="btn small"
+            type="button"
+            [class.danger]="removing()"
+            [disabled]="busy()"
+            [title]="'Its work went with the session; the snapshots stay 7 days.' | t"
+            (click)="removeWorktree()"
+          >
+            <mc-icon name="trash" [size]="14" />
+            {{
+              busy() === 'removeWorktree'
+                ? ('Removing…' | t)
+                : removing()
+                  ? ('Tap again to remove' | t)
+                  : ('Remove the worktree' | t)
+            }}
+          </button>
         }
       </div>
     }
@@ -218,7 +253,7 @@ export class MoveCardComponent {
   readonly entry = input.required<MoveEntry>();
 
   /** The action under way ('' for none). */
-  protected readonly busy = signal<'' | 'cancel' | 'undo' | 'retry'>('');
+  protected readonly busy = signal<'' | 'cancel' | 'undo' | 'retry' | 'removeWorktree'>('');
   protected readonly error = linkedSignal({
     source: () => this.entry().move.id,
     computation: () => '',
@@ -227,7 +262,13 @@ export class MoveCardComponent {
     source: () => this.entry().move.id,
     computation: () => false,
   });
+  /** *Remove the worktree* armed (a second tap removes it). */
+  protected readonly removing = linkedSignal({
+    source: () => this.entry().move.id,
+    computation: () => false,
+  });
   private confirmTimer?: ReturnType<typeof setTimeout>;
+  private removeTimer?: ReturnType<typeof setTimeout>;
 
   /** Its computers in this computer's words. */
   private readonly words = this.moves.words();
@@ -244,6 +285,14 @@ export class MoveCardComponent {
   protected readonly retryable = computed(() => canRetry(this.entry().move));
   protected readonly undoable = computed(() => canUndo(this.entry().move, this.clock.now()));
   protected readonly until = computed(() => dateTime(this.entry().move.undoUntil ?? 0));
+  /** *Remove the worktree* (plan §5.10): the separate folder its code
+   * landed in, once the session left it or ended there. */
+  protected readonly removable = computed(() => canRemoveWorktree(this.entry().move));
+  /** The computer the worktree is on: the one the move went to. */
+  protected readonly worktreeHost = computed(() => this.words.name(this.entry().move.to));
+  protected readonly removedAt = computed(() =>
+    dateTime(this.entry().move.worktree?.removedAt ?? 0),
+  );
 
   /** The computer it went on on, when it runs there now. */
   private readonly runsOn = computed(() => {
@@ -262,7 +311,20 @@ export class MoveCardComponent {
     this.runsOn()?.machine ? tr('Open it there') : tr('Open it'),
   );
 
-  protected async act(what: 'cancel' | 'retry' | 'undo'): Promise<void> {
+  protected removeWorktree(): void {
+    if (this.busy()) return;
+    if (!this.removing()) {
+      this.removing.set(true);
+      clearTimeout(this.removeTimer);
+      this.removeTimer = setTimeout(() => this.removing.set(false), 4000);
+      return;
+    }
+    clearTimeout(this.removeTimer);
+    this.removing.set(false);
+    void this.act('removeWorktree');
+  }
+
+  protected async act(what: 'cancel' | 'retry' | 'undo' | 'removeWorktree'): Promise<void> {
     if (this.busy()) return;
     const e = this.entry();
     this.busy.set(what);

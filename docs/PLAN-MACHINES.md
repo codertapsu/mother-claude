@@ -622,6 +622,16 @@ a worktree), one of:
   nothing is ever merged into it on its own. When the session leaves T or
   ends, *Remove the worktree* is offered: its work went with the session's
   snapshot, and stays under `refs/mother-claude/moves/…` for 7 days.
+  *Built 2026-11-13*: `POST /api/moves/{id}/remove-worktree` (on either
+  computer: the source's record asks T, `POST
+  /peer/moves/{id}/remove-worktree`), the record's view carrying
+  `worktree: {path, removable, removedAt}` (removable once the lease left T,
+  or T's sessions say it ended); T refuses while the session runs there
+  (`worktree_in_use`) and while the worktree is not parked at one of the
+  session's snapshots (`worktree_unsaved`, `code::remove_move_worktree`),
+  removes it with its `mother-claude/<session>` branch, keeps the snapshot
+  refs, and *Undo move* is no longer offered; the move card offers it with
+  a second tap.
 
 **Undo**: T's previous branch tip and a stash of anything the apply touched
 are kept under `refs/mother-claude/undo/<time>` for 7 days; *Undo move* puts
