@@ -1190,6 +1190,8 @@ impl ControlRegistry {
                 // No longer drivable: clear ownership and withdraw its pending
                 // prompts so no card waits on a dead process.
                 st.unmark_owned(&sid).await;
+                // A task another computer handed over stops with it.
+                crate::machines::work::tasks::session_exited(&st, &sid);
             }
             let failed = status.as_ref().map(|s| !s.success()).unwrap_or(true);
             let tail: Vec<String> = lock(&handle.stderr_tail).iter().cloned().collect();
@@ -1600,6 +1602,7 @@ async fn dispatch(
             if started && !h.live().turn_active {
                 start_turn(h);
                 note_activity(state, h, Activity::new(ActivityKind::Thinking, "Thinking")).await;
+                crate::machines::work::tasks::turn_started(state, &h.id);
             }
         }
         // Plan usage for free: the CLI emits one when a window's rounded
@@ -2204,6 +2207,19 @@ async fn on_result(state: &AppState, h: &OwnedHandle, v: &Value) {
             format!("{name} finished a turn")
         },
         Some(&h.id),
+    );
+    // A task another computer handed over: done when nothing waits
+    // (docs/PLAN-MACHINES.md Phase 4); its last message is the summary.
+    let text = v.get("result").and_then(Value::as_str).map(str::to_string);
+    crate::machines::work::tasks::turn_ended(
+        state,
+        &h.id,
+        crate::machines::work::tasks::TurnEnd {
+            summary: text.clone().filter(|_| !is_error),
+            queued: still_busy,
+            resumes,
+            error: text.filter(|_| is_error && subtype != "error_during_execution"),
+        },
     );
 }
 

@@ -502,6 +502,13 @@ pub async fn task_output(
         let truncated = r.output_size > shown.len() as u64;
         return Ok(output_response(shown.to_string(), truncated, r.output_size));
     }
+    // A task it handed to another computer: how it stands, its branch and
+    // its summary, as the session's tool reads them.
+    if let Some(t) = crate::machines::work::tasks::session_task(&state, &id, &task) {
+        let text = crate::machines::work::tasks::source::describe(&t.record(), 0);
+        let size = text.len() as u64;
+        return Ok(output_response(text, false, size));
+    }
     if claude::owned::has_handle(&state, &id) {
         if let Ok(v) = claude::owned::task_output(&state, &id, &task).await {
             if let Some(text) = v.get("output").and_then(Value::as_str) {

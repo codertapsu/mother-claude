@@ -399,6 +399,20 @@ impl MachinesState {
         self.moves.recorded_resumes()
     }
 
+    /// The app turns this on: a task another computer hands over starts a
+    /// Claude Code session here; until then (tests) the spawn is only
+    /// recorded.
+    pub fn enable_task_sessions(&self) {
+        self.work.tasks.enable_sessions();
+    }
+
+    /// The task sessions asked for while they only record (tests): what
+    /// each would have launched.
+    #[doc(hidden)]
+    pub fn recorded_task_spawns(&self) -> Vec<Value> {
+        self.work.tasks.recorded_spawns()
+    }
+
     /// Tests: moves run git without this machine's configuration.
     #[doc(hidden)]
     pub fn use_isolated_git(&self) {

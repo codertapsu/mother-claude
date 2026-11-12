@@ -58,6 +58,10 @@ mod source;
 mod target;
 pub mod wire;
 
+/// Whether an account can run a session here (a task handed over uses it
+/// too, `work::tasks`).
+pub(crate) use target::account_ready;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};

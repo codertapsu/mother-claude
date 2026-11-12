@@ -1090,6 +1090,8 @@ pub async fn send(
         .map_err(control_error)?;
     let queued = queued(state, id).len() as u32;
     ws::patch_session(state, id, |s| s.queued = queued).await;
+    // A task another computer handed over runs again.
+    crate::machines::work::tasks::turn_started(state, id);
     Ok(MessageReceipt {
         delivery,
         message_id,

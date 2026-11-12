@@ -222,7 +222,7 @@ fn resolve_account(state: &AppState, ask: &AccountAsk) -> Result<(String, String
 
 /// Whether the account can run a session here: usable, its token here, not
 /// known to be signed out (`Ok(None)`: never checked here).
-fn account_ready(state: &AppState, id: &str, name: &str) -> Result<Option<bool>, Check> {
+pub(crate) fn account_ready(state: &AppState, id: &str, name: &str) -> Result<Option<bool>, Check> {
     use crate::claude::accounts::view::Attention;
     let me = m::this_name(state);
     if !state.accounts.is_usable(id) {

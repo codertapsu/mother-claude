@@ -525,6 +525,11 @@ pub async fn stop_task(
         crate::machines::work::source::cancel_run(&state, &run).await?;
         return Ok(ok());
     }
+    // A task it handed to another computer: its session there stopped.
+    if let Some(task) = crate::machines::work::tasks::session_task(&state, &id, &task_id) {
+        crate::machines::work::tasks::source::cancel_task(&state, &task).await?;
+        return Ok(ok());
+    }
     match route_for(&state, &id).await? {
         Route::Owned => owned::stop_task(&state, &id, &task_id).await?,
         other => return Err(unsupported("Stopping a background task", &other)),

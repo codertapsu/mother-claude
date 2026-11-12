@@ -100,7 +100,11 @@ fn run_of(state: &AppState, id: &str, from: &str) -> ApiResult<Arc<Run>> {
 
 /// A dangerous command needs this computer's `dangerous` grant for the
 /// asking one and the asking person's right there (plan §5.5).
-fn check_dangerous(state: &AppState, ctx: &ClientContext, dangerous: bool) -> ApiResult<()> {
+pub(crate) fn check_dangerous(
+    state: &AppState,
+    ctx: &ClientContext,
+    dangerous: bool,
+) -> ApiResult<()> {
     if !dangerous {
         return Ok(());
     }

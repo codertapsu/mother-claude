@@ -30,6 +30,7 @@ pub const CAPABILITIES: &[&str] = &[
     MOVES,
     IGNORED_FILES,
     super::work::CAPABILITY,
+    super::work::tasks::CAPABILITY,
 ];
 
 /// The capability a machine needs to take (and send) sessions.

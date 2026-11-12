@@ -216,6 +216,8 @@ pub fn run() {
     app_state.machines.enable_fixes();
     // A session moved here starts with `claude` (tests only record it).
     app_state.machines.enable_resumes();
+    // So does a task another computer hands over (tests record it too).
+    app_state.machines.enable_task_sessions();
     // Code sync watches its projects (tests drive its steps by hand).
     app_state.machines.enable_sync_watch();
     let exit_state = app_state.clone();

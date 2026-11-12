@@ -52,6 +52,11 @@
 //! machines_off`, this computer's tools `machines_off`; turning Machines
 //! off, revoking a computer or taking back its `run` grant stops what that
 //! computer runs here.
+//!
+//! **Tasks** (`tasks`, decision 6): `machine_task` hands a task to an
+//! owned Claude Code session on the other computer, in its own worktree at
+//! the session's code; what it did comes back as the branch
+//! `mother-claude/<machine>/<task>` here, with its summary.
 
 pub mod grants;
 pub mod mcp;
@@ -60,6 +65,7 @@ pub mod routes;
 pub mod shell;
 pub mod source;
 pub mod target;
+pub mod tasks;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -525,6 +531,8 @@ pub struct WorkState {
     pub(crate) chunks: tokio::sync::Mutex<()>,
     /// The standing grants for runs this computer asks for.
     pub grants: grants::RunGrants,
+    /// Tasks handed to another computer, or taken from one (`tasks`).
+    pub tasks: tasks::Tasks,
 }
 
 impl std::fmt::Debug for WorkState {
@@ -546,6 +554,7 @@ impl WorkState {
         }
         Self {
             grants: grants::RunGrants::load(data_dir),
+            tasks: tasks::Tasks::load(dir.as_deref()),
             dir,
             runs: Mutex::new(runs),
             locks: Mutex::new(HashMap::new()),
@@ -754,9 +763,10 @@ pub fn view(state: &AppState) -> Value {
     json!({ "runs": runs })
 }
 
-/// The session's runs as background tasks (its page's *Background tasks*).
+/// The session's runs and tasks on other computers as background tasks
+/// (its page's *Background tasks*).
 pub fn session_tasks(state: &AppState, session: &str) -> Vec<BackgroundTask> {
-    state
+    let mut out: Vec<BackgroundTask> = state
         .machines
         .work
         .all()
@@ -768,7 +778,9 @@ pub fn session_tasks(state: &AppState, session: &str) -> Vec<BackgroundTask> {
             })
         })
         .take(50)
-        .collect()
+        .collect();
+    out.extend(tasks::session_tasks(state, session));
+    out
 }
 
 /// A session's run, by its id: what its task output and stop routes use.
@@ -779,18 +791,22 @@ pub fn session_run(state: &AppState, session: &str, id: &str) -> Option<Arc<Run>
 }
 
 /// At app start: the runs this computer asked for that had not ended are
-/// followed again (the other computer may still run them).
+/// followed again (the other computer may still run them); so are its
+/// tasks, and the tasks a stop cut off here have their work taken.
 pub fn start(state: &AppState) {
     for run in state.machines.work.all() {
         if run.peek(|r| r.direction == Direction::Out && !r.state.ended()) {
             source::follow(state, run);
         }
     }
+    tasks::start(state);
 }
 
 /// Stops what `machine` runs here (all computers' with `None`): Machines
-/// was turned off, the computer revoked, or its `run` grant taken back.
+/// was turned off, the computer revoked, or its `run` grant taken back —
+/// its runs and its tasks.
 pub fn stop_from(state: &AppState, machine: Option<&str>, why: &str) {
+    tasks::stop_from(state, machine, why);
     for run in state.machines.work.all() {
         let hit = run.peek(|r| {
             r.direction == Direction::In
@@ -809,10 +825,12 @@ pub fn stop_from(state: &AppState, machine: Option<&str>, why: &str) {
     }
 }
 
-/// After `machine`'s grants changed here: each of its runs stops when the
-/// `run` grant's column that let it in (the local network, or not) is gone.
+/// After `machine`'s grants changed here: each of its runs (and tasks)
+/// stops when the `run` grant's column that let it in (the local network,
+/// or not) is gone.
 pub fn grants_changed(state: &AppState, machine: &str) {
     use super::grants::Grant;
+    tasks::grants_changed(state, machine);
     for run in state.machines.work.all() {
         let (hit, lan) = run.peek(|r| {
             (

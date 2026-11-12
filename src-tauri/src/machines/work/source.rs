@@ -51,12 +51,12 @@ const POLL: Duration = Duration::from_secs(POLL_WAIT + 25);
 /// given up.
 const LOST_AFTER_MS: i64 = 10 * 60 * 1000;
 
-fn tool_err(e: ApiError) -> ToolError {
+pub(crate) fn tool_err(e: ApiError) -> ToolError {
     ToolError::new(e.code, e.message)
 }
 
 /// The header this computer sends for its runs.
-fn acting(state: &AppState, dangerous: bool) -> String {
+pub(crate) fn acting(state: &AppState, dangerous: bool) -> String {
     m::acting::machine_header(&m::this_name(state), dangerous)
 }
 
@@ -451,7 +451,7 @@ async fn approve(
 }
 
 /// The file sizes and hashes of what the snapshot wrote in `dir`.
-fn files_of(dir: &Path, meta: &code::SnapshotMeta) -> Result<Vec<Value>, String> {
+pub(crate) fn files_of(dir: &Path, meta: &code::SnapshotMeta) -> Result<Vec<Value>, String> {
     let mut names = vec![code::META.to_string()];
     if meta.bundle.is_some() {
         names.push(code::BUNDLE.to_string());
@@ -927,7 +927,7 @@ fn size_text(n: u64) -> String {
     }
 }
 
-fn duration_text(ms: u64) -> String {
+pub(crate) fn duration_text(ms: u64) -> String {
     if ms < 1000 {
         format!("{ms} ms")
     } else if ms < 60_000 {
