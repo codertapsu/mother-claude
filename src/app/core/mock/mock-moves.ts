@@ -465,6 +465,11 @@ export class MockMoves {
             untracked: 2,
             origin: 'git@github.com:marcus/app.git',
             relation: 'fastForward',
+            // The files git ignores the project lists to carry (*Not in
+            // git*): they travel unless unticked.
+            ignored: ['.env.local', 'config/dev.secrets.json'],
+            ignoredBytes: 1_842,
+            carryIgnored: b.carryIgnored !== false,
           }
         : { mode: 'none', repo: true },
       target: p?.online
@@ -548,6 +553,17 @@ export class MockMoves {
     ];
     this.run(rec, plan, (r) => {
       if (r.state === 'sending') this.sendBytes(r);
+      if (r.state === 'landed' && r.code && b.carryIgnored !== false) {
+        // DESKTOP-PC had a .env.local of its own: kept for Undo move.
+        r.warnings = [
+          ...r.warnings,
+          {
+            code: 'ignored_replaced',
+            message: `${to.name} had its own .env.local: kept for Undo move.`,
+          },
+        ];
+        r.code = { ...r.code, ignored: ['.env.local', 'config/dev.secrets.json'] };
+      }
       if (r.state === 'committed' && !r.asCopy) {
         r.undoUntil = Date.now() + WEEK;
         this.host.patchSession(r.session, {

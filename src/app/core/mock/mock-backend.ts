@@ -47,6 +47,7 @@ import { MockMcp } from './mock-mcp';
 import { MockSwitch } from './mock-switch';
 import { MockMachines } from './mock-machines';
 import { MOCK_MACHINES, MockMoves } from './mock-moves';
+import { MockRuns, addMachineRequests } from './mock-runs';
 import { MockTeams } from './mock-teams';
 import { MockMove } from './mock-move';
 import { mockFolder, mockFoldersLike, mockHostOs } from './mock-os';
@@ -144,6 +145,9 @@ class FixtureBackend implements MockBackend {
   /** Moving sessions between them (`?mockmachines=1`: `/moves*`,
    * `/sessions/:id/move*`, the other computers' proxies). */
   private readonly computerMoves: MockMoves | null;
+  /** Runs, tasks and team roles on the other computers (`?mockmachines=1`:
+   * `/machines/{runs,tasks,roles,run-grants}*`). */
+  private readonly computerRuns: MockRuns | null;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
@@ -291,6 +295,10 @@ class FixtureBackend implements MockBackend {
           broadcast: (frame) => this.broadcast(frame),
         })
       : null;
+    this.computerRuns = MOCK_MACHINES
+      ? new MockRuns({ desktop: role === 'desktop', broadcast: (frame) => this.broadcast(frame) })
+      : null;
+    if (MOCK_MACHINES) addMachineRequests(this.fx, now);
     this.teams = new MockTeams({
       desktop: role === 'desktop',
       broadcast: (frame) => this.broadcast(frame),
@@ -355,6 +363,8 @@ class FixtureBackend implements MockBackend {
     // the other computers' proxies)
     const computerMoves = this.computerMoves?.route(path, method, body);
     if (computerMoves) return computerMoves;
+    const computerRuns = this.computerRuns?.route(path, method);
+    if (computerRuns) return computerRuns;
     const machines = this.machines.route(path, method, body);
     if (machines) return machines;
 

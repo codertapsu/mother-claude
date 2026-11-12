@@ -1485,6 +1485,20 @@ not `tauri-plugin-autostart` (it writes the program's path unquoted, to
 the machine-wide key when the app runs elevated); a tray icon only on a run
 the login item started.*
 
+*The dev mock covers every Machines screen (2026-11-13):
+`?mock=1&mockmachines=1` serves Machines on with DESKTOP-PC (online) and
+BUILD-BOX (offline, an older Mother Claude: its skew, what it lacks, its
+*Update Mother Claude* check) paired, DESKTOP-PC's older Claude Code, an
+introduction to STUDIO-MINI to answer, a revocation BUILD-BOX has still to
+take, code sync (one project in sync, one in conflict), copies, moves (the
+preflight's files git ignores, the warnings a landing keeps), runs (one
+that runs and ends while you look, a build with an artifact, a failure,
+one asked of this computer), a standing grant, tasks (one done with its
+branch, one at work, one handed here), a team role run for DESKTOP-PC's
+lead, a run and a task waiting for approval on "Build and notarize
+v0.5.1", and the startup setting (`core/mock/mock-machines.ts`,
+`mock-moves.ts`, `mock-runs.ts`, `mock-copies.ts`; `mock-machines.spec.ts`).*
+
 - Introductions in the setup's step 2 for a third machine and more; *revoke everywhere*.
 - Versions page and skew warnings; tray-only start at login.
 - Docs: `docs/MACHINES.md` for 3b, 4 and more machines; `BACKUP.md` (how it relates), `REMOTE.md` (devices vs peers).

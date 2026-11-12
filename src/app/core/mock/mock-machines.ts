@@ -124,6 +124,37 @@ export class MockMachines {
         this.pairedPeer('f'.repeat(32), 'DESKTOP-PC', 'windows', true, now),
         this.pairedPeer('e'.repeat(32), 'BUILD-BOX', 'linux', false, now - 40 * MIN),
       ];
+      // DESKTOP-PC offers to introduce a third computer (Phase 5), and a lost
+      // laptop was revoked everywhere, BUILD-BOX (offline) still to take it.
+      this.introductions = [
+        {
+          id: 'in_00000000000000d1',
+          from: 'f'.repeat(32),
+          fromName: 'DESKTOP-PC',
+          role: 'joiner',
+          other: {
+            id: 'd'.repeat(32),
+            name: 'STUDIO-MINI',
+            os: 'macos',
+            key: '5B70 21AC 9F3E 8D14',
+          },
+          at: now - MIN,
+          expiresAt: now + 9 * MIN,
+          state: 'offered',
+          detail: null,
+          pairing: false,
+        },
+      ];
+      this.revocations = [
+        {
+          machine: 'c'.repeat(32),
+          name: 'OLD-LAPTOP',
+          key: '1E44 B0C9 7A2D 6F18',
+          at: now - 2 * 24 * 60 * MIN,
+          pending: [{ id: 'e'.repeat(32), name: 'BUILD-BOX', online: false, tooOld: true }],
+          done: [{ id: 'f'.repeat(32), name: 'DESKTOP-PC' }],
+        },
+      ];
       this.syncPairs = [
         this.syncPair('sy_0000000000000001', 'app', {
           state: 'inSync',
@@ -274,12 +305,13 @@ export class MockMachines {
         : [...ALL_CAPABILITIES],
       relay: { mode: 'public', url: null },
       problem: null,
+      // DESKTOP-PC's Claude Code (2.1.322) is older than this one's (2.1.330).
       skew: older
         ? {
             app: 'older',
             lacks: ['sync', 'run', 'tasks', 'teamRoles', 'introductions', 'revokeEverywhere'],
           }
-        : {},
+        : { claude: 'older' },
       pairedWith: [],
     };
   }
@@ -678,7 +710,7 @@ export class MockMachines {
         area: 'app',
         title: 'Mother Claude',
         state: 'ok',
-        detail: 'Version 0.11.0 · Machines protocol 1 · Claude Code 2.1.322',
+        detail: 'Version 0.11.0 · Machines protocol 1 · Claude Code 2.1.330',
         why: 'Every computer needs a version that speaks the same Machines protocol.',
         severity: 'required',
         fix: null,
@@ -887,6 +919,22 @@ export class MockMachines {
       name: p.name,
       at: Date.now() - 2 * MIN,
       checks: [
+        // An older Mother Claude there (Phase 5's versions): *Update it*,
+        // asked of that computer.
+        ...(p.skew?.app === 'older'
+          ? [
+              {
+                id: 'app',
+                area: 'app',
+                title: 'Mother Claude',
+                state: 'warning' as const,
+                detail: `Mother Claude ${p.versions?.app ?? ''} is older than ${this.selfName}'s 0.11.0: update it here.`,
+                why: 'Every computer needs a version that speaks the same Machines protocol.',
+                severity: 'recommended' as const,
+                fix: { kind: 'auto' as const, label: 'Update Mother Claude' },
+              },
+            ]
+          : []),
         {
           id: 'firewall',
           area: 'network',
@@ -927,7 +975,7 @@ export class MockMachines {
         name: this.selfName,
         os: 'macos',
         osVersion: 'macOS 27.2',
-        versions: { app: '0.11.0', protocol: 1, claude: '2.1.322' },
+        versions: { app: '0.11.0', protocol: 1, claude: '2.1.330' },
         key: '3F9A C1D2 77E0 9B41',
       },
       peers: this.peers,
