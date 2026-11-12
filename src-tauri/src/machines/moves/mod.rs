@@ -509,7 +509,15 @@ pub struct Moves {
     resumes_live: AtomicBool,
     resumes: Mutex<Vec<Value>>,
     git: Mutex<Option<GitRunner>>,
+    /// Tests: a bundle larger than this goes through the remote instead
+    /// ([`BUNDLE_LIMIT`] otherwise).
+    bundle_limit: Mutex<Option<u64>>,
 }
+
+/// Machine to machine, a move whose bundle would be larger than this goes
+/// through the remote instead when both computers reach it without a
+/// prompt (plan §5.10: 1 GB).
+pub const BUNDLE_LIMIT: u64 = 1_000_000_000;
 
 impl std::fmt::Debug for Moves {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -587,6 +595,15 @@ impl Moves {
     /// The git moves run.
     pub(crate) fn git(&self) -> GitRunner {
         lock(&self.git).clone().unwrap_or_default()
+    }
+
+    /// The bundle size over which a move goes through the remote.
+    pub(crate) fn bundle_limit(&self) -> u64 {
+        lock(&self.bundle_limit).unwrap_or(BUNDLE_LIMIT)
+    }
+
+    pub(crate) fn set_bundle_limit(&self, limit: Option<u64>) {
+        *lock(&self.bundle_limit) = limit;
     }
 
     pub(crate) fn fail_at(&self, step: Option<&str>) {

@@ -571,7 +571,13 @@ machines; a project may override it (*Project settings → Machines*); the move
 dialog shows the choice in force and lets you change it for that move. The
 same holds for where the code lands, below. A move falls back on its own only
 from *machine to machine* to *through your remote* when the bundle would be
-larger than 1 GB and the remote is reachable — and says so.
+larger than 1 GB and the remote is reachable — and says so. *Built
+2026-11-13*: the bundle is made, and when it is over the limit
+(`moves::BUNDLE_LIMIT`, injected in tests) and the remote answers without a
+prompt here and there (the setup's check here; the target's preflight asked
+again with `mode: remote`), the snapshot is made again through the remote,
+the bundle's refs dropped (`code::drop_snapshot`), and the record says so
+(warning `code_through_remote`); otherwise the bundle goes as it is.
 
 **Applying on the target** (default: the checkout when it is clean; or always
 a worktree), one of:

@@ -1630,7 +1630,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Code travels',
-            text: '**Machine to machine** (the default: straight between the two, nothing pushed anywhere), **Through your git remote** (hidden refs on your remote, removed afterwards unless kept) or **Only the conversation**. Through the remote, it must answer on both computers without a password prompt: that is checked before the move.',
+            text: '**Machine to machine** (the default: straight between the two, nothing pushed anywhere), **Through your git remote** (hidden refs on your remote, removed afterwards unless kept) or **Only the conversation**. Through the remote, it must answer on both computers without a password prompt: that is checked before the move. Machine to machine, code of more than 1 GB goes through your remote on its own when it answers on both computers, and the move says so.',
           },
           {
             term: 'Code lands',

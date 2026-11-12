@@ -1755,3 +1755,73 @@ async fn a_branch_that_went_on_there_is_replaced_only_when_asked_and_undo_puts_i
     assert_eq!(read(&w.repos.t, "t-only.txt"), "made on T\n");
     assert_eq!(git(&w.repos.t, &["status", "--porcelain"]), "");
 }
+
+/// Machine to machine, a bundle over the limit (a tiny one here) goes
+/// through the remote on its own when both computers reach it without a
+/// prompt (plan §5.10), and the record says so; the hidden refs are not
+/// kept on the remote.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_bundle_over_the_limit_goes_through_the_remote_and_says_so() {
+    let w = world().await;
+    dirty(&w.repos.s);
+    w.s.st.machines.set_bundle_limit(Some(1));
+    let rec = move_session(&w.s, to_t(&w, json!({}))).await;
+    assert_eq!(rec["state"], "resumed", "{rec:#}");
+    assert_eq!(rec["code"]["mode"], "remote", "{rec:#}");
+    assert_eq!(rec["code"]["remote"], "origin");
+    let said = rec["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["code"] == "code_through_remote")
+        .unwrap_or_else(|| panic!("the record says so: {rec:#}"))
+        .clone();
+    assert!(
+        said["message"].as_str().unwrap().starts_with(
+            "The code went through your remote origin: machine to machine it would have been"
+        ),
+        "{said}"
+    );
+    assert!(
+        !rec["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["name"] == "move.bundle"),
+        "no bundle travelled: {rec:#}"
+    );
+    for f in ["a.txt", "b.txt", "notes/new.md"] {
+        assert_eq!(read(&w.repos.t, f), read(&w.repos.s, f), "{f}");
+    }
+    assert_eq!(staged(&w.repos.t), "a.txt");
+    let left = git(&w.repos.s, &["ls-remote", "origin", "refs/mother-claude/*"]);
+    assert!(left.is_empty(), "hidden refs left on the remote: {left}");
+    // Only the snapshot that travelled is kept here (the bundle's went).
+    let kept = git(
+        &w.repos.s,
+        &["for-each-ref", &format!("refs/mother-claude/moves/{SID}/")],
+    );
+    assert_eq!(kept.lines().count(), 2, "{kept}");
+}
+
+/// A bundle over the limit stays a bundle when the remote can't be reached
+/// without a prompt: nothing to say, nothing pushed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_bundle_over_the_limit_stays_one_when_the_remote_does_not_answer() {
+    let w = world().await;
+    dirty(&w.repos.s);
+    // The remote is away (the same URL on both, nothing answers there).
+    let root = w.repos.s.parent().unwrap();
+    std::fs::rename(root.join("origin.git"), root.join("away.git")).unwrap();
+    w.s.st.machines.set_bundle_limit(Some(1));
+    let rec = move_session(&w.s, to_t(&w, json!({}))).await;
+    assert_eq!(rec["state"], "resumed", "{rec:#}");
+    assert_eq!(rec["code"]["mode"], "bundle", "{rec:#}");
+    assert!(!codes(&rec["warnings"]).contains(&"code_through_remote".to_string()));
+    assert!(rec["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["name"] == "move.bundle"));
+    assert_eq!(read(&w.repos.t, "b.txt"), "bravo, not staged\n");
+}

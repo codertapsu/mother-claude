@@ -249,7 +249,10 @@ written anywhere until you press **Continue on DESKTOP-PC**:
   the two, nothing pushed anywhere), *Through your git remote* (hidden refs
   on your remote, removed afterwards: the remote must answer without a
   password prompt on both computers, checked before anything moves), or
-  *Only the conversation*.
+  *Only the conversation*. Machine to machine, code that would be more than
+  1 GB goes through your remote on its own when it answers without a prompt
+  on both computers (a large first move over a slow link) — and the move
+  says so under its steps; otherwise it goes as it is.
 - **Code lands** — *In the project folder* (the default, when it has no
   changes of its own there) or *In a separate folder (worktree)*: a worktree
   of the project in Mother Claude's data folder there

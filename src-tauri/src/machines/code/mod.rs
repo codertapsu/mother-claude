@@ -56,7 +56,7 @@ pub use git::{Git, GitOp, GitOutput, GitRunner};
 pub use preflight::{
     branch_relation, checkout_state, target_check, BranchRelation, CheckoutState, TargetCheck,
 };
-pub use snapshot::{haves, snapshot};
+pub use snapshot::{drop_snapshot, haves, snapshot};
 pub use sync::{
     changes, keep_and_put_back, kept_prefix, known_commits, limits_only, prune_snapshots,
     read_state, root_commits, tip_of, Changes, Checkout, Kept, PutBack, PutBackError,

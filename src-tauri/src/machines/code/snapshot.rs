@@ -19,6 +19,32 @@ use super::types::{
     META,
 };
 
+/// Deletes the refs of `session`'s snapshot `epoch` in the repository at
+/// `repo` (`refs/mother-claude/moves/<session>/<epoch>/{snap,index}`): one
+/// made for a move that then sent another instead (a bundle over the limit
+/// going through the remote). Its commits go with the next gc.
+pub fn drop_snapshot(
+    git: &GitRunner,
+    repo: &Path,
+    session: &str,
+    epoch: &str,
+) -> Result<(), CodeError> {
+    if !valid_session(session) || epoch.is_empty() || !epoch.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(CodeError::Invalid {
+            what: "snapshot",
+            value: format!("{session}/{epoch}"),
+        });
+    }
+    let op = git.begin()?;
+    let info = repo_info(&op, repo)?;
+    let refs = MoveRefs::for_move(session, epoch);
+    op.cmd(&info.top)
+        .args(["update-ref", "--stdin"])
+        .input(format!("delete {}\ndelete {}\n", refs.snap, refs.index))
+        .raw()?;
+    Ok(())
+}
+
 /// The target's side of the preflight: the commits it has (HEAD, then
 /// `session`'s earlier snapshots so chaining works (F6), branches, remote
 /// branches, other moves, tags), at most [`MAX_HAVES`].

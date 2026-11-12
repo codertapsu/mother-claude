@@ -364,6 +364,8 @@ struct Checked {
     /// The tip of the branch there this move replaces (*Replace the branch
     /// there*, the branch having gone on there).
     replaces: Option<String>,
+    /// What the target was asked.
+    ask: wire::Ask,
 }
 
 /// `POST /api/sessions/{id}/move/preflight`: nothing is written anywhere.
@@ -787,6 +789,7 @@ async fn check(
         home_branch,
         ignored: if carrying { found } else { Vec::new() },
         replaces,
+        ask,
     })
 }
 
@@ -1097,6 +1100,8 @@ pub async fn start(
         folder: checked.plan.folder.clone(),
         top: checked.code.as_ref().map(|c| c.state.top.clone()),
         ignored: checked.ignored.clone(),
+        ask: checked.ask.clone(),
+        remote: checked.plan.remote.clone(),
     };
     let st = state.clone();
     tokio::spawn(async move {
@@ -1115,6 +1120,11 @@ struct Prepared {
     top: Option<PathBuf>,
     /// The files git ignores that travel.
     ignored: Vec<ignored::Found>,
+    /// What the preflight asked the target (asked again, through the
+    /// remote, before a bundle over the limit goes that way instead).
+    ask: wire::Ask,
+    /// The remote the code would go through (`origin` unless named).
+    remote: String,
 }
 
 /// Why a move stopped before it landed.
@@ -1184,7 +1194,7 @@ async fn drive(state: &AppState, id: &str, active: &Active, prep: &Prepared) -> 
     cancelled(active)?;
     reach(state, id, MoveState::Packaging);
     injected(state, "package")?;
-    package(state, id, prep).await?;
+    package(state, id, prep, &active.acting).await?;
     cancelled(active)?;
     reach(state, id, MoveState::Sending);
     send(state, id, active, prep).await?;
@@ -1344,10 +1354,47 @@ async fn pack_conversation(
     })
 }
 
+/// Whether a move's code may go through the remote instead of a bundle
+/// (plan §5.10): the repository here has the remote and it answers here
+/// without a prompt, and the target — asked its preflight again, through
+/// the remote — has it too and it answers there. The remote's name.
+async fn remote_answers(
+    state: &AppState,
+    rec: &MoveRecord,
+    prep: &Prepared,
+    acting: &str,
+) -> Option<String> {
+    let remote = prep.remote.clone();
+    let top = prep.top.clone()?;
+    let here = crate::machines::setup::folders::remote_named_answers_async(
+        state.machines.moves.git(),
+        top,
+        remote.clone(),
+    )
+    .await;
+    if here.state != "ok" {
+        return None;
+    }
+    let mut ask = prep.ask.clone();
+    let c = ask.code.as_mut()?;
+    c.mode = "remote".into();
+    c.remote = Some(remote.clone());
+    let answer = ask_target(state, &rec.to.id, &ask, acting).await.ok()?;
+    let there = answer
+        .code
+        .as_ref()
+        .is_some_and(|t| t.repo && t.remotes.contains(&remote))
+        && !answer
+            .blockers
+            .iter()
+            .any(|b| b.code.starts_with("remote_"));
+    there.then_some(remote)
+}
+
 /// The conversation (`session.tar.gz`, or the list of its files when the
 /// target lands from its copy) and the code (a snapshot: its `meta.json`, a
 /// bundle, Git LFS objects) in the move's folder.
-async fn package(state: &AppState, id: &str, prep: &Prepared) -> Result<(), Fail> {
+async fn package(state: &AppState, id: &str, prep: &Prepared, acting: &str) -> Result<(), Fail> {
     let rec =
         load(state, id).ok_or_else(|| Fail::new("move_lost", "The move's record is gone."))?;
     let dir = move_folder(state, id)
@@ -1400,15 +1447,65 @@ async fn package(state: &AppState, id: &str, prep: &Prepared) -> Result<(), Fail
         req.haves = prep.haves.clone();
         req.branch = c.branch.clone().filter(|b| code::valid_branch(b));
         let cwd = PathBuf::from(&rec.source_cwd);
-        let meta = tokio::task::spawn_blocking(move || code::snapshot(&git, &cwd, &req))
-            .await
-            .map_err(|e| Fail::new("code_snapshot", e.to_string()))?
-            .map_err(|e| {
-                Fail::new(
-                    "code_snapshot",
-                    format!("The code could not be packed: {e}"),
-                )
-            })?;
+        let snapshot = |req: code::SnapshotRequest| {
+            let (git, cwd) = (git.clone(), cwd.clone());
+            async move {
+                tokio::task::spawn_blocking(move || code::snapshot(&git, &cwd, &req))
+                    .await
+                    .map_err(|e| Fail::new("code_snapshot", e.to_string()))?
+                    .map_err(|e| {
+                        Fail::new(
+                            "code_snapshot",
+                            format!("The code could not be packed: {e}"),
+                        )
+                    })
+            }
+        };
+        let fallback = req.clone();
+        let mut meta = snapshot(req).await?;
+        // Machine to machine, a bundle over the limit goes through the
+        // remote instead when both computers reach it without a prompt
+        // (plan §5.10) — and the record says so.
+        let limit = state.machines.moves.bundle_limit();
+        if let Some(size) = meta.bundle.as_ref().map(|b| b.size).filter(|s| *s > limit) {
+            if let Some(remote) = remote_answers(state, &rec, prep, acting).await {
+                let _ = std::fs::remove_file(dir.join("code").join(code::BUNDLE));
+                let mut again = fallback;
+                again.epoch = again.epoch.saturating_add(1);
+                again.transfer = code::Transfer::Remote {
+                    remote: remote.clone(),
+                    push_branch: false,
+                };
+                again.haves = Vec::new();
+                let first = meta.epoch.clone();
+                meta = snapshot(again).await?;
+                // The bundle's snapshot never travels: its refs go.
+                let (g, top, session) =
+                    (state.machines.moves.git(), cwd.clone(), rec.session.clone());
+                let _ = tokio::task::spawn_blocking(move || {
+                    code::drop_snapshot(&g, &top, &session, &first)
+                })
+                .await;
+                c.mode = "remote".into();
+                c.remote = Some(remote.clone());
+                let note = Check::new(
+                    "code_through_remote",
+                    format!(
+                        "The code went through your remote {remote}: machine to machine it would \
+                         have been {} (over {}).",
+                        crate::machines::copies::target::human(size),
+                        crate::machines::copies::target::human(limit)
+                    ),
+                );
+                update(state, id, |r| r.warnings.push(note.clone()));
+                super::audit(
+                    state,
+                    "machine.move.through_remote",
+                    &rec,
+                    json!({ "bundleBytes": size, "remote": remote }),
+                );
+            }
+        }
         c.branch = meta.branch.clone();
         c.base = meta.base.clone();
         c.snapshot = Some(meta.snap.clone());

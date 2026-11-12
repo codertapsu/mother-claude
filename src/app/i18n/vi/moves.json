@@ -300,5 +300,8 @@
   "Replace the branch on {name} with {source}'s": "Thay nhánh trên {name} bằng nhánh của {source}",
   "Replace {branch} on {name} with this {computer}'s": "Thay {branch} trên {name} bằng nhánh của {computer} này",
   "Replace the branch on {name} with this {computer}'s": "Thay nhánh trên {name} bằng nhánh của {computer} này",
-  "Its commits there are kept: Undo move puts them back.": "Các commit của nó ở đó được giữ lại: Hoàn tác việc chuyển sẽ đưa chúng trở lại."
+  "Its commits there are kept: Undo move puts them back.": "Các commit của nó ở đó được giữ lại: Hoàn tác việc chuyển sẽ đưa chúng trở lại.",
+
+  "The code went through your remote {remote}: machine to machine it would have been {size} (over {limit}).": "Mã nguồn đã đi qua remote {remote} của bạn: nếu gửi trực tiếp giữa hai máy thì sẽ là {size} (vượt quá {limit}).",
+  "Packed — conversation {conversation}, code through your remote {remote}": "Đã đóng gói — cuộc trò chuyện {conversation}, mã nguồn qua remote {remote} của bạn"
 }

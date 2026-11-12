@@ -522,7 +522,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Cách chuyển mã nguồn',
-            text: '**Trực tiếp giữa các máy** (mặc định: thẳng giữa hai máy, không đẩy lên đâu cả), **Qua remote git của bạn** (ref ẩn trên remote của bạn, bị xoá sau đó trừ khi được giữ lại) hoặc **Chỉ cuộc trò chuyện**. Qua remote, remote phải phản hồi trên cả hai máy mà không yêu cầu mật khẩu: việc này được kiểm tra trước khi chuyển.',
+            text: '**Trực tiếp giữa các máy** (mặc định: thẳng giữa hai máy, không đẩy lên đâu cả), **Qua remote git của bạn** (ref ẩn trên remote của bạn, bị xoá sau đó trừ khi được giữ lại) hoặc **Chỉ cuộc trò chuyện**. Qua remote, remote phải phản hồi trên cả hai máy mà không yêu cầu mật khẩu: việc này được kiểm tra trước khi chuyển. Khi gửi trực tiếp giữa các máy, mã nguồn lớn hơn 1 GB sẽ tự đi qua remote của bạn nếu remote phản hồi trên cả hai máy, và việc chuyển sẽ báo điều đó.',
           },
           {
             term: 'Nơi đặt mã nguồn',

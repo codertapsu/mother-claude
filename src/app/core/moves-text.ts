@@ -104,6 +104,15 @@ const RULES: readonly Rule[] = [
     /^(.+)'s Mother Claude can't take files git ignores yet\.$/,
     (m) => tr("{name}'s Mother Claude can't take files git ignores yet.", { name: m[1] }),
   ],
+  // ── A bundle over the limit, through the remote (source.rs) ──
+  [
+    /^The code went through your remote (.+): machine to machine it would have been (.+) \(over (.+)\)\.$/,
+    (m) =>
+      tr(
+        'The code went through your remote {remote}: machine to machine it would have been {size} (over {limit}).',
+        { remote: m[1], size: m[2], limit: m[3] },
+      ),
+  ],
   // ── Replacing the branch there (source.rs, target.rs) ──
   [
     /^(.+)'s Mother Claude can't replace a branch yet\.$/,
@@ -1145,14 +1154,19 @@ export function progressLines(
               })
             : tr('Packed — the conversation is the copy {name} keeps', { name: to })
           : status(2) === 'done'
-            ? sizes.code > 0
-              ? tr('Packed — conversation {conversation}, code {code}', {
+            ? m.code?.mode === 'remote'
+              ? tr('Packed — conversation {conversation}, code through your remote {remote}', {
                   conversation: formatBytes(sizes.conversation),
-                  code: formatBytes(sizes.code),
+                  remote: m.code.remote || 'origin',
                 })
-              : tr('Packed — conversation {conversation}', {
-                  conversation: formatBytes(sizes.conversation),
-                })
+              : sizes.code > 0
+                ? tr('Packed — conversation {conversation}, code {code}', {
+                    conversation: formatBytes(sizes.conversation),
+                    code: formatBytes(sizes.code),
+                  })
+                : tr('Packed — conversation {conversation}', {
+                    conversation: formatBytes(sizes.conversation),
+                  })
             : tr('Packing it'),
       state: status(2),
       at: reachedAt(m, 'packaging'),

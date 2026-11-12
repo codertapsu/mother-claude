@@ -472,6 +472,13 @@ impl MachinesState {
         self.moves.fail_at(step);
     }
 
+    /// Tests: the bundle size over which a move goes through the remote
+    /// instead (`None`: the real 1 GB).
+    #[doc(hidden)]
+    pub fn set_bundle_limit(&self, bytes: Option<u64>) {
+        self.moves.set_bundle_limit(bytes);
+    }
+
     /// The app turns this on: code sync watches its projects and checks
     /// them every minute; until then (tests) a step runs only when asked.
     pub fn enable_sync_watch(&self) {

@@ -94,6 +94,24 @@ describe('moves: the records', () => {
     expect(progressLines(waiting).at(-1)?.state).toBe('failed');
     expect(progressLines(movedTo('undone')).every((l) => l.state === 'done')).toBe(true);
   });
+
+  it('says when the code went through the remote instead of a bundle over the limit', () => {
+    const m = movedTo('resumed', {
+      code: { ...moveRecord().code!, mode: 'remote', remote: 'origin' },
+      warnings: [
+        moveCheck(
+          'code_through_remote',
+          'The code went through your remote origin: machine to machine it would have been 1.4 GB (over 1.0 GB).',
+        ),
+      ],
+    });
+    expect(progressLines(m)[2].label).toBe(
+      'Packed — conversation 18 MB, code through your remote origin',
+    );
+    expect(moveWarnings(m)).toEqual([
+      'The code went through your remote origin: machine to machine it would have been 1.4 GB (over 1.0 GB).',
+    ]);
+  });
 });
 
 describe('moves: the words', () => {
