@@ -210,9 +210,27 @@ mod platform {
         s.encode_utf16().chain(Some(0)).collect()
     }
 
-    /// A value under `HKCU\<key>`: its bytes, `None` when absent.
-    fn read(key: &str, flags: REG_ROUTINE_FLAGS) -> Result<Option<Vec<u8>>, String> {
-        let (k, n) = (wide(key), wide(ENTRY_NAME));
+    /// A `REG_SZ` value's bytes: UTF-16LE, NUL-terminated.
+    pub(super) fn sz(text: &str) -> Vec<u8> {
+        wide(text).into_iter().flat_map(u16::to_le_bytes).collect()
+    }
+
+    /// Removes `HKCU\<key>` once it holds no other key (tests' scratch keys).
+    #[cfg(test)]
+    pub(super) fn delete_key(key: &str) {
+        use windows_sys::Win32::System::Registry::RegDeleteKeyW;
+        let k = wide(key);
+        // SAFETY: the string is NUL-terminated and outlives the call.
+        unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, k.as_ptr()) };
+    }
+
+    /// Value `name` under `HKCU\<key>`: its bytes, `None` when absent.
+    pub(super) fn read(
+        key: &str,
+        name: &str,
+        flags: REG_ROUTINE_FLAGS,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let (k, n) = (wide(key), wide(name));
         let mut size: u32 = 0;
         // SAFETY: both strings are NUL-terminated and outlive the call; a
         // null buffer asks for the size only.
@@ -256,8 +274,9 @@ mod platform {
         Ok(Some(buf))
     }
 
-    fn write(key: &str, kind: u32, data: &[u8]) -> Result<(), String> {
-        let (k, n) = (wide(key), wide(ENTRY_NAME));
+    /// Sets value `name` under `HKCU\<key>` (the key made if needed).
+    pub(super) fn write(key: &str, name: &str, kind: u32, data: &[u8]) -> Result<(), String> {
+        let (k, n) = (wide(key), wide(name));
         // SAFETY: the strings are NUL-terminated, `data` holds `len` bytes.
         let rc = unsafe {
             RegSetKeyValueW(
@@ -276,8 +295,9 @@ mod platform {
         }
     }
 
-    fn delete(key: &str) -> Result<(), String> {
-        let (k, n) = (wide(key), wide(ENTRY_NAME));
+    /// Removes value `name` under `HKCU\<key>` (none there is no error).
+    pub(super) fn delete(key: &str, name: &str) -> Result<(), String> {
+        let (k, n) = (wide(key), wide(name));
         // SAFETY: both strings are NUL-terminated and outlive the call.
         let rc = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, k.as_ptr(), n.as_ptr()) };
         if rc == ERROR_SUCCESS || rc == ERROR_FILE_NOT_FOUND {
@@ -288,10 +308,10 @@ mod platform {
     }
 
     pub fn status() -> Status {
-        let on = matches!(read(RUN_KEY, RRF_RT_REG_SZ), Ok(Some(_)));
+        let on = matches!(read(RUN_KEY, ENTRY_NAME, RRF_RT_REG_SZ), Ok(Some(_)));
         let overridden = on
             && matches!(
-                read(APPROVED_KEY, RRF_RT_REG_BINARY),
+                read(APPROVED_KEY, ENTRY_NAME, RRF_RT_REG_BINARY),
                 Ok(Some(b)) if super::approved_disabled(&b)
             );
         Status {
@@ -303,22 +323,26 @@ mod platform {
 
     pub fn set(on: bool) -> Result<(), String> {
         if !on {
-            delete(RUN_KEY)?;
-            return delete(APPROVED_KEY);
+            delete(RUN_KEY, ENTRY_NAME)?;
+            return delete(APPROVED_KEY, ENTRY_NAME);
         }
         let exe = std::env::current_exe()
             .map_err(|e| format!("Mother Claude's own program could not be found: {e}"))?;
-        let value: Vec<u8> = super::windows_run_value(&exe)
-            .encode_utf16()
-            .chain(Some(0))
-            .flat_map(u16::to_le_bytes)
-            .collect();
-        write(RUN_KEY, REG_SZ, &value)?;
+        write(
+            RUN_KEY,
+            ENTRY_NAME,
+            REG_SZ,
+            &sz(&super::windows_run_value(&exe)),
+        )?;
         // Switched off in Task Manager before: you asked for it here, so it
         // is switched on there too.
-        if matches!(read(APPROVED_KEY, RRF_RT_REG_BINARY), Ok(Some(_))) {
+        if matches!(
+            read(APPROVED_KEY, ENTRY_NAME, RRF_RT_REG_BINARY),
+            Ok(Some(_))
+        ) {
             write(
                 APPROVED_KEY,
+                ENTRY_NAME,
                 REG_BINARY,
                 &[2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             )?;
@@ -486,5 +510,61 @@ mod tests {
             !plist.contains("KeepAlive"),
             "started once, never restarted"
         );
+    }
+}
+
+/// The registry calls behind the Windows login item, against a scratch key
+/// under `HKCU\Software\MotherClaudeTests` — never the `Run` key, which no
+/// test touches.
+#[cfg(all(test, windows))]
+mod windows_registry {
+    use windows_sys::Win32::System::Registry::{
+        REG_BINARY, REG_SZ, RRF_RT_REG_BINARY, RRF_RT_REG_SZ,
+    };
+
+    use super::platform::{delete, delete_key, read, sz, write};
+
+    #[test]
+    fn a_value_is_written_read_back_and_removed_under_a_scratch_key() {
+        let parent = r"Software\MotherClaudeTests";
+        let key = format!(r"{parent}\autostart-{}", uuid::Uuid::new_v4().simple());
+        let name = super::ENTRY_NAME;
+        assert_eq!(read(&key, name, RRF_RT_REG_SZ), Ok(None), "nothing yet");
+
+        // The `Run` value as the switch writes it, read back the same.
+        let value = super::windows_run_value(std::path::Path::new(
+            r"C:\Users\me\AppData\Local\Mother Claude\mother-claude.exe",
+        ));
+        write(&key, name, REG_SZ, &sz(&value)).unwrap();
+        let back = read(&key, name, RRF_RT_REG_SZ).unwrap().unwrap();
+        let units: Vec<u16> = back
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| u16::from_le_bytes(*b))
+            .collect();
+        assert_eq!(
+            String::from_utf16_lossy(&units).trim_end_matches('\0'),
+            value
+        );
+
+        // Task Manager's bytes, switched off.
+        write(
+            &key,
+            "approved",
+            REG_BINARY,
+            &[3, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8],
+        )
+        .unwrap();
+        let bytes = read(&key, "approved", RRF_RT_REG_BINARY).unwrap().unwrap();
+        assert!(super::approved_disabled(&bytes));
+
+        // Removing it twice is no error; then it is gone.
+        delete(&key, name).unwrap();
+        delete(&key, name).unwrap();
+        assert_eq!(read(&key, name, RRF_RT_REG_SZ), Ok(None));
+        delete(&key, "approved").unwrap();
+        delete_key(&key);
+        delete_key(parent);
     }
 }
