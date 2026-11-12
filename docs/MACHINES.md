@@ -4,16 +4,18 @@ Pair your computers once, then see and drive every computer's Claude Code
 sessions from any of them — and from a phone paired with any of them —
 move a session, with its code, to another computer and back, keep a
 project's code the same on two computers, let a session build and test on
-another computer, and hand a task to a session there. The design and the
-plan for what comes next (copies kept up to date, a team's role on another
-computer) are in [PLAN-MACHINES.md](PLAN-MACHINES.md).
+another computer, hand a task to a session there, and run a team's role
+there. The design and the plan for what comes next (copies kept up to
+date) are in [PLAN-MACHINES.md](PLAN-MACHINES.md).
 
 > **Status**: Phases 1 (pairing and setup), 2 (seeing and driving other
-> computers' sessions) and 3a (moving a session, with the setup's checks for
-> it) are built, and so are code sync (a project's code kept the same on two
-> computers) and Phase 4's first two parts: a session running commands on
-> another computer, and handing a task to a session there. A team's role on
-> another computer and keeping a copy there come next.
+> computers' sessions), 3a (moving a session, with the setup's checks for
+> it) and 4 (running commands on another computer, handing it a task, a
+> team's role there) are built, and so are code sync (a project's code kept
+> the same on two computers) and Phase 5: three computers and more
+> (introductions, *Revoke everywhere*), each computer's versions, and
+> starting at sign-in in the tray. Keeping a copy of a session on another
+> computer (Phase 3b) comes next.
 
 ## Turning it on
 
@@ -55,8 +57,9 @@ The seven steps:
 
 | Check | Why | Fix |
 |---|---|---|
-| Mother Claude | every computer must speak the same Machines protocol | update it there |
+| Mother Claude | every computer must speak the same Machines protocol; recommended: not older than another computer's ([Versions](#versions)) | update it there / *Update Mother Claude* (the *Software updates* page) |
 | Stays awake while used | a computer asleep cannot answer | *Keep awake while used*: the app holds a power assertion while another computer is connected — no system setting changes |
+| Starts when you sign in | after a restart, the others reach this computer only once Mother Claude runs again (recommended) | *Turn on* ([Starting at sign-in](#starting-at-sign-in-in-the-tray)) |
 | **macOS:** Local Network access | without it macOS refuses Mother Claude your local network, and the Mac reaches the others only through the relay, even at home | allow it when macOS asks, or *System Settings › Privacy & Security › Local Network* |
 | **macOS:** the firewall | if it blocks Mother Claude, the others reach this Mac only through the relay | *System Settings › Network › Firewall* |
 | **Windows:** the network type | on a *Public* network Windows blocks incoming connections | set your home or office network to *Private* |
@@ -166,7 +169,9 @@ that computer again.
 
 Each is set separately for the **same network** (a direct path on your
 local network) and the **internet** (everything else). Change them on the
-Machines page; *Revoke* forgets a computer and cuts its connections at once.
+Machines page; *Revoke* forgets a computer and cuts its connections at once
+— on this computer; *Revoke everywhere* does it on all of them
+([below](#revoke-everywhere)).
 
 ## Seeing and driving another computer
 
@@ -918,6 +923,108 @@ session sits idle.
 Both computers audit starts, stops, results and board calls with the team,
 the role and the computer — never a task's text.
 
+## Three computers or more
+
+Trust is **pairwise**: each pair of your computers is paired on its own,
+with its own six digits and its own permissions each way. Nothing is
+trusted transitively — being paired with the Mac gives a computer nothing
+on the computers the Mac is paired with.
+
+### Introductions
+
+Pairing a third computer with all the others would mean a code and six
+digits per pair. An **introduction** spares the codes, never the digits:
+
+1. Pair the new computer (C) with one of yours (A), by code.
+2. A offers **Also pair C with B?** for each of your other computers that
+   isn't paired with C — right after pairing (in the pair and join sheets),
+   in the setup's *Your machines* step, and on the Machines page (*Pair
+   your computers with each other*). A knows whom each is paired with
+   because each computer's hello lists the ids of the computers it is paired
+   with (ids only), to a computer it lets see its sessions.
+3. **Introduce them** tells B who C is and C who B is — their names, ids,
+   public keys (their endpoint ids) and last addresses, over A's own
+   end-to-end encrypted links to each. Never a secret, never a permission.
+   Nothing is paired yet.
+4. B and C each show the introduction: a notice, and the *Introductions*
+   card on the Machines page (*A introduces C: pair this computer with
+   it?*). **Pair with C…** on each starts this side of the pairing; **Not
+   now** declines it there and tells the other, and nothing is paired.
+5. C dials B **by the key A named** (the connection proves it), and the two
+   run the normal pairing exchange directly: the commit-then-reveal over
+   both keys, so both screens show the **same six digits**; when C came
+   over the internet, B asks you to type the digits C shows. Each desktop
+   chooses what the other may do on it and confirms — only then does each
+   store the other.
+
+B admits C's key, for this introduction only, while it is open (ten
+minutes): to the pairing routes, nothing else — a computer that comes for
+it with any other key is refused (an unknown key at the door, another paired
+computer at the join), and one that names an introduction B never got is
+told it is gone. An introduction from a
+computer that isn't paired never arrives; one naming the computer it is
+sent to, or its own sender, is refused. A computer too old to be introduced
+says so ("Update Mother Claude on … first").
+
+### Revoke everywhere
+
+For a lost or stolen computer: on **any** of your computers, its card's
+**Revoke everywhere** (two taps). That computer is revoked there at once —
+its key forgotten, its connections cut — and every other paired computer
+is asked to do the same. Each applies it at once (it only ever removes
+trust), audits it, and shows a notice: *MacBook revoked Lost laptop on all
+your computers.*
+
+A computer that is off or away takes it when it is next heard (its hello,
+either way): the request is kept in `machines.json` until every computer
+took it, and *Revoked everywhere* on the Machines page says which ones still
+have to — offline, or too old to take it until it updates. The request names
+a third computer only: never the computer asked, nor the one asking, and it
+never adds anything — a computer the asked one doesn't know stays unknown.
+
+### Versions
+
+Each computer's card shows its system, Mother Claude, Machines protocol and
+Claude Code versions. When they differ:
+
+- **Another Machines protocol** — required: the two don't work together
+  until one updates (the setup's check, and *Older than this computer's* on
+  the card).
+- **An older Mother Claude** — recommended: the card says so with **Ask
+  DESKTOP-PC to update**, which shows that computer's *Software updates*
+  page once someone there confirms it (an asked action: nothing installs on
+  its own). When this computer is the older one, **Update it** opens
+  *Software updates* here, and the setup's *Mother Claude* check says the
+  same.
+- **What it can't do until it updates** — the capabilities its hello lacks,
+  named: *DESKTOP-PC can't take tasks and keep code in sync until it
+  updates.* A feature is used only when both computers list it.
+- **An older Claude Code** — recommended (a move to it already warns):
+  **Ask DESKTOP-PC to update** asks it to run `claude update` there; here,
+  **Update it** runs it.
+
+## Starting at sign-in, in the tray
+
+A computer nobody opens Mother Claude on after a restart — a build box, a
+desktop at home — can start it by itself: **Settings › Startup › Start
+Mother Claude when you sign in, in the tray** (the desktop app; off by
+default). At the next sign-in Mother Claude starts with **no window**, only
+its icon in the tray (the menu bar on a Mac), and serves your phone and
+your other computers as usual. *Open Mother Claude* in the icon's menu (on
+Windows, a click on the icon) shows the window; closing the window hides it
+again; *Quit Mother Claude* ends it.
+
+The switch writes the system's own login item and reads it back: on
+Windows the per-user `Run` key (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
+value `Mother Claude`: the app, quoted, with `--tray`) — when *Task Manager ›
+Startup apps* switched it off, *Settings* says so and switching it on here
+starts it again; on a Mac a LaunchAgent,
+`~/Library/LaunchAgents/dev.motherclaude.desktop.plist`, that starts the app
+with `--tray` (macOS lists it under *Login Items › Allow in the
+Background*). Nothing is written but on your switch, or the setup's
+*Starts when you sign in* check's *Turn on* — here, or asked from another
+computer and confirmed here. Only the desktop can change it.
+
 ## How it connects
 
 Your computers talk over QUIC between their keys, end to end encrypted:
@@ -938,6 +1045,17 @@ connection.
 
 ## Troubleshooting
 
+- **"… has not accepted the introduction yet."** The introduced computer
+  waits (*Waiting for … to accept the introduction there*): press **Pair
+  with …** in the *Introductions* card on the other one, within ten minutes.
+- **"Update Mother Claude on … first: it can't be introduced yet."** Its
+  Mother Claude is older: update it there (**Ask … to update**), or pair the
+  two by code.
+- **"Revoked here; still to be told: …"** Those computers were off or away:
+  each revokes it when it is next connected. *(once it updates)*: its
+  Mother Claude is too old to take the request; update it.
+- **"DESKTOP-PC can't … until it updates."** Its Mother Claude is older
+  than this computer's: **Ask DESKTOP-PC to update**.
 - **The other computer is not in *Nearby*.** *Nearby* only shows which
   computer shows a code: you always type the code, and it works across
   networks too. On a Mac, check Local Network access for Mother Claude.

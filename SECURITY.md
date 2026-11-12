@@ -295,9 +295,12 @@ app data dir — never under `~/.claude`) records every state change made by a
 device or local script, every pairing event and every device change, with the
 device, ingress and client address — and every state change another of your
 computers makes, with who acted through it (`machine.action`), its pairings,
-grants, revocations, asks, moves and take-overs, and every run of a command
+grants, revocations (`machine.revoked`, with who asked for one everywhere),
+introductions (`machine.introduce`, `machine.introduced`,
+`machine.intro.*`), asks, moves and take-overs, and every run of a command
 for or by another computer (`machine.run*`: the program's name and the
-command line's SHA-256, never the line).
+command line's SHA-256, never the line). Switching *Start Mother Claude when
+you sign in* is audited too (`app.autostart`).
 
 ## Foreign-session control (the hooks plugin)
 
@@ -508,6 +511,48 @@ computer runs for the others; it does not unpair — revoking does.
   both confirmed, within ten minutes. Pairing, joining, confirming, cancelling
   and _Nearby_ are desktop-only; every pairing, grant change and revocation
   is audited.
+
+### Introductions: never transitive
+
+- Trust is pairwise. Being paired with a computer gives nothing on the
+  computers it is paired with, and no computer can pair two others.
+- **Introducing** (desktop only, `POST /api/machines/introduce`) only tells
+  two paired computers about each other over the introducer's own links
+  (`POST /peer/intro`, its `view` grant on each): each one's name, machine
+  id, public key and last addresses — no secret, no grant. The receiver
+  refuses one naming itself or its sender, keeps it ten minutes (at most four
+  open from one computer), shows a desktop notice, and audits it.
+- Nothing is paired until **each** desktop accepted it and confirmed the six
+  digits: the joiner dials the host by the key named. While the
+  introduction is open, that key may reach the host's pairing routes — the
+  door the key pairing by code passes, nothing else — and only that key can
+  join it (an unknown key is refused at the door, another paired computer
+  at the join). The exchange is the code pairing's commit-then-reveal over
+  both keys and both nonces, the introduction (its id and introducer) taking
+  the code's place in the digits, so a computer in the middle — the
+  introducer included — would make the two screens disagree. Across the
+  internet the host types the digits. A decline on either side tells the
+  other, and nothing is stored; the pairing is audited with its introducer.
+- Each computer's hello tells a computer it lets see its sessions the ids
+  of the computers it is paired with (ids only), so that one can offer to
+  introduce two that aren't.
+
+### Revoke everywhere: it only removes trust
+
+- _Revoke everywhere_ (desktop only, `POST
+  /api/machines/{id}/revoke-everywhere`) revokes the computer here, then asks
+  every other paired computer to (`POST /peer/revoke`, any paired computer).
+  The request is kept in `machines.json` until each took it: an offline one
+  is told on its next hello, either way.
+- A computer asked applies it at once — it only removes trust: the
+  computer's key forgotten, its connections cut, an audit line naming who
+  asked, a desktop notice. It names a third computer only: a request naming
+  the computer asked or the one asking is refused (`422`), one naming a
+  computer it doesn't know changes nothing, and nothing in it can add a
+  computer or a grant.
+- A compromised paired computer can therefore unpair your other computers
+  from each other (a denial of service you undo by pairing again), and
+  nothing more through this route.
 
 ### What a paired computer may do here
 
@@ -922,10 +967,10 @@ runs on the other one as an owned session.
   `run` can start Claude Code sessions here with prompts and charters of its
   choosing (in a mode with approvals, unless it also holds `dangerous`).
   Give `run` only to a computer you would let type into a terminal here.
-- Revoking is per computer: there is no _revoke everywhere_ yet. For a lost
-  or stolen computer, revoke it on each of the others. Its key stays in its
-  own secret store, and what moves left on it (a conversation up to its move,
-  a worktree) stays on its disk.
+- _Revoke everywhere_ reaches the computers that are paired with the one
+  you press it on; a computer paired only with the lost one is not told.
+  The lost computer's key stays in its own secret store, and what moves left
+  on it (a conversation up to its move, a worktree) stays on its disk.
 - The lease binds what Mother Claude launches. A `claude --resume` you start
   by hand on the computer a session left is not stopped; what it adds is kept
   as a conflict copy when the session next moves there.

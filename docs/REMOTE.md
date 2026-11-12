@@ -211,6 +211,30 @@ open connections.
 Every new device and every dangerous action by a device raises a notice on the
 Mac and is written to the audit log (see [SECURITY.md](../SECURITY.md#logs-and-audit)).
 
+### Devices and your other computers
+
+A **device** — a phone, a tablet, a browser — is paired with **one**
+computer, here on the Remote page, and holds a token that computer gave it.
+It is a client: it uses that computer's dashboard, and nothing else uses it.
+
+Your other computers running Mother Claude are not devices but **peers**,
+paired under **Machines** ([MACHINES.md](MACHINES.md)): each pair of
+computers by a code and six digits, and each one is recognised by its own
+key, never a token. Each computer decides what each other may do on it
+(see, drive, move, run, dangerous — on the local network and over the
+internet separately), and they reach each other directly or through a relay,
+with no port opened and no tunnel.
+
+The two meet through the computer the phone is paired with: once Machines
+is on, a phone paired with the Mac sees and drives the Windows desktop's
+sessions too, **through the Mac**. Nothing new is paired for that — the
+Windows desktop does not know the phone; it sees the Mac acting, and says
+who acted through it in its audit log. A dangerous action there needs both
+the phone's dangerous permission on the Mac and the Windows desktop's
+*Dangerous* permission for the Mac. Revoking a device revokes it on its one
+computer; a lost computer is cut from all the others with *Revoke
+everywhere* on the Machines page.
+
 ## Sessions started elsewhere
 
 Mother Claude shows every Claude Code session on the Mac, whatever started it:
