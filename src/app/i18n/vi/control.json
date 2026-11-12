@@ -655,5 +655,12 @@
   "Could not change it: {error}": "Không đổi được: {error}",
   "Could not load Claude Code tools: {error}": "Không tải được công cụ cho Claude Code: {error}",
   "waiting||state": "đang chờ",
-  "Plan||document": "Kế hoạch"
+  "Plan||document": "Kế hoạch",
+  "It runs with no window, so your phone and your other computers reach this {computer} after a restart. Open it from the tray (the menu bar on a Mac).": "Ứng dụng chạy không có cửa sổ, để điện thoại và các máy tính khác của bạn kết nối được với {computer} này sau khi khởi động lại. Mở nó từ khay hệ thống (thanh menu trên máy Mac).",
+  "Mother Claude no longer starts when you sign in.": "Mother Claude không còn khởi động khi bạn đăng nhập.",
+  "Mother Claude starts when you sign in, in the tray.": "Mother Claude khởi động khi bạn đăng nhập, trong khay hệ thống.",
+  "Start Mother Claude when you sign in, in the tray": "Khởi động Mother Claude khi bạn đăng nhập, trong khay hệ thống",
+  "Startup": "Khởi động",
+  "Switched off in the system’s startup apps: switch it on here to start again.": "Đã bị tắt trong danh sách ứng dụng khởi động của hệ thống: hãy bật ở đây để khởi động lại như cũ.",
+  "This time it started at sign-in: closing the window keeps it running in the tray.": "Lần này ứng dụng khởi động lúc đăng nhập: đóng cửa sổ vẫn giữ nó chạy trong khay hệ thống."
 }

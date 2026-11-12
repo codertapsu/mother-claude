@@ -383,7 +383,14 @@
   }
 
   @if (desktopApp()) {
-    <h2>{{ 'Software updates' | t }}</h2>
+    <h2>{{ 'Startup' | t }}</h2>
+    <section class="card">
+      <div class="list">
+        <mc-startup-setting />
+      </div>
+    </section>
+
+    <h2 id="updates">{{ 'Software updates' | t }}</h2>
     <mc-updater />
 
     <h2>{{ 'Permissions' | t }}</h2>

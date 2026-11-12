@@ -27,6 +27,7 @@ import { UpdaterService } from '../../core/updater.service';
 import { IconComponent } from '../../shared/icon.component';
 import { PermissionsListComponent } from '../../shared/permissions-list.component';
 import { UpdaterComponent } from '../../shared/updater.component';
+import { StartupSettingComponent } from './startup-setting.component';
 
 type PrefKey =
   'permission' | 'question' | 'plan' | 'finished' | 'failed' | 'claude' | 'idle' | 'showDetails';
@@ -68,7 +69,14 @@ const INGRESS: Record<string, string> = {
  * read-only on phones), connection details and about. */
 @Component({
   selector: 'mc-settings',
-  imports: [RouterLink, IconComponent, PermissionsListComponent, TPipe, UpdaterComponent],
+  imports: [
+    RouterLink,
+    IconComponent,
+    PermissionsListComponent,
+    StartupSettingComponent,
+    TPipe,
+    UpdaterComponent,
+  ],
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss',
 })
