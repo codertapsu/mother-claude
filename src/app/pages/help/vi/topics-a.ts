@@ -304,6 +304,9 @@ const TOPICS: HelpTopicSource[] = [
       'tác tử',
       'đồng đội',
       'tìm phiên',
+      'cài đặt dự án',
+      'bên cạnh danh sách',
+      'bàn phím',
     ],
     sections: [
       {
@@ -378,11 +381,41 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           '**Dự án**, một thẻ của **Phiên**, liệt kê mọi thư mục dự án có cuộc trò chuyện, trong mọi tài khoản: có bao nhiêu cuộc trò chuyện, bao nhiêu đang chạy, dung lượng và hoạt động gần nhất.',
         points: [
-          'Menu của một dự án mở thư mục của nó trên ổ đĩa (ứng dụng máy tính), sao chép đường dẫn, di chuyển hay sao chép dự án, hoặc xóa nó.',
+          'Menu của một dự án mở cài đặt của nó, mở thư mục của nó trên ổ đĩa (ứng dụng máy tính), sao chép đường dẫn, di chuyển hay sao chép dự án, hoặc xóa nó.',
           '**Chọn** để chọn nhiều dự án và xóa, di chuyển hay sao chép chúng cùng lúc.',
           'Dự án đã xóa nằm trong **Đã xóa gần đây** trong bảy ngày, kèm **Hoàn tác**. Mục này hiện ba lần xóa mới nhất; **Xem tất cả** mở mọi lần xóa trên **Tài khoản › Thay đổi gần đây**.',
         ],
         links: [{ label: 'Mở trang Dự án', path: '/projects' }],
+      },
+      {
+        heading: 'Cài đặt của một dự án',
+        intro:
+          'Các cài đặt riêng của một dự án nằm chung trong một bảng: nhấn **⚙** trên dòng của dự án trong **Dự án**, hoặc **Cài đặt dự án…** trong menu **⋮** của một phiên. Mỗi phần được thay đổi ở đây như trên trang riêng của nó.',
+        terms: [
+          {
+            term: 'Tài khoản',
+            text: 'Tài khoản mà phiên mới trong thư mục của dự án chạy dưới: của riêng dự án, hoặc mặc định. Cùng các quy tắc với **Tài khoản › Mặc định › Theo dự án**.',
+          },
+          {
+            term: 'Trên từng máy tính',
+            text: 'Vị trí của dự án trên các máy tính khác của bạn, qua các thư mục dùng chung (**Máy tính › Tùy chọn**).',
+          },
+          {
+            term: 'Đồng bộ mã nguồn',
+            text: 'Mã nguồn của dự án có được giữ giống nhau trên một máy tính khác hay không, kèm **Đồng bộ ngay** và **Tắt**.',
+          },
+          {
+            term: 'Khi chuyển máy',
+            text: 'Cách mã nguồn được chuyển đi và đặt vào, những gì Claude được nhờ chạy sau khi chuyển, các tệp git bỏ qua đi kèm, các máy tính giữ bản sao phiên của dự án, và bật đồng bộ mã nguồn.',
+          },
+          {
+            term: 'Giới hạn nhóm',
+            text: 'Số phiên vai trò mà các nhóm của dự án chạy cùng lúc và số tiền dự án được tiêu mỗi ngày, kèm số tiền đã tiêu hôm nay.',
+          },
+        ],
+        notes: [
+          'Các phần về máy tính hiện khi **Máy tính** đang được dùng. Trên điện thoại, những gì chỉ ứng dụng máy tính thay đổi được sẽ hiện giá trị hiện tại và nói rõ điều đó.',
+        ],
       },
       {
         heading: 'Tác tử',

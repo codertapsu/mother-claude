@@ -627,5 +627,18 @@
   "Approvals for VS Code and terminal sessions appear here once the Mother Claude plugin is installed": "Yêu cầu duyệt của các phiên VS Code và terminal sẽ hiện ở đây khi đã cài plugin Mother Claude",
   "Only allowed from the {computer}, or allow dangerous actions for this device in Settings › Phone & devices.": "Chỉ được phép từ {computer}, hoặc hãy cho phép thao tác nguy hiểm cho thiết bị này trong Cài đặt › Điện thoại & thiết bị.",
   "Open Settings › HTTP API": "Mở Cài đặt › HTTP API",
-  "The {computer}'s Settings › Phone & devices shows its address.": "Cài đặt › Điện thoại & thiết bị trên {computer} hiển thị địa chỉ này."
+  "The {computer}'s Settings › Phone & devices shows its address.": "Cài đặt › Điện thoại & thiết bị trên {computer} hiển thị địa chỉ này.",
+  "Project settings": "Cài đặt dự án",
+  "Project settings: {name}": "Cài đặt dự án: {name}",
+  "Project settings…": "Cài đặt dự án…",
+  "{name} — project settings": "{name} — cài đặt dự án",
+  "On each computer": "Trên từng máy tính",
+  "Its code kept the same on another computer, both ways.": "Mã nguồn của dự án được giữ giống nhau trên một máy tính khác, theo cả hai chiều.",
+  "When it moves": "Khi chuyển máy",
+  "How its code travels and lands when a session moves, what Claude is asked to run after, the files git ignores that go with it, the computers that keep a copy of its sessions, and code sync.": "Cách mã nguồn được chuyển đi và đặt vào khi một phiên chuyển máy, những gì Claude được nhờ chạy sau đó, các tệp git bỏ qua đi kèm, các máy tính giữ bản sao phiên của dự án, và đồng bộ mã nguồn.",
+  "Your other computers": "Các máy tính khác của bạn",
+  "Once Computers is set up, where this project is on each computer, its code sync and how it moves are here too.": "Khi đã thiết lập Máy tính, vị trí của dự án trên từng máy tính, đồng bộ mã nguồn và cách nó chuyển máy cũng hiện ở đây.",
+  "Team limits": "Giới hạn nhóm",
+  "What every project follows:": "Thiết lập chung cho mọi dự án:",
+  "Computers › Options": "Máy tính › Tùy chọn"
 }

@@ -550,5 +550,10 @@
   "Sessions started elsewhere: on": "Phiên bắt đầu ở nơi khác: đang bật",
   "Sessions started elsewhere: off": "Phiên bắt đầu ở nơi khác: đang tắt",
   "Sessions started elsewhere: switched off": "Phiên bắt đầu ở nơi khác: đã bị tắt",
-  "Sessions started elsewhere: couldn't check": "Phiên bắt đầu ở nơi khác: không kiểm tra được"
+  "Sessions started elsewhere: couldn't check": "Phiên bắt đầu ở nơi khác: không kiểm tra được",
+  "New sessions here run under": "Phiên mới ở đây chạy dưới",
+  "Its own: sessions started in its folder and the folders inside it run under {name}, unless you pick another when you start one.": "Của riêng dự án: phiên bắt đầu trong thư mục của nó và các thư mục bên trong chạy dưới {name}, trừ khi bạn chọn tài khoản khác lúc bắt đầu.",
+  "From the rule for {dir}. Pick an account to give this project its own.": "Theo quy tắc của {dir}. Chọn một tài khoản để dự án này có tài khoản riêng.",
+  "The default for new sessions. Pick an account to give this project its own.": "Mặc định cho phiên mới. Chọn một tài khoản để dự án này có tài khoản riêng.",
+  "Its sessions run under your Claude account. With another account, this project could have one of its own.": "Các phiên của dự án chạy dưới tài khoản Claude của bạn. Khi có thêm tài khoản, dự án này có thể có tài khoản riêng."
 }

@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  computed,
   inject,
   input,
   signal,
@@ -11,6 +12,7 @@ import { ApiService, describeError } from '../../core/api.service';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { SyncChanges, SyncKept, SyncPair } from '../../core/machines';
+import { samePath } from '../../core/paths';
 import { SyncService } from '../../core/sync.service';
 import { RelativeTimePipe } from '../../shared/time.pipes';
 import {
@@ -29,20 +31,29 @@ import {
  * and why, off — with *Sync now* and *Turn off*. When both computers
  * changed a project, both sides show and the desktop keeps one: the other
  * side's state is first kept under a ref in its repository, then it takes
- * the kept one's. Nothing is merged. A phone sees it read-only.
+ * the kept one's. Nothing is merged. A phone sees it read-only. With
+ * `project` (a folder) it is that project's alone, without its card, as
+ * the project's settings sheet shows it (docs/UI-REDESIGN.md §9).
  */
 @Component({
   selector: 'mc-machines-sync',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RelativeTimePipe, TPipe],
   template: `
-    <section id="code-sync" class="card sync" [attr.aria-label]="'Code sync' | t">
-      <p class="muted small lede-line">
-        {{
-          'A project’s code kept the same on two computers: what changes on one goes to the other a few seconds later.'
-            | t
-        }}
-      </p>
+    <section
+      class="sync"
+      [class.card]="!project()"
+      [attr.id]="project() ? null : 'code-sync'"
+      [attr.aria-label]="'Code sync' | t"
+    >
+      @if (!project()) {
+        <p class="muted small lede-line">
+          {{
+            'A project’s code kept the same on two computers: what changes on one goes to the other a few seconds later.'
+              | t
+          }}
+        </p>
+      }
       @if (error()) {
         <p class="notice error small" role="alert">{{ error() }}</p>
       }
@@ -50,7 +61,7 @@ import {
         <p class="notice error small" role="alert">{{ loadError() }}</p>
       }
       <ul class="list">
-        @for (p of sync.pairs(); track p.id) {
+        @for (p of pairs(); track p.id) {
           <li [attr.data-state]="p.status.state">
             <div class="row">
               <strong class="name">{{ p.name }}</strong>
@@ -179,7 +190,13 @@ import {
             }
           </li>
         } @empty {
-          <li class="muted small">{{ 'No project is kept in sync.' | t }}</li>
+          <li class="muted small">
+            @if (project()) {
+              {{ 'It is not kept in sync with another computer.' | t }}
+            } @else {
+              {{ 'No project is kept in sync.' | t }}
+            }
+          </li>
         }
       </ul>
     </section>
@@ -250,6 +267,8 @@ import {
 export class SyncCardComponent {
   /** A phone sees code sync, never changes it. */
   readonly readonly = input(false);
+  /** One project's code sync only: its folder (none: every project's). */
+  readonly project = input<string | null>(null);
 
   private readonly api = inject(ApiService);
   protected readonly sync = inject(SyncService);
@@ -258,6 +277,12 @@ export class SyncCardComponent {
   protected readonly loadError = this.sync.error;
   protected readonly busy = signal<string | null>(null);
   protected readonly error = signal('');
+  /** The projects shown: every one, or the one project's. */
+  protected readonly pairs = computed(() => {
+    const only = this.project();
+    const all = this.sync.pairs();
+    return only ? all.filter((p) => samePath(p.folder, only)) : all;
+  });
   /** The choice armed by a first tap. */
   private readonly confirming = signal<string | null>(null);
   private confirmTimer?: ReturnType<typeof setTimeout>;

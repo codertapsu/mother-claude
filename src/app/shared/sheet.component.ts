@@ -17,8 +17,9 @@ import { IconComponent } from './icon.component';
  * A modal panel on the native `<dialog>` element (`showModal()`), so the
  * browser provides the focus trap, Escape, an inert background, the top
  * layer (no stacking-context surprises) and focus return. A bottom sheet on
- * phones and a centred dialog on wider screens; `size="full"` fills the
- * screen (long plans, the terminal). Escape, a click on the backdrop and the
+ * phones and a centred dialog on wider screens; `size="wide"` is a wider
+ * dialog (a project's settings), `size="full"` fills the screen (long
+ * plans, the terminal). Escape, a click on the backdrop and the
  * close button all emit `closed`; the parent owns `open`. The parent gives
  * `title` in the language shown.
  */
@@ -30,6 +31,7 @@ import { IconComponent } from './icon.component';
     <dialog
       #dlg
       class="dlg"
+      [class.wide]="size() === 'wide'"
       [class.full]="size() === 'full'"
       [attr.aria-label]="title()"
       (cancel)="onCancel($event)"
@@ -116,6 +118,9 @@ import { IconComponent } from './icon.component';
           margin: auto;
           max-width: 32rem;
         }
+        .dlg.wide {
+          max-width: min(44rem, 92vw);
+        }
         .panel {
           border-radius: var(--radius);
           padding-bottom: 1rem;
@@ -136,8 +141,8 @@ import { IconComponent } from './icon.component';
 export class SheetComponent {
   readonly open = input(false);
   readonly title = input('');
-  /** `sheet` (default) or `full` screen. */
-  readonly size = input<'sheet' | 'full'>('sheet');
+  /** `sheet` (default), `wide` or `full` screen. */
+  readonly size = input<'sheet' | 'wide' | 'full'>('sheet');
   readonly closed = output<void>();
 
   private readonly dlg = viewChild.required<ElementRef<HTMLDialogElement>>('dlg');

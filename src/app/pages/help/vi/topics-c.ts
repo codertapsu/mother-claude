@@ -799,7 +799,7 @@ const TOPICS: HelpTopicSource[] = [
         ],
         tips: [
           'Tính năng chỉ bật khi cả hai máy tính đều đồng ý. Lần đồng bộ đầu tiên chạy ngay sau đó: máy có thay đổi, hoặc có commit mới hơn, gửi chúng sang máy sạch và đang ở phía sau. Khi cả hai đều có thay đổi riêng, bạn chọn giữ bản nào (bên dưới).',
-          'Phần tùy chọn riêng của một dự án (**Máy tính › Tùy chọn › Từng dự án**) cũng có lựa chọn này: **Giữ dự án này đồng bộ với …**.',
+          'Phần tùy chọn riêng của một dự án cũng có lựa chọn này, **Giữ dự án này đồng bộ với …**: trong **Máy tính › Tùy chọn › Từng dự án**, hoặc ở mục **Khi chuyển máy** trong cài đặt của dự án (**Cài đặt dự án…**).',
         ],
         links: [{ label: 'Mở trang Đồng bộ mã nguồn', path: '/computers/sync' }],
       },

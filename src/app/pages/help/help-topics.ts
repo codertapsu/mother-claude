@@ -294,6 +294,9 @@ const TOPICS: HelpTopicSource[] = [
       'teammates',
       'agent teams',
       'fleet',
+      'project settings',
+      'split view',
+      'keyboard',
     ],
     sections: [
       {
@@ -368,11 +371,41 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           '**Projects**, a tab of **Sessions**, lists every project folder that holds conversations, in every account: how many conversations it has, how many run, their size and the last activity.',
         points: [
-          "A project's menu shows its folder on disk (desktop app), copies its path, moves or copies it, or deletes it.",
+          "A project's menu opens its settings, shows its folder on disk (desktop app), copies its path, moves or copies it, or deletes it.",
           '**Select** picks several projects to delete, move or copy together.',
           'Deleted projects stay under **Recently deleted** for seven days, with **Undo**. It shows the newest three; **See all** opens every delete on **Accounts › Recent changes**.',
         ],
         links: [{ label: 'Open Projects', path: '/projects' }],
+      },
+      {
+        heading: "A project's settings",
+        intro:
+          "A project's own settings are in one sheet: press **⚙** on its row in **Projects**, or **Project settings…** in a session's **⋮** menu. Each part is changed here as on its own page.",
+        terms: [
+          {
+            term: 'Account',
+            text: 'The account new sessions in its folder run under: its own, or the default. The same rules as **Accounts › Defaults › Per project**.',
+          },
+          {
+            term: 'On each computer',
+            text: 'Where it is on your other computers, through the folders they share (**Computers › Options**).',
+          },
+          {
+            term: 'Code sync',
+            text: 'Whether its code is kept the same on another computer, with **Sync now** and **Turn off**.',
+          },
+          {
+            term: 'When it moves',
+            text: 'How its code travels and lands, what Claude is asked to run after a move, the files git ignores that go with it, the computers that keep a copy of its sessions, and turning code sync on.',
+          },
+          {
+            term: 'Team limits',
+            text: 'How many role sessions its teams run at once and what it may spend a day, with what it spent today.',
+          },
+        ],
+        notes: [
+          'The computers’ parts show once **Computers** is in use. On a phone, what only the desktop app changes shows how it is set, and says so.',
+        ],
       },
       {
         heading: 'Agents',
@@ -2014,7 +2047,7 @@ const TOPICS: HelpTopicSource[] = [
         ],
         tips: [
           'It is on only once both computers said yes. The first sync then runs at once: the computer with changes, or newer commits, sends them to the one that is clean and behind. When both have changes of their own, you choose which to keep (below).',
-          'A project’s own options (**Computers › Options › Each project**) have the same choice: **Keep this project in sync with …**.',
+          'A project’s own options have the same choice, **Keep this project in sync with …**: in **Computers › Options › Each project**, or under **When it moves** in its settings (**Project settings…**).',
         ],
         links: [{ label: 'Open Code sync', path: '/computers/sync' }],
       },

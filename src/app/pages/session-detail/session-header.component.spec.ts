@@ -11,6 +11,7 @@ import {
 import { buildAccounts, ownedCaps } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { ListDetailService } from '../../core/list-detail';
+import { ProjectSettingsService } from '../../core/project-settings';
 import { JobView, SessionDetail } from '../../core/models';
 import { DeleteDataSheetComponent } from '../../shared/delete-data-sheet.component';
 import { SessionContext } from './session-context';
@@ -100,7 +101,7 @@ describe('SessionHeaderComponent', () => {
     openMenu(el);
     expect(groups(el)).toEqual([
       ['Continue', ['Continue here, as a new session']],
-      ['Organize', ['Rename…', 'Delete…']],
+      ['Organize', ['Rename…', 'Project settings…', 'Delete…']],
       ['This session', ['Terminal view', 'Session info', 'claude --resume s1…']],
       ['Its process', ['Stop', 'Restart', 'Remove']],
     ]);
@@ -186,6 +187,19 @@ describe('SessionHeaderComponent', () => {
     expect(navigate).not.toHaveBeenCalled();
     sheet.closed.emit([done]);
     expect(navigate).toHaveBeenCalledWith(['/']);
+  });
+
+  it("opens its project's settings from the menu", async () => {
+    const el = await render();
+    openMenu(el);
+    button(el, 'Project settings…')!.click();
+    fixture.detectChanges();
+    expect(TestBed.inject(ProjectSettingsService).project()).toEqual({
+      cwd: '/Users/me/dev/api',
+      name: 'api',
+    });
+    // The menu made way for it.
+    expect(el.querySelector<HTMLDialogElement>('mc-sheet dialog')?.open).toBe(false);
   });
 
   it('closes with ✕ beside its list on a wide screen, back to that list', async () => {

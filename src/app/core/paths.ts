@@ -116,6 +116,14 @@ export function pathWithin(path: string, dir: string): boolean {
   return p.startsWith(d.endsWith(sep) ? d : `${d}${sep}`);
 }
 
+/** A path's components, a Windows drive left out: `/a/b` and `C:\a\b` →
+ * `['a', 'b']`. */
+export function pathSegments(p: string): string[] {
+  return trimSeparators(p)
+    .split(separators(p))
+    .filter((s) => s && !/^[A-Za-z]:$/.test(s));
+}
+
 /** How many components a path has (`/a/b` and `C:\a\b`: 2). */
 export function pathDepth(p: string): number {
   return trimSeparators(p)

@@ -26,6 +26,7 @@ import {
 } from '../../core/machines';
 import { MachinesService } from '../../core/machines.service';
 import { ProjectInfo } from '../../core/models';
+import { samePath } from '../../core/paths';
 import { SyncService } from '../../core/sync.service';
 import { applyText, serverText, syncBadge, transferText } from './machines-text';
 
@@ -76,6 +77,10 @@ function lines(text: string): string[] {
  * and is on once someone there confirms it. *Keep a copy of its sessions on
  * …* (§5.9; off by default) copies each of its sessions there after every
  * turn — a session's own choice in its menu wins.
+ *
+ * With `project` (a folder) it is that one project's alone, as its
+ * settings sheet shows it (docs/UI-REDESIGN.md §9, stage 10): its row, or
+ * that it follows the defaults, and *Set its own options…* for it.
  */
 @Component({
   selector: 'mc-machines-project-options',
@@ -138,23 +143,27 @@ function lines(text: string): string[] {
         </li>
       } @empty {
         <li class="muted small">
-          {{ 'No project has its own options: every one follows the defaults.' | t }}
+          @if (project()) {
+            {{ 'It follows the defaults: {value}.' | t: { value: defaultsText() } }}
+          } @else {
+            {{ 'No project has its own options: every one follows the defaults.' | t }}
+          }
         </li>
       }
     </ul>
 
     @if (editing() === 'new') {
       <ng-container [ngTemplateOutlet]="form" />
-    } @else if (!readonly()) {
+    } @else if (!readonly() && !(project() && rows().length)) {
       <button type="button" class="btn small" (click)="add()">
-        {{ 'Set a project’s own options…' | t }}
+        {{ project() ? ('Set its own options…' | t) : ('Set a project’s own options…' | t) }}
       </button>
     }
 
     <ng-template #form>
       @if (draft(); as d) {
         <form class="stack editor" (ngSubmit)="save()">
-          @if (editing() === 'new') {
+          @if (editing() === 'new' && !project()) {
             <label class="field">
               <span class="field-label">{{ 'Project' | t }}</span>
               <select
@@ -386,6 +395,8 @@ export class ProjectOptionsComponent {
   /** The defaults a project follows. */
   readonly defaults = input<CodeSettings>(defaultCode());
   readonly readonly = input(false);
+  /** One project's options only: its folder (none: every project's). */
+  readonly project = input<string | null>(null);
 
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
@@ -396,8 +407,19 @@ export class ProjectOptionsComponent {
   protected readonly projects = signal<ProjectOptions[]>([]);
   /** The paired computers a project may be kept in sync with. */
   protected readonly peers = computed(() => this.machines.view()?.peers ?? []);
-  /** Projects with their own options, then the ones only kept in sync. */
+  /** Projects with their own options, then the ones only kept in sync
+   * (only the one project's, given one). */
   protected readonly rows = computed<Row[]>(() => {
+    const only = this.project();
+    const all = this.allRows();
+    return only ? all.filter((r) => !!r.project && samePath(r.project, only)) : all;
+  });
+  /** The defaults in words: how code travels and where it lands. */
+  protected readonly defaultsText = computed(() => {
+    const d = this.defaults();
+    return `${transferText(d.transfer)} · ${applyText(d.apply)}`;
+  });
+  private readonly allRows = computed<Row[]>(() => {
     const own: Row[] = this.projects().map((p) => ({ ...p, syncOnly: false }));
     const synced: Row[] = this.sync
       .pairs()
@@ -528,8 +550,9 @@ export class ProjectOptionsComponent {
   protected async add(): Promise<void> {
     this.carriedBefore = [];
     this.copiesBefore = [];
+    const only = this.project();
     this.draft.set({
-      project: '',
+      project: only ?? '',
       transfer: '',
       apply: '',
       keep: '',
@@ -541,7 +564,7 @@ export class ProjectOptionsComponent {
       copies: [],
     });
     this.editing.set('new');
-    if (!this.candidates().length) {
+    if (!only && !this.candidates().length) {
       try {
         this.candidates.set((await this.api.getProjects()).projects);
       } catch (e) {

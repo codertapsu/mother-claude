@@ -16,6 +16,7 @@ import { PushService } from './core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from './core/realtime.service';
 import { I18nService } from './core/i18n/i18n.service';
 import { ListDetailService, listSection } from './core/list-detail';
+import { ProjectSettingsService } from './core/project-settings';
 import {
   HELP_ENTRY,
   MORE_ENTRY,
@@ -36,6 +37,7 @@ import { IconComponent, IconName } from './shared/icon.component';
 import { LimitationsComponent } from './shared/limitations.component';
 import { FolderChoiceSheetComponent } from './shared/folder-choice-sheet.component';
 import { PairApprovalDialogComponent } from './shared/pair-approval-dialog.component';
+import { ProjectSettingsSheetComponent } from './pages/project-settings/project-settings-sheet.component';
 import { SheetComponent } from './shared/sheet.component';
 import { TimeAgoComponent } from './shared/time-ago.component';
 import { ToastComponent } from './shared/toast.component';
@@ -59,6 +61,7 @@ const WELCOME_SEEN_KEY = 'mc_welcome_seen';
     LimitationsComponent,
     FolderChoiceSheetComponent,
     PairApprovalDialogComponent,
+    ProjectSettingsSheetComponent,
     SheetComponent,
     TimeAgoComponent,
     ToastComponent,
@@ -89,6 +92,9 @@ export class AppComponent {
   protected readonly badges = inject(NavBadges);
   /** A session beside its list (wide screens). */
   private readonly listDetail = inject(ListDetailService);
+  /** A project's settings, opened from anywhere: the sheet loads (its own
+   * chunk) the first time. */
+  protected readonly projectSettings = inject(ProjectSettingsService);
 
   protected readonly ready = signal(false);
   protected readonly connection = this.realtime.connection;

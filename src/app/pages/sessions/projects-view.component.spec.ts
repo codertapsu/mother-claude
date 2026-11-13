@@ -14,6 +14,7 @@ import {
 } from '../../core/mock/fake-server.testing';
 import { MOCK_ACCOUNT_WORK, buildAccounts } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
+import { ProjectSettingsService } from '../../core/project-settings';
 import { MoveDataSheetComponent } from '../../shared/move-data-sheet.component';
 import { MIXED_ACCOUNTS, ProjectsViewComponent } from './projects-view.component';
 
@@ -194,7 +195,7 @@ describe('ProjectsViewComponent', () => {
     el.querySelector<HTMLButtonElement>('[aria-label="Project menu: api"]')!.click();
     fixture.detectChanges();
     const items = [...el.querySelectorAll('mc-sheet.menu-sheet .item')].map((b) => text(b));
-    expect(items).toEqual(['Copy path', 'Move or copy…', 'Delete…']);
+    expect(items).toEqual(['Project settings…', 'Copy path', 'Move or copy…', 'Delete…']);
     button(el.querySelector('mc-sheet.menu-sheet')!, 'Delete…')!.click();
     await settle();
     expect(text(el.querySelector('mc-delete-data-sheet .notice.warn'))).toContain(
@@ -226,5 +227,47 @@ describe('ProjectsViewComponent', () => {
     ]);
     expect(text(listed[0])).toContain('Deleted 1 conversation');
     expect(listed[0].querySelector('.undo')).not.toBeNull();
+  });
+});
+
+describe("ProjectsViewComponent: a project's settings (docs/UI-REDESIGN.md §9)", () => {
+  let fixture: ComponentFixture<ProjectsViewComponent>;
+
+  beforeEach(() => {
+    const backend = new FakeBackend();
+    useFakeServer(backend, [provideRouter([])]);
+    serveAccounts(backend, buildAccounts(Date.now(), true));
+    backend.routes.set('/data/projects', () => ({ status: 200, body: { projects: projects() } }));
+    backend.routes.set('/data/jobs', () => ({ status: 200, body: { jobs: [] } }));
+  });
+
+  afterEach(() => setActiveMock(null));
+
+  const render = async () => {
+    fixture = TestBed.createComponent(ProjectsViewComponent);
+    for (let i = 0; i < 3; i++) {
+      fixture.detectChanges();
+      await flush();
+    }
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  };
+
+  it("opens a row's settings from its ⚙ and from its menu", async () => {
+    const el = await render();
+    const svc = TestBed.inject(ProjectSettingsService);
+    el.querySelector<HTMLButtonElement>('[aria-label="Project settings: api"]')!.click();
+    expect(svc.project()).toEqual({ cwd: '/Users/me/dev/api', name: 'api' });
+    svc.close();
+    el.querySelector<HTMLButtonElement>('[aria-label="Project menu: api"]')!.click();
+    fixture.detectChanges();
+    const item = [...el.querySelectorAll<HTMLButtonElement>('.menu .item')].find(
+      (b) => b.textContent?.trim() === 'Project settings…',
+    )!;
+    item.click();
+    fixture.detectChanges();
+    expect(svc.project()).toEqual({ cwd: '/Users/me/dev/api', name: 'api' });
+    // The menu made way for it.
+    expect(el.querySelector('mc-sheet.menu-sheet')).toBeNull();
   });
 });

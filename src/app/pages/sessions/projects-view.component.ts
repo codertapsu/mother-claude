@@ -29,6 +29,7 @@ import { TPipe } from '../../core/i18n/t.pipe';
 import { JobView } from '../../core/models';
 import { accountLocation, anyTarget } from '../../core/move-data';
 import { NoticeService } from '../../core/notice.service';
+import { ProjectSettingsService, projectRef } from '../../core/project-settings';
 import { RealtimeService } from '../../core/realtime.service';
 import { StorageService } from '../../core/storage.service';
 import { AccountChipComponent } from '../../shared/account-chip.component';
@@ -59,7 +60,9 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
  * size and the last activity. *Select* deletes, moves or copies several; a
  * row's menu reveals its folder on disk (the desktop), copies its path,
  * moves or copies it, or deletes it. Deletes stay undoable below, in
- * *Recently deleted*, for seven days.
+ * *Recently deleted*, for seven days. Its settings (⚙, or *Project
+ * settings…* in its menu) open the project's settings sheet
+ * (docs/UI-REDESIGN.md §9, stage 10).
  */
 @Component({
   selector: 'mc-projects-view',
@@ -171,6 +174,16 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
                 class="btn ghost icon-only"
                 type="button"
                 aria-haspopup="dialog"
+                [attr.aria-label]="'Project settings: {name}' | t: { name: p.name }"
+                [title]="'Project settings' | t"
+                (click)="settings(p)"
+              >
+                <mc-icon name="settings" />
+              </button>
+              <button
+                class="btn ghost icon-only"
+                type="button"
+                aria-haspopup="dialog"
                 [attr.aria-label]="'Project menu: {name}' | t: { name: p.name }"
                 (click)="menuFor.set(p)"
               >
@@ -261,6 +274,10 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
           <p class="mono small where">{{ short(p.folder) }}</p>
         }
         <div class="menu">
+          <button class="item" type="button" (click)="settings(p)">
+            <mc-icon name="settings" [size]="18" />
+            <span>{{ 'Project settings…' | t }}</span>
+          </button>
           @if (isDesktop()) {
             <button class="item" type="button" (click)="reveal(p)">
               <mc-icon name="folder" [size]="18" />
@@ -488,6 +505,7 @@ export class ProjectsViewComponent {
   private storage = inject(StorageService);
   private notices = inject(NoticeService);
   private jobs = inject(DataJobsService);
+  private projectSettings = inject(ProjectSettingsService);
   protected readonly isDesktop = inject(AuthService).isDesktop;
 
   protected readonly MIXED = MIXED_ACCOUNTS;
@@ -623,6 +641,12 @@ export class ProjectsViewComponent {
       what: 'projects',
       projects: rows.map((p) => p.cwd),
     });
+  }
+
+  /** Its settings sheet: account, folders, code sync, moves, limits. */
+  protected settings(p: DataProject): void {
+    this.menuFor.set(null);
+    this.projectSettings.open(projectRef(p.cwd, p.name));
   }
 
   protected async reveal(p: DataProject): Promise<void> {

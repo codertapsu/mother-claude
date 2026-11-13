@@ -14,6 +14,7 @@ import { Router, RouterLink } from '@angular/router';
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
 import { ListDetailService } from '../../core/list-detail';
+import { ProjectSettingsService, projectRef } from '../../core/project-settings';
 import { MachineContext } from '../../core/machine-context';
 import { accountLocation, anyTarget } from '../../core/move-data';
 import { StorageService } from '../../core/storage.service';
@@ -61,7 +62,8 @@ import { SessionContext } from './session-context';
  *   *Switch account…*, *Continue on another account…*, *Continue on
  *   another computer…*, *Keep a copy on…*;
  * - **Organize** — *Rename…*, *Move or copy…* it or its project to
- *   another account or a storage, *Delete…*;
+ *   another account or a storage, *Project settings…* (its project's
+ *   settings sheet, docs/UI-REDESIGN.md §9), *Delete…*;
  * - **This session** — its notifications (a phone), *Terminal view*,
  *   *Open in VS Code*, *Session info*, the resume command to copy;
  * - **Its process** — a background job's *Stop*, *Restart* and *Remove*.
@@ -231,6 +233,12 @@ import { SessionContext } from './session-context';
             <button class="item" type="button" (click)="openMoveCopy('project')">
               <mc-icon name="folder" [size]="18" />
               <span>{{ 'Move or copy this project…' | t }}</span>
+            </button>
+          }
+          @if (!machine) {
+            <button class="item" type="button" (click)="openProjectSettings()">
+              <mc-icon name="settings" [size]="18" />
+              <span>{{ 'Project settings…' | t }}</span>
             </button>
           }
           @if (machine; as m) {
@@ -686,6 +694,7 @@ export class SessionHeaderComponent {
   private storage = inject(StorageService);
   private router = inject(Router);
   private listDetail = inject(ListDetailService);
+  private projectSettings = inject(ProjectSettingsService);
   /** It shows beside its list (wide screens): ✕ closes it. */
   protected readonly beside = this.listDetail.split;
   /** The delete dialog with this conversation (null: closed). */
@@ -981,6 +990,13 @@ export class SessionHeaderComponent {
   protected openMoveCopy(kind: 'session' | 'project'): void {
     this.menu.set(false);
     this.ctx.moveCopy.set(kind);
+  }
+
+  /** Its project's settings sheet (this computer's sessions). */
+  protected openProjectSettings(): void {
+    const s = this.ctx.session();
+    this.menu.set(false);
+    if (s) this.projectSettings.open(projectRef(s.cwd, s.projectName));
   }
 
   protected openTerminal(): void {

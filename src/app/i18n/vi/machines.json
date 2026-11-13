@@ -598,5 +598,12 @@
   "protocol {n}": "giao thức {n}",
   "{name} is asked once; syncing starts when someone there says yes.": "{name} chỉ được hỏi một lần; việc đồng bộ bắt đầu khi có người ở máy đó đồng ý.",
   "Not set up yet": "Chưa thiết lập",
-  "Your folder pairs from Backups are kept as they are.": "Các cặp thư mục từ Bản sao lưu được giữ nguyên."
+  "Your folder pairs from Backups are kept as they are.": "Các cặp thư mục từ Bản sao lưu được giữ nguyên.",
+  "It follows the defaults: {value}.": "Dự án dùng mặc định: {value}.",
+  "Set its own options…": "Đặt tùy chọn riêng…",
+  "It is not kept in sync with another computer.": "Dự án chưa được đồng bộ với máy tính nào khác.",
+  "Not there yet": "Chưa có ở đó",
+  "Through the shared folder {name}.": "Qua thư mục dùng chung {name}.",
+  "No folder you share between your computers holds it yet: its sessions can’t move to another computer.": "Chưa có thư mục dùng chung nào giữa các máy tính của bạn chứa dự án này: phiên của nó chưa thể chuyển sang máy tính khác.",
+  "Change the shared folders": "Thay đổi các thư mục dùng chung"
 }

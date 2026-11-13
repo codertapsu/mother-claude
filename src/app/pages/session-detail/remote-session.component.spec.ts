@@ -141,6 +141,8 @@ describe("another computer's session page (/session/:id/on/:machine)", () => {
     );
     expect(menu).not.toContain('Delete…');
     expect(menu).not.toContain('Move or copy');
+    // Its project's settings are that computer's.
+    expect(menu).not.toContain('Project settings…');
     expect(menu).toContain('Rename…');
   });
 
