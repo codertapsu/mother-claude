@@ -511,16 +511,14 @@ pub fn validate(t: &Template) -> Report {
             r.error(at("to"), format!("No role is called {:?}.", h.to));
         }
         if from && to {
+            // The editor's own words for these (template-graph.ts).
             if h.from == h.to {
                 r.error(
                     format!("flow[{i}]"),
-                    "Work goes on from one role to another.",
+                    "A role cannot hand its work to itself.",
                 );
             } else if steps.contains(&(h.from.as_str(), h.to.as_str())) {
-                r.error(
-                    format!("flow[{i}]"),
-                    format!("{} → {} is there twice.", h.from, h.to),
-                );
+                r.error(format!("flow[{i}]"), "This handoff is there twice.");
             }
             steps.push((&h.from, &h.to));
         }
@@ -1376,7 +1374,11 @@ mod tests {
                 "flow[5].note"
             ]
         );
-        assert!(r.errors[3].message.contains("writer → qa"));
+        assert_eq!(
+            r.errors[2].message,
+            "A role cannot hand its work to itself."
+        );
+        assert_eq!(r.errors[3].message, "This handoff is there twice.");
     }
 
     #[test]

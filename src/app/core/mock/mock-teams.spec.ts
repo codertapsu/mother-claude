@@ -42,8 +42,10 @@ describe('MockTeams', () => {
       'documentation',
       'weekly-newsletter',
     ]);
-    // A built-in with a flow (arranged by the editor), yours placed by it.
-    expect(list[1].flow?.length).toBe(4);
+    // Built-ins with the server's flows (arranged by the editor), yours
+    // placed by it.
+    expect(list.slice(0, 5).map((t) => t.flow?.length)).toEqual([2, 5, 2, 1, 1]);
+    expect(list[1].flow?.[0]).toEqual({ from: 'planner', to: 'scriptwriter', note: 'the outline' });
     expect(list[1].layout).toBeUndefined();
     expect(list[5].builtin).toBe(false);
     expect(Object.keys(list[5].layout ?? {})).toContain('@merge');

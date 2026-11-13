@@ -91,6 +91,10 @@ function builtins(): TemplateEntry[] {
           charter: 'You answer questions about the code base.',
         }),
       ],
+      flow: [
+        { from: 'scout', to: 'frontend', note: 'what the code already does' },
+        { from: 'scout', to: 'backend', note: 'what the code already does' },
+      ],
       integration: { branch: 'main', mergeBy: 'lead', gate: 'npm test', review: true },
       idleStopMinutes: 30,
     }),
@@ -133,12 +137,13 @@ function builtins(): TemplateEntry[] {
         role({ id: 'publisher', title: 'Publisher', model: 'sonnet', paths: ['publish/**'] }),
       ],
       // A pipeline: each role's finished work goes on to the next (no
-      // layout: built-ins are arranged by the editor).
+      // layout: built-ins are arranged by the editor). The server's flows.
       flow: [
+        { from: 'planner', to: 'scriptwriter', note: 'the outline' },
         { from: 'scriptwriter', to: 'designer', note: 'the script' },
-        { from: 'designer', to: 'producer', note: 'the storyboard and assets' },
-        { from: 'producer', to: 'qa', note: 'the render' },
-        { from: 'qa', to: 'publisher', note: 'the approved cut' },
+        { from: 'designer', to: 'producer', note: 'the assets' },
+        { from: 'producer', to: 'qa', note: 'the cut' },
+        { from: 'qa', to: 'publisher', note: 'the approved piece' },
       ],
       integration: { mergeBy: 'planner', review: true },
       idleStopMinutes: 20,
@@ -171,6 +176,10 @@ function builtins(): TemplateEntry[] {
           readOnly: true,
         }),
       ],
+      flow: [
+        { from: 'researcher', to: 'synthesiser', note: 'the notes' },
+        { from: 'synthesiser', to: 'fact-checker', note: 'the draft report' },
+      ],
       integration: { mergeBy: 'lead', review: true },
       idleStopMinutes: 20,
     }),
@@ -195,6 +204,7 @@ function builtins(): TemplateEntry[] {
           readOnly: true,
         }),
       ],
+      flow: [{ from: 'operator', to: 'verifier', note: 'what was done' }],
       integration: { review: true },
       idleStopMinutes: 15,
     }),
@@ -227,6 +237,7 @@ function builtins(): TemplateEntry[] {
           paths: ['docs/**'],
         }),
       ],
+      flow: [{ from: 'librarian', to: 'writer', note: 'what is missing' }],
       integration: { branch: 'main', mergeBy: 'editor', review: true },
       idleStopMinutes: 20,
     }),
@@ -349,10 +360,11 @@ export function validateTemplate(t: Partial<TeamTemplate>): TemplateIssue[] {
     if (!ids.has(from))
       out.push({ path: `flow[${i}].from`, message: `No role is called "${from}".` });
     if (!ids.has(to)) out.push({ path: `flow[${i}].to`, message: `No role is called "${to}".` });
+    // The server's words (orchestration/templates.rs `validate`).
     if (from && from === to) {
-      out.push({ path: `flow[${i}]`, message: 'A handoff goes from one role to another.' });
+      out.push({ path: `flow[${i}]`, message: 'A role cannot hand its work to itself.' });
     } else if (pairs.has(`${from}>${to}`)) {
-      out.push({ path: `flow[${i}]`, message: `${from} hands its work to ${to} twice.` });
+      out.push({ path: `flow[${i}]`, message: 'This handoff is there twice.' });
     }
     pairs.add(`${from}>${to}`);
     if (typeof h?.note === 'string' && [...h.note].length > 200) {
