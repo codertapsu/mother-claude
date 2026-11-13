@@ -3,7 +3,7 @@
   "name": "Mother Claude",
   "short_name": "Mother Claude",
   "description": "Lets your Claude Code sessions read and act in this browser, through the Mother Claude app on this computer.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "minimum_chrome_version": "116",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArNMWSiYGaajd1US6gxNoEV3mpfp1jvsihpFVY14wL8IPPJFoMjNkDq6Rfdsd69mWr+MYMJf3aclMetYPiqHRynmtZBQ4hocZn/TeSGJhrhurxvu+g6kLmbkdjDv+Z+0NrRYD70Nm346mZWTKxKIbALNy3k+02AZlCx6/44kDj5kLhmjpOzrDMvoPC0HYXbJzvE+TH7Q2pxfx+zzlUrP76uJD+5LPxvvbDXMAVTDAZVTFpPU7o12PM0uuxYJgEAZWOOwrclpCElFMnNciDprxqd4p+r95kZmy0m3RPcDQKBqm9GWSWxho5lLhJxv63sWGXvDCtIjkUlKGHVZYoma9/wIDAQAB",
   "icons": {
