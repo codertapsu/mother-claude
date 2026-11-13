@@ -1,12 +1,13 @@
 # UI redesign — a proposal to choose from
 
-**Draft for review, 2026-11-12.** How Mother Claude's dashboard (`src/`: the
+**Proposal of 2026-11-12; direction A built through stage 8 on
+2026-11-13** ([status](#status)). How Mother Claude's dashboard (`src/`: the
 desktop webview and the phone, one code path) could be reorganized so that
-each thing you come to do has one obvious place. It reads the app on `main`
-at `b8c0aae`; nothing here is built. Three directions are drawn;
-**A is recommended** ([§9](#9-comparison-and-recommendation)), with a staged
-plan ([§10](#10-migration-plan-for-a)) and the choices to make
-([§11](#11-decisions-for-you)).
+each thing you come to do has one obvious place. §2 reads the app as it was
+on `main` at `b8c0aae`, before the redesign. Three directions are drawn;
+**A was chosen** ([§9](#9-comparison-and-recommendation),
+[§11](#11-decisions-for-you)), with a staged plan
+([§10](#10-migration-plan-for-a)).
 
 **How to read** — the house style of
 [spikes/machines/UX.md](../spikes/machines/UX.md):
@@ -1205,6 +1206,46 @@ their best ideas fit on top of A afterwards:
 S ≈ a day or two, M ≈ two or three, L ≈ four or five, for one developer
 with Claude, Help and Vietnamese included: stages 0–8 come to about
 26–34 working days.
+
+#### Status
+
+As of 2026-11-13, on `main`:
+
+| # | Stage | Built in |
+|---|---|---|
+| 0 | Groundwork | `48ce8ac` |
+| 1 | The new map | `ab12ac5` |
+| 2 | The Inbox holds everything waiting | `4f62eee` |
+| 3 | Computers | `d6a3f31` |
+| 4 | Accounts | `3829acf` |
+| 5 | Settings and its Connections | `f3d7953` |
+| 6 | Sessions and Teams tabs | `b5db0d9` |
+| 7 | A session's menu | `7e38620` |
+| 8 | One template, Help and docs | `888edee` (the app, Help) and the docs commit after it |
+| 9–11 | List and detail on wide screens · Project settings · Jump to… | not started |
+
+What a stage took on beyond the plan, or left:
+
+- **Stage 6** also renamed the Sessions list's *Surface* filter *App*
+  (§6.3) and fixed a stage-4 style that squeezed *Projects*' rows;
+  Capacity lost its *Refresh* and its own lede with its move under Teams.
+- **Stage 7** opens *Continue here* in a sheet with the launch options
+  that were on *Info*; the server's words follow (*Restart*, *as a new
+  session*).
+- **Stage 8** renamed Browser's *Settings* section *Options*, so the
+  server no longer says *Settings › Browser › Settings*; a phone sees a
+  desktop-only control as one line saying where it is done, with its
+  value where it has one, never disabled (the setup, Computers' checks,
+  Backups' passphrase, *Claude Code tools*' switch, a session's plugin
+  limit); a page head without a ⋯ menu makes no sheet.
+- **Left for later:** stages 9–11 (§9; decision 9 of §11). Section
+  headings still sit inside their cards on *Phone & devices*, *Computers*
+  and *New session* (§5 (4), F14c). A session's page and an agent's page
+  keep their own header bars (§6.8), and the first-run screens (*Pair*,
+  *Welcome*) their hero, rather than `mc-page-head`. *Escalation ladder*,
+  *budget gate* and *task classifier* still wait for their words
+  (§6.10). Read-on-demand views keep *Refresh* (a session's *Changes*,
+  the terminal view, plan usage, as §6.6 draws it).
 
 **Stage 0 — Groundwork.** `core/nav.ts` with today's entries (the UI stays
 identical) and its spec (every route in `app.routes.ts` is in the map or

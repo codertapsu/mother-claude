@@ -15,7 +15,7 @@ and every pull can be undone for seven days.
 
 ## Setting it up
 
-**Settings → Backup & sync**, on the desktop or a paired phone (the passphrase
+**Accounts › Backups**, on the desktop or a paired phone (the passphrase
 only on the desktop):
 
 1. **Folder.** Pick one of the suggestions (iCloud Drive, Google Drive, OneDrive
@@ -61,7 +61,7 @@ naming the phone and what it did.
 
 ## The page at a glance
 
-**Backup & sync** opens with a short guide while no backup exists yet —
+**Backups** opens with a short guide while no backup exists yet —
 choose a folder, set a passphrase, back up for the first time — and then
 shows **Your backups**, one lane per account:
 
@@ -272,8 +272,8 @@ The transcripts are never rewritten: their older messages keep the path they
 were written in. Only the folder Claude Code keeps them in is the one of the
 project here.
 
-Set it up once, on either machine, under **Folder pairs** on the Backup &
-sync page: this machine's folder (`~` for your home folder works, as in the
+Set it up once, on either machine, under **Folder pairs** on the Backups
+page: this machine's folder (`~` for your home folder works, as in the
 other folder fields), the other machine (it shows once it has backed up to
 or pulled from these backups) and its folder, written the way that machine
 writes paths — its examples and checks follow that machine's system. Pairs are kept inside the backups (encrypted), so
@@ -338,7 +338,7 @@ Claude Code already trusts on the desktop.
 
 ### With Machines: moving instead of pulling
 
-When both computers run Mother Claude and are paired under **Machines**
+When both computers run Mother Claude and are paired under **Computers**
 ([MACHINES.md](MACHINES.md)), a session goes straight from one to the other
 — *Continue on DESKTOP-PC* — with its code, without a backup folder. The
 two do different jobs, and work together:

@@ -20,18 +20,18 @@ layers:
    — a programmatic HTTP API over Claude on this machine (conversations, turns,
    SSE, tool approvals, images) plus a direct Messages API path. Mounted at `/v1`
    on the main server and on its own loopback port (default `5612`).
-   **It does not listen until started** from the app's API screen
+   **It does not listen until started** from Settings › HTTP API
    (`bridge::control`, `/api/bridge/*`); until then the routes that drive Claude
    answer `503 bridge_not_started` while discovery stays open. Start-time
    choices are *defaults* — every request may override them — and one of them is
    which conversation an unaddressed `/chat` message joins.
-   That is the **main** API server; the API screen adds more (`bridge::servers`,
-   saved in `<app data dir>/api-servers.json`, 0600), each with its own
-   loopback port, defaults, active conversation, token policy and started gate,
-   and reachable through the main ones at `/servers/<id>/` on the main API port
-   and `/servers/<id>/v1` on the main app port with the target's rules. One
-   with `accountOnly` runs **only** as its account (docs/ACCOUNTS.md §13.5).
-   See [docs/BRIDGE.md](docs/BRIDGE.md).
+   That is the **main** API server; Settings › HTTP API adds more
+   (`bridge::servers`, saved in `<app data dir>/api-servers.json`, 0600), each
+   with its own loopback port, defaults, active conversation, token policy and
+   started gate, and reachable through the main ones at `/servers/<id>/` on the
+   main API port and `/servers/<id>/v1` on the main app port with the target's
+   rules. One with `accountOnly` runs **only** as its account
+   (docs/ACCOUNTS.md §13.5). See [docs/BRIDGE.md](docs/BRIDGE.md).
 
 ## The one hard invariant: owned vs foreign sessions
 
@@ -297,8 +297,8 @@ Admission reads the account's 5-hour window (`claude::usage`), owned
 sessions' `rate_limit_event`s and hooked `StopFailure`s on a rate limit,
 memory from `sysinfo` (every 5 s, only the roster's pids), your cap (the
 lead not counted), project caps and budgets, and says every reason in the
-user's words; the last decision per (project, role) is kept for the
-Capacity page (`#/capacity`). Outcomes go to `outcomes.jsonl` and are
+user's words; the last decision per (project, role) is kept for Teams ›
+Capacity (`#/teams/capacity`). Outcomes go to `outcomes.jsonl` and are
 joined with the session's usage from its transcripts through the index
 (`claude/index/window.rs`, a line at a time); every dollar is an estimate.
 `scheduler.json` and `routing-policy.json` are ours (0600, read field by
@@ -350,9 +350,9 @@ bridge's Messages API client (an API key).
   it without setup; a tunnelled request needs a token, the tokenless mode turns
   off while a detected tunnel points at the port, and the LAN-reachable `/v1`
   mount always needs a token. The one exception is the operator's explicit
-  opt-in, the API screen's *Open to tunnels* switch (`openToTunnels` on
-  `POST /api/bridge/start`, desktop principal only to turn on;
-  `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never` is its starting position;
+  opt-in, the *Open to tunnels* switch on Settings › HTTP API
+  (`openToTunnels` on `POST /api/bridge/start`, desktop principal only to
+  turn on; `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never` is its starting position;
   `bridge::TokenPolicy::Never`, the running run's policy in
   `BridgeState::token_policy`): no token on the loopback port from anywhere,
   tunnels included, while a tunnel pointing at the port makes every tokenless
@@ -445,7 +445,7 @@ bridge's Messages API client (an API key).
 
 - **`POST /mcp` on the loopback listener only**: `404` on the LAN and tunnel
   listeners and through a tunnel or proxy, `403` for an `Origin` that is not
-  this machine's, `503` while Services › Claude Code tools is off. JSON-RPC,
+  this machine's, `503` while Settings › Claude Code tools is off. JSON-RPC,
   JSON answers, no SSE. Tools register in `mcp::registry()` (`mcp/mod.rs`
   is the contract); a tool's failure is an `isError` result, never a
   protocol error, and a tool never panics (release builds abort).

@@ -19,26 +19,26 @@ task to a session there, and run a team's role there. The design is in
 
 ## Turning it on
 
-Machines is off until you set it up: **Machines › Set up Machines** on the
-desktop. The setup runs on each computer — only a computer can check its
-own operating system — and once two are paired, each shows every computer's
-checklist side by side. Machines turns on only when no *required* check is
-left; the checks keep running afterwards as **Machines health** (a red dot
-on the sidebar entry when something breaks again).
+Computers is off until you set it up: **Computers › Set up your computers**
+on the desktop. The setup runs on each computer — only a computer can check
+its own operating system — and once two are paired, each shows every computer's
+checklist side by side. Computers turns on only when no *required* check is
+left; the checks keep running afterwards on **Computers › This Mac** (a red
+dot on the sidebar entry when something breaks again).
 
-While Machines is off on a computer, the others can pair with it and run
+While Computers is off on a computer, the others can pair with it and run
 the setup and its readiness test with it — nothing else: they don't see,
-drive or move its sessions ("Machines is off on DESKTOP-PC."), and it
-doesn't use theirs. *Turn Machines off* doesn't unpair; *Revoke* does.
+drive or move its sessions ("Computers is off on DESKTOP-PC."), and it
+doesn't use theirs. *Turn Computers off* doesn't unpair; *Revoke* does.
 
 The seven steps:
 
-1. **This computer** — its checks (below), each with what fixes it.
-2. **Your machines** — pair the others (next section).
-3. **Every machine, side by side** — a fix that needs a person at another
+1. **This Mac** (or **This PC**) — its checks (below), each with what fixes it.
+2. **Your computers** — pair the others (next section).
+3. **Every computer, side by side** — a fix that needs a person at another
    computer reads *On DESKTOP-PC:*; *Ask DESKTOP-PC to fix* shows it there as
    a notice. Nothing on a computer changes because another asked.
-4. **What each machine may do** — the permissions, per computer.
+4. **What each may do** — the permissions, per computer.
 5. **Accounts and folders** — each account matched by name on every
    computer, with its sign-in there (*Sign in on DESKTOP-PC…*, *Add it on
    DESKTOP-PC…*); your shared folders (*roots*: one folder per computer),
@@ -49,11 +49,11 @@ The seven steps:
 7. **Test, then turn on** — with each other computer: a connection, a 20 MB
    transfer, git and Claude Code on both, a code round trip both ways, the
    accounts and the folders, and a command each way *Run* is given; then
-   *Turn on Machines*.
+   *Turn on Computers*.
 
 ### What is checked
 
-*Required* blocks Machines; *recommended* works, but worse.
+*Required* blocks Computers; *recommended* works, but worse.
 
 | Check | Why | Fix |
 |---|---|---|
@@ -65,13 +65,13 @@ The seven steps:
 | **Windows:** the network type | on a *Public* network Windows blocks incoming connections | set your home or office network to *Private* |
 | **Windows:** the firewall | without a rule, the others reach this PC only through the relay | *Allow through the firewall*: one rule for Mother Claude, after Windows' administrator prompt |
 | The relay | across networks your computers meet through it | check its address, or pick the public relays |
-| Paired computers | Machines works between computers you paired | *Pair a machine* |
+| Paired computers | Machines works between computers you paired | *Pair a computer* |
 | Each paired computer | the same protocol and relay setting on both (and, recommended, the same code options) | update it / *Use this setting everywhere* |
 | git | a session's code moves through git: installed, 2.30 or newer | install it (*Xcode command line tools*, *Git for Windows*) |
 | **Windows:** long paths | Git for Windows leaves out paths over 260 characters unless `core.longpaths` is on (recommended) | *Turn on for git* (for you only); Windows' own setting: an administrator |
 | Claude Code | sessions run in it; recommended: not older than the other computers' | install it / *Update Claude Code* (`claude update`, when you press it) |
-| Claude Code tools | sessions here run commands on your other computers through Mother Claude's tools (`machine_run`) — recommended; required, for those tools only, once another computer gave this one *Run* | *Turn on* (*Services › Claude Code tools*) |
-| Each account | signed in here; a session moves to the account of the same name | *Sign in…* — required for **that account's** sessions only: Machines turns on without it |
+| Claude Code tools | sessions here run commands on your other computers through Mother Claude's tools (`machine_run`) — recommended; required, for those tools only, once another computer gave this one *Run* | *Turn on* (*Settings › Claude Code tools*) |
+| Each account | signed in here; a session moves to the account of the same name | *Sign in…* — required for **that account's** sessions only: Computers turns on without it |
 | Free space | moves and copies land in Mother Claude's data folder first (recommended: 5 GB) | free some space |
 
 The network checks are *required* only with the **No relay** setting: with a
@@ -79,14 +79,14 @@ relay, two computers still meet — through it, slower.
 
 *Through your git remote* needs each project's remote to answer without a
 password prompt on both computers. That is checked per project, when you ask
-(*Options › Each project › Check the remote*), and again before a move —
-never in the background.
+(*Computers › Options › Each project › Check the remote*), and again before a
+move — never in the background.
 
 ### Asked of another computer
 
 A fix, a sign-in, adding an account or cloning a project that needs someone
 at another computer is **asked** there: it shows as a notice and in
-*Asked by your other computers* on that computer's Machines page, and runs
+*Asked by your other computers* in that computer's Inbox, and runs
 only when someone there confirms it (*Not now* tells you so). A sign-in
 opens that computer's browser; a clone goes only into a folder of one of its
 shared folders, from a git remote without credentials, and never prompts for
@@ -101,8 +101,8 @@ a password.
 - A **shared folder** (a *root*) is one folder on each computer:
   `~/development/projects` on the Mac and `D:\development\projects` on
   Windows. A project under it on one is the same project, at the same
-  place, on the other. Your folder pairs from *Backup & sync* are kept, as
-  roots.
+  place, on the other. Your folder pairs from *Accounts › Backups* are kept,
+  as roots.
 - The setup looks at your projects and the folders right under your shared
   folders, reads each git repository's `origin`, and where the same remote
   is under folders of the same name on both computers, proposes their parent
@@ -113,16 +113,16 @@ a password.
 
 | Option | Choices |
 |---|---|
-| How code travels | **Machine to machine** (default): straight to the other computer, nothing pushed anywhere · **Through your git remote**: hidden refs on your remote, deleted after the move unless you keep them |
+| How code travels | **Computer to computer** (default): straight to the other computer, nothing pushed anywhere · **Through your git remote**: hidden refs on your remote, deleted after the move unless you keep them |
 | Where it lands | **In the project folder** when it has no changes of its own (default) · **Always a separate folder** (a worktree, in Mother Claude's data folder on the computer it goes to) |
 
 They are the same on every computer: a change is offered to the others,
 each taking it when someone there accepts. Each project can change them
-(*Each project*), with its **recipe**: commands to ask Claude to run after a
-move, per system (they go through the session's own approvals), and the
-files git ignores that travel with it (such as `.env.local`) — those
-usually hold secrets, so adding one needs the dangerous right, and so does
-each move that carries them (*Not in git*, below).
+(*Computers › Options › Each project*), with its **recipe**: commands to ask
+Claude to run after a move, per system (they go through the session's own
+approvals), and the files git ignores that travel with it (such as `.env.local`)
+— those usually hold secrets, so adding one needs the dangerous right, and so
+does each move that carries them (*Not in git*, below).
 
 ### The readiness test
 
@@ -139,8 +139,8 @@ scratch folder) and **Run here** (the other runs it here).
 
 ## Pairing
 
-On the first computer, **Machines › Pair a machine** shows an 8-character
-code (it works once, for five minutes). On the other, **Machines › Join**
+On the first computer, **Computers › Pair a computer** shows an 8-character
+code (it works once, for five minutes). On the other, **Computers › Join…**
 and type the code — it works across the internet too. On the same network
 the Join sheet lists the computers showing a code under *Nearby*, so you can
 check which one you join; you still type its code (joining is proven with
@@ -171,14 +171,14 @@ that computer again.
 
 Each is set separately for the **same network** (a direct path on your
 local network) and the **internet** (everything else). Change them on the
-Machines page; *Revoke* forgets a computer and cuts its connections at once
+Computers page; *Revoke* forgets a computer and cuts its connections at once
 — on this computer; *Revoke everywhere* does it on all of them
 ([below](#revoke-everywhere)).
 
 ## Seeing and driving another computer
 
-Once paired, with Machines on on both, every computer's sessions appear in
-**Sessions** with a chip naming their computer (the *Machine* filter picks
+Once paired, with Computers on on both, every computer's sessions appear in
+**Sessions** with a chip naming their computer (the *Computer* filter picks
 one computer); open one
 and use it as if it ran here — the message box, approvals, stop, model,
 effort. Its page says *Runs on DESKTOP-PC*. A few things stay on the
@@ -192,7 +192,7 @@ and opening it in VS Code.
 - **New session** has a *Where* choice: start it on another computer, in
   one of that computer's folders. Claude Code must already trust the folder
   there (open it there with Claude Code once).
-- The **Machines** page shows how many sessions each computer has and how
+- The **Computers** page shows how many sessions each computer has and how
   many run, with *Open its sessions*.
 - The page of another computer's session follows the commands it runs and
   the tasks it hands on (its background tasks) as they change there, as
@@ -240,21 +240,21 @@ written anywhere until you press **Continue on DESKTOP-PC**:
 - **What goes** — the conversation's size (with its subagents) and the
   code: its branch, how many files changed and how many are new.
 - **Not in git** — the files git ignores that the project lists to carry
-  (*Options › Each project*), such as `.env.local`: plain files inside the
-  project that git ignores there, up to 1 MB each and 50 in all, never
-  through a symbolic link. They usually hold secrets, so they go only with
-  the dangerous right here and the other computer's *Dangerous* permission
-  for this one; untick *Carry them* to leave them. A file of the same name
-  there is kept, and *Undo move* puts it back.
+  (*Computers › Options › Each project*), such as `.env.local`: plain files
+  inside the project that git ignores there, up to 1 MB each and 50 in all,
+  never through a symbolic link. They usually hold secrets, so they go only
+  with the dangerous right here and the other computer's *Dangerous*
+  permission for this one; untick *Carry them* to leave them. A file of the
+  same name there is kept, and *Undo move* puts it back.
 - **Where it goes** — the project's folder there: found through your folders
   (the same project on each computer), a folder pair, or the same path.
   *Change…* picks another; when it found none, *Choose its folder on
   DESKTOP-PC* lists that computer's projects.
-- **Code travels** — *Machine to machine* (the default: straight between
+- **Code travels** — *Computer to computer* (the default: straight between
   the two, nothing pushed anywhere), *Through your git remote* (hidden refs
   on your remote, removed afterwards: the remote must answer without a
   password prompt on both computers, checked before anything moves), or
-  *Only the conversation*. Machine to machine, code that would be more than
+  *Only the conversation*. Computer to computer, code that would be more than
   1 GB goes through your remote on its own when it answers without a prompt
   on both computers (a large first move over a slow link) — and the move
   says so under its steps; otherwise it goes as it is.
@@ -284,7 +284,7 @@ written anywhere until you press **Continue on DESKTOP-PC**:
 **Checks** lists what is fine, what blocks the move (with its fix: *Sign
 Work in on DESKTOP-PC*, *Update Mother Claude on DESKTOP-PC*…) and what only
 makes it worse (*Claude Code there is older*, line endings, Git LFS,
-submodules). Machines must be on on both computers. A blocker keeps the button from starting — *Fix the checks
+submodules). Both computers must have Computers on. A blocker keeps the button from starting — *Fix the checks
 first* — and the sheet offers what it can instead: a project folder there
 with changes of its own, or a branch that went on there, offers *Use a
 separate folder (worktree)*. A branch that went on there (commits there
@@ -354,14 +354,14 @@ Messages can't be sent to the copy here; its page says why.
 
 ### Undo
 
-**Undo move** — in the sheet when it is done, in *Recent moves* on the
-Machines page and on the session's Info tab — is offered for seven days. It
-puts the other computer's project folder and branch back as they were,
-takes the conversation's files there back out, and the session lives here
-again (it starts again here if it ran). It asks for a second tap. An undo is
-refused once the session went on there (bring it back instead, so nothing
-it did there is dropped), and a copy is never undone: stop or delete it
-there.
+**Undo move** — in the sheet when it is done, in *Recent moves* on
+Computers › Activity and on the session's Info tab — is offered for seven
+days. It puts the other computer's project folder and branch back as they
+were, takes the conversation's files there back out, and the session lives
+here again (it starts again here if it ran). It asks for a second tap. An
+undo is refused once the session went on there (bring it back instead, so
+nothing it did there is dropped), and a copy is never undone: stop or
+delete it there.
 
 ### What never moves
 
@@ -397,15 +397,15 @@ copy**. It is off until you turn it on.
 
 ### Turning it on
 
-- **One session**: its ⋯ menu › **Keep a copy on…** lists your computers,
+- **One session**: its ⋮ menu › **Keep a copy on…** lists your computers,
   each with a switch and how its copy stands. Save.
-- **Every session of a project**: Machines › Options › the project's
-  options › *Keep a copy of its sessions on*, one switch per computer. A
-  session's own choice in its menu wins over its project's; *As its project
-  says* goes back to the project's.
+- **Every session of a project**: Computers › Options › Each project › the
+  project's options › *Keep a copy of its sessions on*, one switch per
+  computer. A session's own choice in its menu wins over its project's; *As
+  its project says* goes back to the project's.
 
 The other computer must have given this one its **Move** permission (a copy
-is the first half of a move), and Machines must be on on both. Otherwise —
+is the first half of a move), and both must have Computers on. Otherwise —
 or while the other computer is offline — the copy is **paused** and says
 why; nothing is queued, and once that clears, the next copy sends
 everything that grew meanwhile.
@@ -433,16 +433,16 @@ In Mother Claude's own data folder on the other computer
 Claude Code's folder), readable by your user only — **never** in Claude
 Code's folders: the other computer's Claude Code doesn't see it until you
 move or continue the session there. Each computer keeps at most **2 GB** of
-another computer's copies (Machines › Options › *Copies of other computers'
-sessions*); past that, the copy refreshed longest ago goes first — never the
-copy of a session that lives on that computer now.
+another computer's copies (Computers › Options › General › *Copies of other
+computers' sessions*); past that, the copy refreshed longest ago goes first —
+never the copy of a session that lives on that computer now.
 
 ### What it says
 
 - **Copied at 14:32** — the copy there is as the session was after its last
   turn.
 - **Copies once its turn ends** — a turn runs; it goes when it ends.
-- **Paused: …** — the other computer can't be reached, Machines is off on
+- **Paused: …** — the other computer can't be reached, Computers is off on
   one of them, its Move permission is missing, its Mother Claude is older,
   its cap made room for newer copies (it goes again after the next turn), or
   the session lives on another computer now.
@@ -474,7 +474,7 @@ kept beside it as a conflict copy, never merged.
 
 ### The Copies card
 
-Machines › **Copies** lists the copies **held on this computer** (the
+**Copies**, on Computers › Overview, lists the copies **held on this computer** (the
 session, its computer, its size, when it was last copied — *Continue here*
 while its computer is offline, *Remove*) and the ones **kept on other
 computers** (how each stands — *Stop keeping it on …*, which also removes
@@ -484,7 +484,7 @@ until its own computer stops keeping it.
 ### From a phone
 
 A phone paired with the session's computer chooses where it keeps copies
-from the session's menu, and sees and removes copies on the Machines page.
+from the session's menu, and sees and removes copies on the Computers page.
 The cap is set on the desktop.
 
 ## Keeping code in sync
@@ -497,15 +497,17 @@ other computer.
 
 ### Turning it on
 
-1. On the desktop, open **Machines › Set up › Options**, and under **Each
-   project** choose the project (*Set a project's own options…*, or
-   **Change** on one already listed).
-2. Tick **Keep this project in sync with DESKTOP-PC** and press **Save**.
-3. DESKTOP-PC shows **Keep app in sync with MacBook** on its Machines page
-   (and as a notice), saying what travels — the commits, the branch and
-   the uncommitted changes, both ways; the files git ignores stay — and
-   that nothing is merged. Someone at DESKTOP-PC presses **Keep it in
-   sync** — or *Not now*.
+1. On the desktop, open **Computers › Code sync** and press **Keep a project
+   in sync…**.
+2. Pick the **Project** and, under **With**, DESKTOP-PC, and press **Keep it
+   in sync**. (A project's own options, under **Computers › Options › Each
+   project**, have the same choice: tick **Keep this project in sync with
+   DESKTOP-PC** and press **Save**.)
+3. DESKTOP-PC shows **Keep app in sync with MacBook** in its Inbox (and as a
+   notice), saying what travels — the commits, the branch and the
+   uncommitted changes, both ways; the files git ignores stay — and that
+   nothing is merged. Someone at DESKTOP-PC presses **Keep it in sync** — or
+   *Not now*.
 
 It is on only once both computers said yes. Then the first sync runs at
 once: the computer whose checkout has changes, or newer commits, sends them
@@ -516,13 +518,13 @@ or each has commits the other lacks, you choose which to keep first
 What it needs, checked when you turn it on:
 
 - **A shared folder** that maps the project to its folder on the other
-  computer (*Set up › Accounts and folders*); the folder there must be the
-  same project — the same `origin`, or a commit in common. If it is not
-  there yet, *Clone it on …* first.
+  computer (*Computers › Options › Accounts and folders*); the folder there
+  must be the same project — the same `origin`, or a commit in common. If it
+  is not there yet, *Clone it on …* first.
 - **The Move permission both ways**: code sync writes into each computer's
-  project folder, so each must have given the other *Move* (Machines › the
+  project folder, so each must have given the other *Move* (Computers › the
   computer › Change).
-- **Machines on** on both computers.
+- **Computers on** on both computers.
 
 ### What it keeps the same, and what it never touches
 
@@ -540,18 +542,18 @@ between the two computers.
 
 A few quiet seconds after a change — a saved file, a commit, a branch
 switch — the computer that changed sends it; a check every minute catches
-anything missed. **Sync now** on the Machines page runs one at once.
+anything missed. **Sync now** on Computers › Code sync runs one at once.
 
-### The Code sync card
+### The Code sync tab
 
-**Machines › Code sync** lists the projects kept in sync and how each
+**Computers › Code sync** lists the projects kept in sync and how each
 stands:
 
 - **In sync** — when it last synced, and which way.
 - **Syncing…** — a step runs.
 - **Waiting for DESKTOP-PC** — it was asked; nothing syncs until someone
   there confirms.
-- **Paused** — with the reason: the other computer is offline, Machines is
+- **Paused** — with the reason: the other computer is offline, Computers is
   off on one of them, a Move permission is missing, or a session working in
   the project is moving between the two computers. It goes on by itself
   once that ends — from the checkouts as they are then; nothing is queued.
@@ -587,7 +589,7 @@ then choose again.
 
 ### From a phone
 
-A phone sees the Code sync card with each project's state, read only:
+A phone sees Computers › Code sync with each project's state, read only:
 turning it on or off, *Sync now* and choosing a side happen on the
 desktop.
 
@@ -602,16 +604,16 @@ it may at all; you approve each run on the computer that asks.
 ### Turning it on
 
 1. On the computer that will run the commands (DESKTOP-PC), open
-   **Machines**; on the card of the computer whose sessions will ask, press
+   **Computers**; on the card of the computer whose sessions will ask, press
    **Change** next to *On this PC, … may*, tick **Run** — for the same
    network, the internet or both — and press **Save**. It is off for every
    computer until you tick it, and it needs *Drive* (which needs *See*).
-2. On the computer whose sessions ask (the Mac), keep **Services › Claude
+2. On the computer whose sessions ask (the Mac), keep **Settings › Claude
    Code tools** on (it is by default): sessions reach the other computer
    through Mother Claude's tools. The setup checks it — *Claude Code tools*,
    with *Turn on* — and once another computer gave this one *Run*, it is
    required for those tools (Machines itself works without it).
-3. Machines on, on both.
+3. Computers on, on both.
 
 The readiness test then runs a fixed `echo` each way *Run* is given
 (*Run there*, *Run here*).
@@ -677,7 +679,7 @@ ask — each run still needs the approval below. A session in
   `cargo test` on DESKTOP-PC for this project*: from then on, a command of
   this project that starts with those words runs on DESKTOP-PC without
   asking. It is saved in Mother Claude — not in Claude Code's settings —
-  and listed under *Always allowed runs* on the Machines page, where
+  and listed under *Always allowed runs* on Computers › Activity, where
   *Revoke* (desktop) takes it back. Attaching one needs the dangerous
   right (the desktop, or a device allowed dangerous actions), as every
   standing grant does; without it the card offers *Allow once* only.
@@ -699,8 +701,8 @@ A standing grant is narrow on purpose:
 
 On the computer that runs the commands, taking back the other's *Run* (in
 the column its run came in by: the same network, or the internet),
-revoking that computer or turning Machines off stops what it runs for that
-computer at once (turning Machines off: for every computer).
+revoking that computer or turning Computers off stops what it runs for that
+computer at once (turning Computers off: for every computer).
 
 ### Dangerous commands
 
@@ -745,8 +747,8 @@ own repository keeps its last three snapshots under the same refs.
 Submodules are not checked out in the work folder.
 
 No checkout there, and the run is refused: clone the project there first
-(*Set up › Accounts and folders*, *Clone it on DESKTOP-PC*), or add the
-shared folder it is under.
+(*Computers › Options › Accounts and folders*, *Clone it on DESKTOP-PC*), or
+add the shared folder it is under.
 
 ### How it runs
 
@@ -802,7 +804,7 @@ seconds while it runs), **Cancel** stops it there.
 
 ### The Runs card
 
-**Machines › Runs** lists the recent runs both ways — the ones this
+**Computers › Activity › Runs** lists the recent runs both ways — the ones this
 computer's sessions ran elsewhere and the ones other computers ran here —
 with the computer and which way, the project, the command, how it stands
 (*Running*, *Done*, *Failed*, *Ran out of time*, …), its exit code, time
@@ -895,7 +897,7 @@ task's id as well as a run's.
   asked.
 
 On the computer that runs a task, taking back *Run* (in the column the task
-came in by), revoking the computer that asked or turning Machines off
+came in by), revoking the computer that asked or turning Computers off
 cancels the task while its session works; a task that ended is left as it
 is.
 
@@ -954,7 +956,7 @@ with the dangerous right.
 
 ### Following tasks
 
-**Machines › Runs › Tasks** lists the tasks both ways — those this
+**Computers › Activity › Tasks** lists the tasks both ways — those this
 computer's sessions handed elsewhere (*To DESKTOP-PC*) and those other
 computers handed this one (*From MacBook*) — with the project, the task's
 first line, how it stands (*Working*, *Waiting for an answer*, *Bringing
@@ -997,9 +999,9 @@ work coming back to the Mac as a branch.
 
 - The computer that will run the role gives the lead's computer its
   **Run** permission (as for runs and tasks), and keeps *Claude Code tools*
-  on (Settings › Services): the role reaches the board through them. Both
-  need this version of Mother Claude: an older one answers *Update Mother
-  Claude on DESKTOP-PC: it does not run team roles yet.*
+  on (Settings › Claude Code tools): the role reaches the board through
+  them. Both need this version of Mother Claude: an older one answers
+  *Update Mother Claude on DESKTOP-PC: it does not run team roles yet.*
 - The project is a git repository, cloned on both computers (a shared
   folder maps it there, as for runs).
 - In the template, the role names the computer: `"machine": "DESKTOP-PC"`,
@@ -1043,20 +1045,20 @@ work coming back to the Mac as a branch.
   decide; while it waits, the message is refused with why), then the
   message reaches it. A message with images goes as before. Removing the
   team removes its worktree there.
-- **It counts where it runs.** The other computer's Capacity page lists its
-  session *for MacBook*; the lead's computer does not count it. The team
+- **It counts where it runs.** The other computer's Teams › Capacity lists
+  its session *for MacBook*; the lead's computer does not count it. The team
   page shows the role *on DESKTOP-PC*, why it waits (*on DESKTOP-PC: …*) or
   why it could not start, its worktree there and its branch. The lead's
-  Capacity page lists it too, under *On your other computers*, with that
+  Teams › Capacity lists it too, under *On your other computers*, with that
   computer's last decision — apart from its own counts.
 
 ### On the computer that runs it
 
-**Machines › Runs › Team roles** lists the roles this computer runs for
+**Computers › Activity › Team roles** lists the roles this computer runs for
 another's lead — the team, whose lead, how its session stands, its
 results — with **Open its session**, **Stop** (the lead starts it again
 when it has work) and **Remove** (its session, worktree and record here).
-Turning Machines off here, revoking the lead's computer or taking back its
+Turning Computers off here, revoking the lead's computer or taking back its
 **Run** stops them; so does a lead not heard from for 30 minutes while the
 session sits idle.
 
@@ -1078,7 +1080,7 @@ digits per pair. An **introduction** spares the codes, never the digits:
 1. Pair the new computer (C) with one of yours (A), by code.
 2. A offers **Also pair C with B?** for each of your other computers that
    isn't paired with C — right after pairing (in the pair and join sheets),
-   in the setup's *Your machines* step, and on the Machines page (*Pair
+   in the setup's *Your computers* step, and on the Computers page (*Pair
    your computers with each other*). A knows whom each is paired with
    because each computer's hello lists the ids of the computers it is paired
    with (ids only), to a computer it lets see its sessions.
@@ -1086,10 +1088,10 @@ digits per pair. An **introduction** spares the codes, never the digits:
    public keys (their endpoint ids) and last addresses, over A's own
    end-to-end encrypted links to each. Never a secret, never a permission.
    Nothing is paired yet.
-4. B and C each show the introduction: a notice, and the *Introductions*
-   card on the Machines page (*A introduces C: pair this computer with
-   it?*). **Pair with C…** on each starts this side of the pairing; **Not
-   now** declines it there and tells the other, and nothing is paired.
+4. B and C each show the introduction: a notice, and a card in the Inbox
+   (*A introduces C*). **Pair with C…** on each starts this side of the
+   pairing; **Not now** declines it there and tells the other, and nothing
+   is paired.
 5. C dials B **by the key A named** (the connection proves it), and the two
    run the normal pairing exchange directly: the commit-then-reveal over
    both keys, so both screens show the **same six digits**; when C came
@@ -1117,10 +1119,11 @@ your computers.*
 
 A computer that is off or away takes it when it is next heard (its hello,
 either way): the request is kept in `machines.json` until every computer
-took it, and *Revoked everywhere* on the Machines page says which ones still
-have to — offline, or too old to take it until it updates. The request names
-a third computer only: never the computer asked, nor the one asking, and it
-never adds anything — a computer the asked one doesn't know stays unknown.
+took it, and the Inbox says which ones still have to, under *To fix* (*… is
+not revoked everywhere yet*) — offline, or too old to take it until it
+updates. The request names a third computer only: never the computer asked,
+nor the one asking, and it never adds anything — a computer the asked one
+doesn't know stays unknown.
 
 ### Versions
 
@@ -1179,7 +1182,7 @@ computer and confirmed here. Only the desktop can change it.
 Your computers talk over QUIC between their keys, end to end encrypted:
 directly on the same network, hole-punched across networks when the
 networks allow it, otherwise through a **relay** that only ever sees
-ciphertext. In *Options*:
+ciphertext. In *Computers › Options*:
 
 - **Public relays** (default) — n0's, anywhere, no setup. Measured in the
   spikes: fine for driving sessions, slower for large transfers.
@@ -1211,7 +1214,7 @@ slow relay.
 
 - **"… has not accepted the introduction yet."** The introduced computer
   waits (*Waiting for … to accept the introduction there*): press **Pair
-  with …** in the *Introductions* card on the other one, within ten minutes.
+  with …** on its card in the other one's Inbox, within ten minutes.
 - **"Update Mother Claude on … first: it can't be introduced yet."** Its
   Mother Claude is older: update it there (**Ask … to update**), or pair the
   two by code.
@@ -1223,8 +1226,8 @@ slow relay.
 - **The other computer is not in *Nearby*.** *Nearby* only shows which
   computer shows a code: you always type the code, and it works across
   networks too. On a Mac, check Local Network access for Mother Claude.
-- **"Machines is off on DESKTOP-PC."** Turn it on there (its Machines page;
-  or here, when it names this computer). While Machines is off on a
+- **"Computers is off on DESKTOP-PC."** Turn it on there (its Computers page;
+  or here, when it names this computer). While Computers is off on a
   computer, the others can only pair and run the setup with it.
 - **"No computer showing this code was found."** Check the code, and that
   both computers have the internet or share a network; the code lasts five
@@ -1232,7 +1235,7 @@ slow relay.
 - **A computer shows *Through the relay* at home.** On the Mac, Local
   Network access; on Windows, the network type and the firewall check.
 - **"This computer has not given yours the … permission."** Change it on
-  the other computer's Machines page.
+  the other computer's Computers page.
 - **"DESKTOP-PC has no account named Work."** Add the account there with the
   same name (Accounts) and sign it in; a session of the Default account
   goes on under that computer's Default.
@@ -1242,17 +1245,17 @@ slow relay.
   or stash the changes there first.
 - **"The remote origin doesn't answer … without a prompt."** Sign in to the
   remote on that computer (Git Credential Manager, `gh auth login`), check
-  its address, or move the code machine to machine.
+  its address, or move the code computer to computer.
 - **"Carrying files git ignores needs …"** They need the dangerous right
   where the session lives and the *Dangerous* permission of the computer
   they go to — or untick *Carry them*, and they stay where they are.
 - **"DESKTOP-PC has not given this computer the Run permission."** Tick
-  *Run* for this computer on DESKTOP-PC's Machines page, in the column of
+  *Run* for this computer on DESKTOP-PC's Computers page, in the column of
   the network you use now.
 - **"app isn't on DESKTOP-PC: … Clone it on DESKTOP-PC first."** That computer has
-  no checkout of the project, or no shared folder maps it there: *Set up ›
-  Accounts and folders*, *Clone it on DESKTOP-PC* (or add the shared folder
-  it is under), then run it again.
+  no checkout of the project, or no shared folder maps it there: *Computers ›
+  Options › Accounts and folders*, *Clone it on DESKTOP-PC* (or add the shared
+  folder it is under), then run it again.
 - **"Update Mother Claude on DESKTOP-PC: it does not run commands for other
   computers yet."** Its Mother Claude is older: update it there.
 - **`npm` fails on Windows: "running scripts is disabled on this
@@ -1272,7 +1275,7 @@ slow relay.
   computers yet."** Its Mother Claude is older: update it there.
 - **"A session that runs in bypassPermissions on DESKTOP-PC needs
   DESKTOP-PC's Dangerous permission for this computer."** Tick *Dangerous*
-  for this computer on DESKTOP-PC's Machines page — or hand the task over in
+  for this computer on DESKTOP-PC's Computers page — or hand the task over in
   the default mode, and answer its approvals.
 - **"… isn't signed in on DESKTOP-PC."** The task's session runs under the
   account with the asking session's account's name there, else the Default:
@@ -1284,11 +1287,11 @@ slow relay.
   `git branch <name> <commit>`.
 - **A copy says *Paused: the other computer has not given this one the Move
   permission*.** Tick *Move* for this computer on the other computer's
-  Machines page, in the column of the network you use now; the copy goes at
+  Computers page, in the column of the network you use now; the copy goes at
   the session's next turn.
 - **A copy says *Paused: the other computer keeps less of this one's
   copies*.** It is larger than that computer's cap for this one, or the cap
   made room for newer copies: raise *Copies of other computers' sessions* in
-  its Options, or remove copies it keeps.
+  its Computers › Options, or remove copies it keeps.
 - **"… doesn't trust … yet" when continuing from a copy.** Open the project
   folder once with Claude Code on this computer, then continue again.

@@ -16,7 +16,7 @@ without turning on Claude's own Remote Control.
   and per-session Git history and worktrees.
 - **Control** sessions: spawn new ones, send instructions (with images and
   files), approve/deny permission prompts, answer questions and plans, switch
-  model / mode / effort, interrupt, continue or fork, and stop / respawn / remove.
+  model / mode / effort, interrupt, continue or fork, and stop / restart / remove.
 - Watch every running **agent**: subagents, workflow runs and background shells,
   with counts per session and their own live transcripts.
 - **Sessions started elsewhere**: approve, answer and message them from the
@@ -26,7 +26,7 @@ without turning on Claude's own Remote Control.
   finishes.
 - **Your language and colours**: English or Vietnamese, a dark (default),
   light or system theme, seven accents and four backgrounds — per device, in
-  **Settings → Appearance**. See [docs/I18N.md](docs/I18N.md).
+  **Settings › Appearance**. See [docs/I18N.md](docs/I18N.md).
 
 ## Download
 
@@ -46,7 +46,7 @@ drives the CLI. To build from source or cut a release yourself, see
 [Build & quality gates](#build--quality-gates) and [docs/RELEASING.md](docs/RELEASING.md).
 
 The desktop app **updates itself** — it checks for new versions on launch and you
-can install one from **Settings → Software updates**. See
+can install one from **Settings › Software updates**. See
 [docs/AUTOUPDATE.md](docs/AUTOUPDATE.md).
 
 ## The one hard constraint (read this)
@@ -63,10 +63,11 @@ undocumented protocol). So:
   by token.
 - **Foreign sessions** → full **monitoring** (transcripts, pidfiles, hook
   events), plus control through documented channels only:
-  - the optional **foreign-control plugin** (installed from **Remote** with
-    `claude plugin install`, never by editing your settings): approve and answer
-    prompts from the phone in parallel with the session's own dialog, relay
-    messages at the next stopping point, interrupt at the next tool call;
+  - the optional **Mother Claude plugin** (installed from **Settings › Sessions
+    started elsewhere** with `claude plugin install`, never by editing your
+    settings): approve and answer prompts from the phone in parallel with the
+    session's own dialog, relay messages at the next stopping point, interrupt
+    at the next tool call;
   - **tmux** sessions can be typed into (and answered with keys);
   - **background jobs** → lifecycle (stop / respawn / rm, by short job id), a
     terminal view and an experimental PTY injection that needs the dangerous
@@ -81,7 +82,7 @@ undocumented protocol). So:
 Design intent: make the dashboard the *launcher* so "full control" is the norm.
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
-## Good to know (a short version is in the app → Help → Good to know)
+## Good to know (a short version is in the app: Help › Good to know)
 
 - **Your laptop is the brain.** Mother Claude runs on your laptop and bridges it
   to your phone — it isn't a cloud. Keep the laptop **awake** (plugged in, sleep
@@ -95,11 +96,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   editor or terminal creates a fork: from then on there are two separate
   conversations. Carry on in one of them and close the other.
 - **Local first, internet when you choose.** Pair phones with a one-time QR code
-  from **Remote**. Internet access is off until you turn it on and point a
-  tunnel at it; internet pairings always wait for you to type the phone's 4
-  digits on the Mac. See [docs/REMOTE.md](docs/REMOTE.md).
-- **Several Claude accounts at once.** **Settings → Accounts** adds accounts
-  beside the one `~/.claude` is signed in to, each with a name of your choice:
+  from **Settings › Phone & devices**. Internet access is off until you turn it
+  on and point a tunnel at it; internet pairings always wait for you to type the
+  phone's 4 digits on the Mac. See [docs/REMOTE.md](docs/REMOTE.md).
+- **Several Claude accounts at once.** **Accounts** adds accounts beside the
+  one `~/.claude` is signed in to, each with a name of your choice:
   a *token account* (recommended: the same projects and conversations, another
   subscription — Mother Claude runs `claude setup-token` and keeps the token in
   the macOS Keychain) or a *directory account* (a fully separate Claude Code
@@ -107,7 +108,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   Pick the account per project or per session, and when one reaches its limit,
   **Switch account** — a session Mother Claude runs goes on under the other
   account in place (same conversation, same page); one running in a terminal
-  or editor can **Continue on…** another as a new session. Signing in opens
+  or editor can **Continue on another account…** as a new session. Signing in opens
   the link in your browser (or a private Chrome window, so a browser already
   signed in to another Claude account cannot authorize the wrong one), one
   sign-in at a time, and a sign-in that lands in a different Claude account
@@ -122,7 +123,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   removes conversations or whole projects (**Sessions › Projects** lists every
   project on disk) with the same preview and seven days to undo, and a
   conversation's transcript is a click away in Finder or File Explorer.
-- **Backups and a second laptop.** **Backup & sync** keeps encrypted
+- **Backups and a second laptop.** **Accounts › Backups** keeps encrypted
   backups of each account in a folder you choose (iCloud Drive, Google Drive…),
   and any number of further storages for archives and shared sets; the same
   folder carries conversations to another laptop. Back up, pull and restore
@@ -153,26 +154,27 @@ On start, the console prints the dashboard URLs (tokens only as fingerprints):
 ```
   Mother Claude dashboard
   Local:  http://127.0.0.1:6725
-  LAN:    https://192.168.x.x:6725  (pair from Remote in the app)
+  LAN:    https://192.168.x.x:6725  (pair from Settings › Phone & devices in the app)
   TLS fingerprint (SHA-256): AB:CD:…
   Token:  sha256:1a2b3c4d (the desktop app holds it)
   Claude: you@example.com (max)
-  API:    http://127.0.0.1:6725/v1  (not started — start it on the API screen)
+  API:    http://127.0.0.1:6725/v1  (not started — start it in Settings › HTTP API)
 ```
 
 ### Open it on your phone
 
 1. Connect the phone to the **same Wi-Fi**.
-2. On the desktop, open **Remote → Pair a device → Same Wi-Fi** and scan the
-   **QR** with the phone's camera. It encodes a one-time code (valid 5 minutes,
-   in the URL fragment — never a token). You can also type the code on the
-   phone's Pair page.
+2. On the desktop, open **Settings › Phone & devices › Pair a phone › Same
+   Wi-Fi** and scan the **QR** with the phone's camera. It encodes a one-time
+   code (valid 5 minutes, in the URL fragment — never a token). You can also
+   type the code on the phone's Pair page.
 3. The phone warns once about the Mac's certificate; the Pair page shows how to
    trust it (needed for live updates on iOS, the Home Screen app and push).
 
-Away from home, turn on **Remote → Internet access**, start one of the tunnel
-commands shown there, and pair with an **Internet** code: the phone shows 4
-digits and you type them on the Mac. Details in [docs/REMOTE.md](docs/REMOTE.md).
+Away from home, turn on **Settings › Phone & devices › Internet access**, start
+one of the tunnel commands shown there, and pair with an **Internet** code: the
+phone shows 4 digits and you type them on the Mac. Details in
+[docs/REMOTE.md](docs/REMOTE.md).
 
 ## Build & quality gates
 
@@ -201,7 +203,7 @@ OS permission and walks you through granting it:
 - **Local Network** (optional) — so your phone can reach the dashboard; macOS
   prompts the first time a device connects, just click Allow.
 
-You can skip and revisit anytime under **Settings → Permissions**.
+You can skip and revisit anytime under **Computers › This Mac › Permissions**.
 
 ## Configuration (env)
 
@@ -226,7 +228,7 @@ You can skip and revisit anytime under **Settings → Permissions**.
 | `MOTHER_CLAUDE_BRIDGE_ACCOUNT` | unset | The autostarted API's Claude account (an id or a name); one that does not exist starts nothing. |
 | `MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY` | off | `1` ⇒ the autostarted API runs as that account only. |
 | `MOTHER_CLAUDE_BRIDGE_PORT` | `5612` | Dedicated loopback API port; `0` ⇒ serve only `/v1`. |
-| `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` ⇒ require the token on the loopback bridge port too. `never` ⇒ start with the API screen's *Open to tunnels* switch on: no token from anyone who can reach that port, through a tunnel too ([BRIDGE.md](docs/BRIDGE.md#what-the-open-default-actually-means)). |
+| `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` ⇒ require the token on the loopback bridge port too. `never` ⇒ start with the *Open to tunnels* switch (Settings › HTTP API) on: no token from anyone who can reach that port, through a tunnel too ([BRIDGE.md](docs/BRIDGE.md#what-the-open-default-actually-means)). |
 | `MOTHER_CLAUDE_BRIDGE_CWD` | home dir | Default working directory for API conversations. |
 | `MOTHER_CLAUDE_BRIDGE_ORIGINS` | unset | Unset ⇒ any browser origin may call the bridge; set ⇒ strict allowlist. |
 | `ANTHROPIC_API_KEY` | unset | Enables the bridge's direct Messages API routes. |
@@ -262,7 +264,7 @@ curl -sS http://127.0.0.1:5612/chat -H 'Content-Type: application/json' \
   -d '{"message":"What does this project do?","cwd":"/path/to/repo"}'
 ```
 
-Open the app's **API** screen, pick the defaults you want (working directory,
+In **Settings › HTTP API**, pick the defaults you want (working directory,
 model, effort, permissions, and which conversation messages join), and press
 **Start**. Nothing listens until you do. After that there is no token and no
 setup for programs on this machine — curl, Postman, Swagger and a web app you
@@ -284,19 +286,19 @@ can use them over TLS. A conversation created through the API shows up in the
 dashboard like any other session, and its approval prompts appear on both.
 
 With more than one Claude account you can run **an API server per account**:
-*Add API server* on the API screen gives one a port of its own (5613, 5614, …),
-its own defaults and, with *Only this account*, an account it runs as and
-nothing else — another account's conversations do not exist through it, so you
-can put one account's API behind a tunnel without opening the others. Every
+*Add API server* on **Settings › HTTP API** gives one a port of its own (5613,
+5614, …), its own defaults and, with *Only this account*, an account it runs as
+and nothing else — another account's conversations do not exist through it, so
+you can put one account's API behind a tunnel without opening the others. Every
 server is also reachable through the main port at `/servers/<id>/` (and on the
 LAN at `/servers/<id>/v1`, with a token).
 
 Full reference: **[docs/BRIDGE.md](docs/BRIDGE.md)**.
 
-> For access from outside your network, use **Remote → Internet access** and a
-> tunnel to its local-only port (6726) — never a raw port forward. Devices need
-> their own pairing and never get dangerous actions through a tunnel unless you
-> grant them. The bridge port (5612) binds loopback only; a tunnel pointed at it
-> switches its tokenless mode off — and so for every other API server's port,
-> each on its own. See [SECURITY.md](SECURITY.md) and
-> [docs/REMOTE.md](docs/REMOTE.md).
+> For access from outside your network, use **Settings › Phone & devices ›
+> Internet access** and a tunnel to its local-only port (6726) — never a raw
+> port forward. Devices need their own pairing and never get dangerous actions
+> through a tunnel unless you grant them. The bridge port (5612) binds loopback
+> only; a tunnel pointed at it switches its tokenless mode off — and so for
+> every other API server's port, each on its own. See [SECURITY.md](SECURITY.md)
+> and [docs/REMOTE.md](docs/REMOTE.md).

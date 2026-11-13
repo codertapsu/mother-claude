@@ -46,7 +46,7 @@ helper, the token file), `api.rs` (the dashboard's panel), `session_tool.rs`
   `machine_output` 20), a
   cancellation (`cancelled`) and a panic guard (`internal`, debug builds;
   release builds abort on a panic, so a tool must never panic).
-* **Off switch**: Services › Claude Code tools (desktop only, persisted in
+* **Off switch**: Settings › Claude Code tools (desktop only, persisted in
   `<app data>/mcp-settings.json`). Off: every `/mcp` request gets `503
   mcp_disabled`, the plugin entries and the token file are removed, owned
   sessions get no plugin. On by default.
@@ -61,7 +61,7 @@ a dashboard card; a foreign session's is its own dialog).
 
 | Session | Path |
 |---|---|
-| Terminal, VS Code, JetBrains, Desktop (foreign) | The installed Mother Claude plugin (Remote › Foreign-session control). The CLI reads the plugin from our data dir in place, so the `.mcp.json` written there reaches every session started afterwards; running sessions need `/reload-plugins` or a restart. |
+| Terminal, VS Code, JetBrains, Desktop (foreign) | The installed Mother Claude plugin (Settings › Sessions started elsewhere). The CLI reads the plugin from our data dir in place, so the `.mcp.json` written there reaches every session started afterwards; running sessions need `/reload-plugins` or a restart. |
 | Sessions Mother Claude launches (owned, Path B) | Their own copy of the plugin, loaded inline: `claude -p … --plugin-dir <app data>/mcp-plugin/mother-claude` (`claude::control::headless_command`). Works for every account kind, installed plugin or not. |
 | Path A sidecar sessions, HTTP bridge conversations | Not yet (the Agent SDK takes `plugins: [{type: "local", path}]`; to do). |
 
@@ -321,7 +321,7 @@ How a call goes:
   computers (MACHINES.md, SECURITY.md "Running commands", "Handing a task
   over").
 
-## The panel (Services › Claude Code tools)
+## The panel (Settings › Claude Code tools)
 
 `GET /api/mcp` (desktop, paired devices, local scripts): on/off, the tool
 count and names, sessions heard from in the last 15 minutes, whether owned
@@ -330,8 +330,9 @@ arguments); for the desktop also the installed plugin (installed, the
 version sessions load, the version this app writes, `outdated`), unless the
 request says `?plugin=false`. The panel polls every 5 s with it: the plugin's
 state may run `claude plugin list` (cached 30 s), which writes the CLI's own
-`.claude.json`, so only a page load, the toggle and the foreign-control page
-read it. `PUT /api/mcp/settings {"enabled": bool}` — the desktop only.
+`.claude.json`, so only a page load, the toggle and the Sessions started
+elsewhere page read it. `PUT /api/mcp/settings {"enabled": bool}` — the
+desktop only.
 
 The hint "Update the plugin to give sessions Mother Claude's tools" shows
 when the plugin is installed but sessions load another version than this app
@@ -362,9 +363,9 @@ machines); see the contract in `mcp/mod.rs`. A tool:
 |---|---|
 | `/mcp` in a session shows `plugin:mother-claude:mc` failed, `ECONNREFUSED` | Mother Claude was not running when the session started (the CLI tries three times, then gives up). Start the app, then reconnect in `/mcp` or restart the session. |
 | Failed with `Dynamic Client Registration rejected` or an OAuth error | The helper sent no valid token, so Claude Code tried OAuth against the server (`/.well-known/oauth-*`, `POST /register`). Check that `<app data>/mcp.token` exists (the setting is on) and that the entry quotes the helper. |
-| No `mcp__plugin_mother-claude_mc__…` tools in a foreign session | Foreign control is not installed for that account, or the session started before the entry existed: `/reload-plugins`. |
-| Calls fail with `mcp_disabled` | Services › Claude Code tools is off. |
-| A `machine_*` tool says Machines is off, *Update Mother Claude on …*, or that a computer has not given this one the Run permission | See [MACHINES.md](MACHINES.md) "Troubleshooting". |
+| No `mcp__plugin_mother-claude_mc__…` tools in a foreign session | The Mother Claude plugin is not installed for that account (Settings › Sessions started elsewhere), or the session started before the entry existed: `/reload-plugins`. |
+| Calls fail with `mcp_disabled` | Settings › Claude Code tools is off. |
+| A `machine_*` tool says Computers is off, *Update Mother Claude on …*, or that a computer has not given this one the Run permission | See [MACHINES.md](MACHINES.md) "Troubleshooting". |
 | A tool says it cannot tell which session is calling | The CLI's pidfile was not readable yet, or the session runs under a config directory Mother Claude does not know. |
 | Sessions break after changing `MOTHER_CLAUDE_PORT` | The URL is fixed when a session starts: restart the session. |
 

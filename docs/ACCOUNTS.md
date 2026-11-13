@@ -540,8 +540,8 @@ now also fills `accountUuid` in the registry.
 
 ### 5.5 Bridge conversations (`bridge/`, `sidecar/src/bridge-host.ts`)
 
-`BridgeDefaults.account` (start-time default, chosen on the API screen) and a
-per-request `account` on `POST /threads` and `/chat`. The sidecar's
+`BridgeDefaults.account` (start-time default, chosen on Settings › HTTP API)
+and a per-request `account` on `POST /threads` and `/chat`. The sidecar's
 `buildOptions` sets the SDK's `Options.env` per query from an `env` object the
 Rust side sends with the session options (the sidecar process itself keeps the
 scrubbed environment; the token is handed per query so one host serves every
@@ -817,26 +817,26 @@ lands in — and is shown and continued in — the matching project on each.
 
 ## 6. UI (Angular)
 
-1. **Settings → Accounts** (new page, desktop-only actions): the list with
+1. **Accounts** (new page, desktop-only actions): the list with
    name, kind, directory, sign-in state, plan usage sparkline, hooks plugin
    state; *Add account* (choose "shared data, another account" → token, or
    "separate directory" → directory, with the trade-offs in one sentence
    each); rename, colour, remove; defaults for new sessions and the API; the
    per-project table.
 2. **Account picker** on *New session* (pre-selected from `byProject`, then
-   the default), on the API screen's defaults, and as a **Continue on…** entry
-   in a session's menu. When an account hits a limit, the sessions list and
-   the session page show "Account *Work* has reached its 5-hour limit — continue
-   on *Marcus (Pro)*?".
+   the default), on Settings › HTTP API's defaults, and as a **Continue on…**
+   entry in a session's menu. When an account hits a limit, the sessions list
+   and the session page show "Account *Work* has reached its 5-hour limit —
+   continue on *Marcus (Pro)*?".
 3. **Badges and filters:** a coloured account chip on session cards, the
    session header, Inbox items, Agents and background jobs; an account filter
    on Sessions and Inbox; the fleet summary per account.
-4. **Plan meter** shows the selected account with a switcher; the sheet lists
-   every account's windows.
+4. **Plan meter** shows the selected account with a switcher; **Accounts ›
+   Usage** lists every account's windows.
 5. **Move/copy dialog** from a session or project menu: source, target, move
    or copy, the trust checkbox, a dry-run list of what will be written, then
    progress and an *Undo* button for seven days.
-6. **Settings → Backup & sync:** folder picker with iCloud Drive and Google
+6. **Accounts › Backups:** folder picker with iCloud Drive and Google
    Drive suggested when present, passphrase (generated, shown once, kept in
    the Keychain), *Back up now*, schedule, last push per account, *Restore…*
    and *Pull…* with the session list and conflicts.
@@ -1056,16 +1056,17 @@ Everything above runs against the fake CLI, a fake bridge host and temp
 directories. These need the maintainer's Macs, real sign-ins and a real cloud
 folder, and spend a little plan usage:
 
-1. **A token account** (P1.3, P1.5): Settings → Accounts → Add → *Shared data,
+1. **A token account** (P1.3, P1.5): Accounts → *Add account* → *Shared data,
    another account* → *Sign in to get a token*; sign in in the browser with the
    second subscription. The account shows *Token · signed in*. On a session of
    the Default: *Continue on…* the new account; the fork answers, and the plan
    meter of the new account moves after its first turn.
 2. **A directory account** (P1.3, P2.1, P2.4): Add → *Separate directory* →
    `~/.claude-work` → *Sign in now*; the account shows its email. Install the
-   hooks plugin for it, start `CLAUDE_CONFIG_DIR=~/.claude-work claude` in a
-   terminal: the session is listed with the account's chip, and an approval it
-   asks for reaches the phone.
+   hooks plugin for it (Settings › Sessions started elsewhere), start
+   `CLAUDE_CONFIG_DIR=~/.claude-work claude` in a terminal: the session is
+   listed with the account's chip, and an approval it asks for reaches the
+   phone.
 3. **A terminal session with the token** (P2.2): `CLAUDE_CODE_OAUTH_TOKEN=<the
    token> claude` with the plugin installed: after its first tool call the
    session shows the token account's chip.
@@ -1414,9 +1415,9 @@ Storages, all `DesktopOnly` to change, `Authed` to read:
 §5.5's `BridgeDefaults` plus `accountOnly`. The **main** server (id `main`) is
 the one there always was: port 5612 (`MOTHER_CLAUDE_BRIDGE_PORT`), `/v1` on the
 main server, its defaults not saved, exactly as before. Others are added on
-the API screen and saved in `<app data dir>/api-servers.json` (0600), each with
-a loopback port of its own (1024–65535, none another server's, the main
-server's or the tunnel listener's). None listens until it is started; the
+Settings › HTTP API and saved in `<app data dir>/api-servers.json` (0600),
+each with a loopback port of its own (1024–65535, none another server's, the
+main server's or the tunnel listener's). None listens until it is started; the
 "open to tunnels" choice is made at each start and never saved.
 `MOTHER_CLAUDE_BRIDGE_AUTOSTART=1` starts the main server at launch as before,
 `=all` every saved one too (each closed to tunnels);
@@ -1451,8 +1452,8 @@ no `/v1`.
 
 **Tunnels per server.** Detection tracks every server's port: a tunnel to a
 server's port turns that server's tokenless mode off while it lasts, as it does
-for the main port, and the Remote page and the API screen name the server a
-tunnel points at.
+for the main port, and Settings › Phone & devices and Settings › HTTP API name
+the server a tunnel points at.
 
 **Who may.** As `POST /api/bridge/start` today: anyone authenticated to the
 dashboard may add, start, stop, change and remove servers; the dangerous parts
@@ -1552,13 +1553,13 @@ says so and cannot start (`account_not_found`) until another is chosen.
    customizations; *Move* or *Copy*; the trust and replace options; the dry
    run (what goes, what is skipped and why, warnings); then progress and Undo.
 3. **Accounts**: *Move or copy data…* on each account.
-4. **Backup & sync**: a *Storage* section — the backup folder first, *Add
+4. **Accounts › Backups**: a *Storage* section — the backup folder first, *Add
    storage…* (the same suggestions as the folder), and each storage's sets
    with *Bring back…* and *Move here…*.
-5. **API**: the servers, main first, each with its state, port, account and
-   tunnel; *Add API server* (name, account, *Only this account*, port, the
-   defaults); the panel shows the selected server, with its addresses (its
-   port, through the main port, on the network).
+5. **Settings › HTTP API**: the servers, main first, each with its state,
+   port, account and tunnel; *Add API server* (name, account, *Only this
+   account*, port, the defaults); the panel shows the selected server, with its
+   addresses (its port, through the main port, on the network).
 6. **Phones** (LAN or tunnel) get all of it, as §13.9 says: Select, Move
    data, Undo, the storages, Back up now, Restore, Pull, the backup settings,
    account defaults and copy consent, and the API servers. What needs the
@@ -1815,15 +1816,14 @@ the folder its summary shows. Phones and the local-script token read it too.
 
 1. **Sessions → Select** is always offered (not only when there is somewhere
    to move to): the bar gains *Delete N…* beside *Move or copy N…*.
-2. **Projects**: a view of `GET /api/data/projects` (a *Sessions / Projects*
-   switch on the Sessions page): name, folder, account chip, conversations,
-   size, last activity; *Select* with *Delete N…* and *Move or copy N…*; each
-   row's menu: *Show in Finder* (desktop), *Copy path*, *Move or copy…*,
-   *Delete…*.
+2. **Projects**: a view of `GET /api/data/projects` (the *Projects* tab of
+   Sessions): name, folder, account chip, conversations, size, last activity;
+   *Select* with *Delete N…* and *Move or copy N…*; each row's menu: *Show in
+   Finder* (desktop), *Copy path*, *Move or copy…*, *Delete…*.
 3. **A session**: its info panel shows the transcript's path (and folder) with
    *Copy path* and, on the desktop, *Show in Finder* / *Show in File Explorer*
-   (the label follows the platform); its menu gains *Delete…*. The API
-   screen's conversations get the same two entries.
+   (the label follows the platform); its menu gains *Delete…*. The
+   conversations on Settings › HTTP API get the same two entries.
 4. **The delete dialog**: the dry run (what goes, sizes, what is skipped and
    why), *Keep a copy for 7 days so this can be undone* (on by default; off
    says "deleted for good, right away"), and the confirm button names the

@@ -7,7 +7,7 @@ now and why it waits, what tasks cost and how they ended, and budgets. Code:
 the contract; `host.rs`, `limits.rs`, `policy.rs`, `classify.rs`,
 `outcomes.rs`, `budget.rs`, `reports.rs`, `scheduler.rs`, `capacity_api.rs`
 behind them), `src-tauri/src/claude/index/window.rs` (a session's usage
-between two times). UI: the **Capacity** page (`#/capacity`).
+between two times). UI: **Teams › Capacity** (`#/teams/capacity`).
 
 The teams side calls three functions and nothing else of this side; this side
 never launches, stops or messages a session.
@@ -57,14 +57,14 @@ The weekly windows do not hold anything up; they feed the router.
 
 The last decision per (project, role) is kept with its reasons (a waiting one
 for 10 minutes after its last ask, a started one for 2 minutes), and the role
-sessions teams reports running are kept while they live. That is how the
-Capacity page shows who waits and why without knowing the teams code.
+sessions teams reports running are kept while they live. That is how
+Teams › Capacity shows who waits and why without knowing the teams code.
 
 A team role that runs on another computer (docs/TEAMS.md "A role on another
 computer") is admitted by **that** computer, with its own settings and every
 role session it runs — its own teams' and the ones it runs for others
 (`RunningWorker::for_machine`, the lead's computer's name) — and counts only
-there: its Capacity page lists it *for <the lead's computer>*, the lead's
+there: its Teams › Capacity lists it *for <the lead's computer>*, the lead's
 computer neither counts nor lists it (its team page says where it runs and,
 while it waits, that computer's reasons). The router still chooses its
 model and effort on the lead's computer.
@@ -115,7 +115,7 @@ at startup):
 * `cleanToStepDown` (2) clean completions of the class (done, gate not failed,
   never escalated) take the class one step back down.
 
-Every decision carries its reason; the last 50 are on the Capacity page. The
+Every decision carries its reason; the last 50 are on Teams › Capacity. The
 policy is edited on the desktop (validated: known models and efforts, each
 rung above the one before, the gate cheaper than Opus) and reset by removing
 the file.

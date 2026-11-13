@@ -5,8 +5,10 @@ one is doing, its agents, and the approvals, questions and plans waiting for you
 It works at home over Wi-Fi and, if you choose, from anywhere through a tunnel
 you run yourself. It does not use or need Claude's own Remote Control.
 
-Everything is set up on the desktop app's **Remote** page (sidebar → Remote). On
-a phone the same page only says that it is managed from the desktop.
+Everything is set up on the desktop app's **Phone & devices** page (Settings ›
+Phone & devices). On a phone the same page shows that phone, then the devices
+paired, read only: pairing, internet access and what each device may do are
+changed on the desktop.
 
 The security model behind this guide is in [SECURITY.md](../SECURITY.md).
 
@@ -31,16 +33,16 @@ The security model behind this guide is in [SECURITY.md](../SECURITY.md).
 | `5613…` | `127.0.0.1` (HTTP), each added API server once started | local tools, through an API server you added ([BRIDGE.md](BRIDGE.md#several-api-servers)) | as `5612`, under that server's own policy                            |
 
 `MOTHER_CLAUDE_PORT`, `MOTHER_CLAUDE_TUNNEL_PORT` and `MOTHER_CLAUDE_BRIDGE_PORT`
-change them; an added API server's port is chosen on the API screen. Every
+change them; an added API server's port is chosen on Settings › HTTP API. Every
 API server is also reachable through `5612` at `/servers/<id>/`, and through
 `6725` at `/servers/<id>/v1/` with a token.
 
 ## At home: pair over Wi-Fi
 
-1. On the Mac, open **Remote → Pair a device**, choose **Same Wi-Fi** and press
-   **Show pairing code**. A QR code and a 12-character code appear. The code
-   works once and expires after 5 minutes. With more than one network address,
-   pick the one the phone can reach.
+1. On the Mac, open **Settings › Phone & devices › Pair a phone**, choose **Same
+   Wi-Fi** and press **Show pairing code**. A QR code and a 12-character code
+   appear. The code works once and expires after 5 minutes. With more than one
+   network address, pick the one the phone can reach.
 2. Scan the QR code with the phone's camera. Or open the address shown under
    the code (`https://<Mac's address>:6725`) on the phone and type the code on
    its Pair page.
@@ -56,24 +58,24 @@ you control.
 
 Mother Claude listens on the Mac's private IPv4 addresses (`192.168.x.x`,
 `10.x.x.x`, `172.16–31.x.x`, `169.254.x.x`) and never on a public or IPv6
-address. The Remote page lists any address it skipped and why. The first time a
-phone connects, macOS may ask whether Mother Claude may use the local network:
-allow it.
+address. The Phone & devices page lists any address it skipped and why. The
+first time a phone connects, macOS may ask whether Mother Claude may use the
+local network: allow it.
 
 ### The Mac's certificate
 
 At home the connection is HTTPS with a certificate from a small certificate
 authority that Mother Claude creates on the Mac the first time it runs. The
 phone does not know it, so it warns once ("This connection is not private").
-You can tap through; the Remote page shows the certificate's fingerprint to
-compare.
+You can tap through; the Phone & devices page shows the certificate's
+fingerprint to compare.
 
 Until the phone trusts it, some things don't work: iOS refuses live updates over
 an untrusted certificate (the app then shows **Limited** and refreshes every few
 seconds instead), and push notifications and the installed Home Screen app need
 a trusted address. To trust it:
 
-- **iPhone / iPad**: on the phone's Pair page open **Trust this Mac → Download
+- **iPhone / iPad**: on the phone's Pair page open **Trust this Mac › Download
   the profile** (`/api/pair/ca.mobileconfig`). Install it under Settings ›
   General › VPN & Device Management, then turn on full trust under Settings ›
   General › About › Certificate Trust Settings. Reload the page.
@@ -92,8 +94,8 @@ An app added to the Home Screen (Safari › Share › Add to Home Screen) keeps 
 own storage, separate from Safari, so it has to pair on its own. In a paired
 Safari tab, open **Settings › Home Screen app › Set up the Home Screen app**. It
 shows a one-time code that works for 5 minutes and only for this device; type it
-on the Home Screen app's Pair page. The Remote page then shows the device "with
-its Home Screen app".
+on the Home Screen app's Pair page. The Phone & devices page then shows the
+device "with its Home Screen app".
 
 The same code works for any second address of the same phone. A pairing
 belongs to the address it was made on, because browser storage is per site, so
@@ -103,12 +105,12 @@ and type it at the new address.
 
 ### Tailscale addresses
 
-With **Also listen on Tailscale** (Remote › Internet access) the dashboard is
-served on the Mac's Tailscale address (`100.x.y.z`) as well. A request that
-arrives there is treated like one from the internet: a **Same Wi-Fi** code is
-refused, and the device's **… over the internet** grant applies. Pair on Wi-Fi
-first and add the Tailscale address with a code from Settings (above), or use
-Tailscale Serve (below), which gives a real certificate.
+With **Also listen on Tailscale** (Settings › Phone & devices › Internet
+access) the dashboard is served on the Mac's Tailscale address (`100.x.y.z`)
+as well. A request that arrives there is treated like one from the internet: a
+**Same Wi-Fi** code is refused, and the device's **… over the internet** grant
+applies. Pair on Wi-Fi first and add the Tailscale address with a code from
+Settings (above), or use Tailscale Serve (below), which gives a real certificate.
 
 ## Away from home: Internet access through a tunnel
 
@@ -116,11 +118,11 @@ Mother Claude never opens a port to the internet itself. You run a tunnel
 (Tailscale, ngrok or Cloudflare) on the Mac, and it forwards to a port that
 only listens on `127.0.0.1`.
 
-1. On the Remote page, under **Internet access**, turn on **Allow access
-   through a tunnel**. Mother Claude starts listening on `127.0.0.1:6726`. It
-   is off by default.
-2. Start one of these on the Mac. The Remote page shows each command with a
-   copy button and marks the tools it found installed:
+1. On the Phone & devices page, under **Internet access**, turn on **Allow
+   access through a tunnel**. Mother Claude starts listening on
+   `127.0.0.1:6726`. It is off by default.
+2. Start one of these on the Mac. The Phone & devices page shows each command
+   with a copy button and marks the tools it found installed:
 
    | Tunnel                                               | Command                                          | Address you get                                             |
    | ---------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------- |
@@ -134,8 +136,8 @@ only listens on `127.0.0.1`.
    devices signed in to your tailnet can reach the address at all.
 
 3. Mother Claude finds the public address by itself by asking the tunnel tools
-   running on the Mac (every 10 seconds while the Remote page is open or
-   Internet access is on; Tailscale every 30):
+   running on the Mac (every 10 seconds while the Phone & devices page is open
+   or Internet access is on; Tailscale every 30):
    - ngrok: its local agent API on `127.0.0.1:4040` (or `4041`);
    - cloudflared: the quick-tunnel metrics on `127.0.0.1:20241–20245`;
    - Tailscale: `tailscale serve status --json` (Serve and Funnel).
@@ -144,19 +146,19 @@ only listens on `127.0.0.1`.
    `https://` address under **Or enter it yourself**. Mother Claude never
    believes an address that a request claims for itself.
 
-4. Under **Pair a device**, choose **Internet** and press **Show pairing code**.
+4. Under **Pair a phone**, choose **Internet** and press **Show pairing code**.
    Scan it with the phone (on mobile data, say). The phone opens the public
    address and shows **4 digits**.
-5. On the Mac, a **Waiting for your approval** card appears (a dialog pops up
-   wherever you are in the app). Press **Approve…** and type the 4 digits the
-   phone shows. Three wrong tries deny the request. Nobody gets in through the
-   internet without you typing those digits at the Mac.
+5. On the Mac, a card appears in the **Inbox** (a dialog pops up wherever you
+   are in the app). Press **Approve…** and type the 4 digits the phone shows.
+   Three wrong tries deny the request. Nobody gets in through the internet
+   without you typing those digits at the Mac.
 
 Turning Internet access off stops the tunnel port and cuts every connection that
 came through it, live updates included. A tunnel you pointed at `6725` instead
 keeps working, because it bypasses that port, so point tunnels at `6726`.
 
-### Warnings on the Remote page
+### Warnings on the Phone & devices page
 
 - **ngrok's inspector is recording.** By default ngrok keeps every request,
   headers included, at `http://127.0.0.1:4040` for anything on the Mac to read.
@@ -170,9 +172,9 @@ keeps working, because it bypasses that port, so point tunnels at `6726`.
   from the internet), but 6726 serves fewer routes and insists on HTTPS.
 - **A tunnel points at the Claude API port (5612).** Anyone who finds the address
   could try to drive Claude. The API's tokenless mode is switched off until that
-  tunnel stops — unless the API screen's *Open to tunnels* switch is on, in
-  which case the API is open through the tunnel without a token, and the warning
-  says so ([BRIDGE.md](BRIDGE.md#what-the-open-default-actually-means)).
+  tunnel stops — unless the *Open to tunnels* switch (Settings › HTTP API) is
+  on, in which case the API is open through the tunnel without a token, and the
+  warning says so ([BRIDGE.md](BRIDGE.md#what-the-open-default-actually-means)).
 - **A tunnel points at another API server's port.** The same, for that server
   alone: the warning names it, only its port's tokenless mode is switched off,
   and the other servers are not affected. A tunnel to `5612` reaches every
@@ -187,9 +189,9 @@ keeps working, because it bypasses that port, so point tunnels at `6726`.
 
 ## Devices
 
-**Remote → Paired devices** lists every device with its platform, how it last
-connected (local network or internet), when and from which address, and its
-open connections.
+**Settings › Phone & devices › Paired devices** lists every device with its
+platform, how it last connected (local network or internet), when and from
+which address, and its open connections.
 
 - **Rename** (the pencil) or **Revoke**. Revoking erases the device's tokens,
   closes its connections at once and deletes its push subscriptions. It has to
@@ -214,18 +216,19 @@ Mac and is written to the audit log (see [SECURITY.md](../SECURITY.md#logs-and-a
 ### Devices and your other computers
 
 A **device** — a phone, a tablet, a browser — is paired with **one**
-computer, here on the Remote page, and holds a token that computer gave it.
-It is a client: it uses that computer's dashboard, and nothing else uses it.
+computer, here on the Phone & devices page, and holds a token that computer
+gave it. It is a client: it uses that computer's dashboard, and nothing else
+uses it.
 
 Your other computers running Mother Claude are not devices but **peers**,
-paired under **Machines** ([MACHINES.md](MACHINES.md)): each pair of
+paired under **Computers** ([MACHINES.md](MACHINES.md)): each pair of
 computers by a code and six digits, and each one is recognised by its own
 key, never a token. Each computer decides what each other may do on it
 (see, drive, move, run, dangerous — on the local network and over the
 internet separately), and they reach each other directly or through a relay,
 with no port opened and no tunnel.
 
-The two meet through the computer the phone is paired with: once Machines
+The two meet through the computer the phone is paired with: once Computers
 is on, a phone paired with the Mac sees and drives the Windows desktop's
 sessions too, **through the Mac**. Nothing new is paired for that — the
 Windows desktop does not know the phone; it sees the Mac acting, and says
@@ -233,7 +236,7 @@ who acted through it in its audit log. A dangerous action there needs both
 the phone's dangerous permission on the Mac and the Windows desktop's
 *Dangerous* permission for the Mac. Revoking a device revokes it on its one
 computer; a lost computer is cut from all the others with *Revoke
-everywhere* on the Machines page.
+everywhere* on the Computers page.
 
 ## Sessions started elsewhere
 
@@ -245,12 +248,12 @@ from the transcripts under `~/.claude/projects/`.
 
 Sessions that Mother Claude starts ("owned") can be driven completely. The ones
 you started elsewhere ("foreign") can be watched right away. To answer and
-message them too, install **foreign-session control**.
+message them too, install the **Mother Claude plugin**.
 
-### Foreign-session control (the hooks plugin)
+### The Mother Claude plugin (the hooks plugin)
 
-On the Mac, open **Remote → Foreign-session control → Install foreign-session
-control**. This needs the `claude` command on your PATH and runs, on your
+On the Mac, open **Settings › Sessions started elsewhere** and press
+**Install**. This needs the `claude` command on your PATH and runs, on your
 behalf:
 
 ```bash
@@ -278,8 +281,9 @@ your sessions behave exactly as before. Sessions Mother Claude runs itself are
 skipped, so nothing is reported twice.
 
 After installing, **new** sessions report in. A session that was already
-running needs `/reload-plugins` typed in it, or a restart. The Remote page
-counts the sessions reporting and those that need a reload.
+running needs `/reload-plugins` typed in it, or a restart. The Sessions
+started elsewhere page counts the sessions reporting and those that need a
+reload.
 
 **Uninstall** (press twice) first switches the scripts off, so the hooks that
 running sessions already loaded go quiet, then runs `claude plugin uninstall`
@@ -305,7 +309,7 @@ phone.
   refuses while a dialog is open, so it never answers one by accident. Approvals
   go through the plugin when it is loaded; without it they can be answered with
   keys from the terminal view.
-- **Background jobs** (`claude --bg`): stop, respawn and remove (by their short
+- **Background jobs** (`claude --bg`): stop, restart and remove (by their short
   job id), a read-only terminal view (`claude logs`), and, experimentally,
   typing into them through `claude attach`, which needs a device allowed
   dangerous actions (`MOTHER_CLAUDE_FOREIGN_INJECTION=0` turns it off).
@@ -393,8 +397,9 @@ while a dashboard is connected (a manual Refresh reads even when none is):
 
 - when a dashboard connects and the numbers are older than the refresh
   interval;
-- every **5 minutes** (Settings › Plan usage refresh: 3, 5 or 10 minutes, or
-  manually only) while some session is working, every 30 minutes otherwise;
+- every **5 minutes** (Accounts › Usage › Read usage every: 3, 5 or 10
+  minutes, or manually only) while some session is working, every 30 minutes
+  otherwise;
 - once when a session hits a limit, and when you tap Refresh (at most once a
   minute).
 
@@ -417,11 +422,11 @@ It runs only when no owned session can answer: for the automatic reads above,
 which need a connected dashboard, and for a Refresh. With **Manually only**, it
 starts only for a Refresh.
 
-With more than one Claude account (Settings → Accounts on the Mac,
+With more than one Claude account (Accounts on the Mac,
 [ACCOUNTS.md](ACCOUNTS.md)) the meter shows one account at a time with a
-switcher, and its sheet lists every account's windows. An account that reached
-a limit is called out on the sessions list and on its sessions' pages, with an
-offer to continue on another account that has room.
+switcher, and opens Accounts › Usage, which lists every account's windows. An
+account that reached a limit is called out on the sessions list and on its
+sessions' pages, with an offer to continue on another account that has room.
 
 ### Accounts on the phone
 
@@ -464,7 +469,7 @@ What you get:
   plans, finished turns (30 s or longer), failures, notifications Claude sends
   itself ("tell me when the tests finish"), and sessions waiting for your next
   prompt.
-- **Per session** (the session's ⋯ menu): **Follow**, **Mute**, and a one-shot
+- **Per session** (the session's ⋮ menu): **Follow**, **Mute**, and a one-shot
   **Notify me when this turn finishes**.
 - A notification shows the session's name and what happened. **Show details**
   adds the command or question.
@@ -499,9 +504,9 @@ What you get:
 - **The local API stays local.** The Claude HTTP API on port 5612 needs no token
   only for programs on this Mac. Through a tunnel it asks for a token, and while
   a tunnel points at it the tokenless mode is off entirely — unless you turn on
-  *Open to tunnels* on the API screen (desktop app only). Each API server you
-  add has its own port and the same rules, port by port; one that runs as one
-  account only shows nothing of the others.
+  *Open to tunnels* in Settings › HTTP API (desktop app only). Each API server
+  you add has its own port and the same rules, port by port; one that runs as
+  one account only shows nothing of the others.
 
 ## Troubleshooting
 
@@ -533,8 +538,8 @@ address the tunnel prints, and point the tunnel at plain
 `http://127.0.0.1:6726`.
 
 **"No public URL yet".** No tunnel was detected. Start one of the commands on
-the Remote page, or type the address under **Or enter it yourself** (needed for
-named Cloudflare tunnels and other proxies).
+the Phone & devices page, or type the address under **Or enter it yourself**
+(needed for named Cloudflare tunnels and other proxies).
 
 **"Mother Claude is not listening on your local network."** It was started with
 `MOTHER_CLAUDE_HOST=127.0.0.1`, or the Mac has no private network address (for
@@ -544,8 +549,8 @@ example it is on a network that hands out public addresses). Use a tunnel, or
 **"This device is no longer paired."** The device was revoked on the Mac, unused
 for too long, or its storage was cleared. Pair it again.
 
-**A foreign session says "Started before foreign control was installed".** Type
-`/reload-plugins` in it, or restart it.
+**A foreign session says "Started before the Mother Claude plugin was
+installed".** Type `/reload-plugins` in it, or restart it.
 
 **A message waits "after its current step".** In a session Mother Claude runs,
 Claude reads a message you send while it works as soon as its current step ends
@@ -578,9 +583,9 @@ it there once, or start the session from the desktop.
 notifications for the site. On iPhone: add Mother Claude to the Home Screen and
 enable push from there. On the home network: trust the Mac's certificate first.
 
-**"Install foreign-session control" is greyed out.** The `claude` command was not
-found on the PATH the app sees. Install Claude Code, or start the app from a
-shell where `claude` works.
+**"Install" is greyed out on Settings › Sessions started elsewhere.** The
+`claude` command was not found on the PATH the app sees. Install Claude Code,
+or start the app from a shell where `claude` works.
 
 ## For scripts
 

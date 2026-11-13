@@ -134,7 +134,7 @@ the team's block of `SpawnOptions` and argv:
 | `--settings {"crossSessionInbound":"accept"}` | and nothing else: the session takes other sessions' messages unattended |
 | `--add-dir <project>/<dir>` | the role's `addDirs` |
 | `-w <role>` | a worktree role, when its worktree does not exist yet (then it runs in it) |
-| `--max-budget-usd <n>` | only when the account pays per token (the scheduler decides, with your billing setting on the Capacity page): the role's `budgetUsd`, else the Capacity page's cap for role sessions ($5 unless you changed or switched it off) |
+| `--max-budget-usd <n>` | only when the account pays per token (the scheduler decides, with your billing setting on Teams › Capacity): the role's `budgetUsd`, else the cap for role sessions on Teams › Capacity ($5 unless you changed or switched it off) |
 | `--fallback-model <a,b>` | the routing policy's fallbacks for the chosen model's family (by default Opus → Sonnet, Fable → Opus), tried when the model is overloaded or unavailable; never the model it runs on (Claude Code refuses that) |
 | `--disallowed-tools Edit,Write,MultiEdit,NotebookEdit` | a read-only role |
 | `--allowedTools mcp__plugin_mother-claude_mc__task_create,…` | the ten team tools by exact name, one comma-joined value (as the Agent SDK passes it): Mother Claude decides each call itself, so none raises a permission card. Never the server's name, which would allow its other tools too (the browser's) |
@@ -222,7 +222,7 @@ marked so (`readOnlyHint`), which keeps their calls out of the audit log.
   The notification opens the team.
 
 A foreign live session can **take a role** from the team page (it must work
-in the project, have foreign-session control active, and hold no other role;
+in the project, have the Mother Claude plugin active, and hold no other role;
 one that runs without permission prompts needs the dangerous right). It gets
 the charter and its tasks through the relay, and the guard applies to it.
 *Release role* gives the role back (its tasks return to the board).
@@ -369,9 +369,9 @@ launcher stay on the computer that started it.
   with what it changed (`remote`: the computer, the branch, its commits and
   files); the lead reviews and merges it.
 * **Where it counts.** Its session runs on that computer, so it counts in
-  that computer's admission and on its Capacity page (*for <the lead's
+  that computer's admission and on its Teams › Capacity (*for <the lead's
   computer>*), never here; the team page shows the role *on DESKTOP-PC*,
-  its worktree there and its branch. This computer's Capacity page lists
+  its worktree there and its branch. This computer's Teams › Capacity lists
   it apart, under *On your other computers* (`remoteRoles`): where it
   runs, whether it runs, waits there (with that computer's reasons, *on
   DESKTOP-PC: …*) or is stopped, and when it was last heard — never in
@@ -379,7 +379,7 @@ launcher stay on the computer that started it.
 * **Only owned sessions** run a role elsewhere: a foreign session can take
   a role only on the team's own computer.
 
-That computer lists the roles it runs under **Machines › Runs › Team
+That computer lists the roles it runs under **Computers › Activity › Team
 roles**: *Stop* (its lead starts it again when it has work) and *Remove*
 (its session, worktree and record; the lead's next start makes a new
 binding). Removing the team removes them there too.
@@ -388,7 +388,8 @@ binding). Removing the team removes them there too.
 
 The plugin's `hooks.json` adds six observe-only events: `TeammateIdle`,
 `TaskCreated`, `TaskCompleted` (Claude Code's own agent teams in interactive
-sessions — the Teams page lists them; Mother Claude does not run them),
+sessions — Sessions › Agents › Teammates lists them; Mother Claude does not
+run them),
 `PreModelSwitch` / `PostModelSwitch` (the model of a role a foreign session
 holds, shown on the team page) and `ConfigChange` (a foreign role session
 changing settings is audited, `team.config_change`). They come only from
