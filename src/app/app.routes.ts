@@ -48,6 +48,12 @@ const pages: Routes = [
     path: 'agents',
     loadComponent: () => import('./pages/agents/agents.component').then((m) => m.AgentsComponent),
   },
+  // Every project folder that holds conversations (docs/ACCOUNTS.md §14.4).
+  {
+    path: 'projects',
+    loadComponent: () =>
+      import('./pages/sessions/projects-page.component').then((m) => m.ProjectsPageComponent),
+  },
   {
     path: 'session/:id',
     loadComponent: () =>
@@ -183,21 +189,30 @@ const pages: Routes = [
   { path: 'browser', redirectTo: 'settings/browser' },
   { path: 'api', redirectTo: 'settings/api' },
   { path: 'services', redirectTo: 'settings/tools' },
-  // Capacity: role sessions, budgets, routing and costs (docs/ROUTING.md).
-  {
-    path: 'capacity',
-    loadComponent: () =>
-      import('./pages/capacity/capacity.component').then((m) => m.CapacityComponent),
-  },
-  // Teams of sessions (docs/TEAMS.md): the teams and templates, one team.
+  // Teams of sessions (docs/TEAMS.md): the teams, the templates they start
+  // from, Capacity (role sessions, budgets, models and costs,
+  // docs/ROUTING.md), one team. Templates and Capacity come before a
+  // team's id, which is `tm_` and 12 hex digits: no clash.
   {
     path: 'teams',
     loadComponent: () => import('./pages/teams/teams.component').then((m) => m.TeamsComponent),
   },
   {
+    path: 'teams/templates',
+    loadComponent: () =>
+      import('./pages/teams/templates-page.component').then((m) => m.TemplatesPageComponent),
+  },
+  {
+    path: 'teams/capacity',
+    loadComponent: () =>
+      import('./pages/capacity/capacity.component').then((m) => m.CapacityComponent),
+  },
+  {
     path: 'teams/:id',
     loadComponent: () => import('./pages/teams/team.component').then((m) => m.TeamComponent),
   },
+  // Capacity is a tab of Teams now (`?tab=` and the fragment kept).
+  { path: 'capacity', redirectTo: 'teams/capacity' },
   // Help: every topic, and one topic (an unknown one falls back to /help).
   {
     path: 'help',

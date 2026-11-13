@@ -18,56 +18,61 @@ import { storageGet, storageSet, urlParam } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
-import { HubTabsComponent } from '../../shared/hub-tabs.component';
-import { IconComponent } from '../../shared/icon.component';
 import { PlanMeterComponent } from '../../shared/plan-meter.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { formatUsd, sessionName } from '../../shared/util';
+import { TeamsHeadComponent } from '../teams/teams-head.component';
 import { CapacityBudgetsComponent } from './capacity-budgets.component';
 import { CapacitySettingsComponent } from './capacity-settings.component';
 import { RoutingPolicyComponent } from './routing-policy.component';
 import { RoutingReportComponent } from './routing-report.component';
 
-type Tab = 'now' | 'budgets' | 'routing' | 'reports' | 'settings';
+type Tab = 'now' | 'budgets' | 'models' | 'costs' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'now', label: 'Now' },
   { id: 'budgets', label: 'Budgets' },
-  { id: 'routing', label: 'Routing' },
-  { id: 'reports', label: 'Reports' },
+  { id: 'models', label: 'Models' },
+  { id: 'costs', label: 'Costs' },
   { id: 'settings', label: 'Settings' },
 ];
+/** The sections' names before (links and what a device kept). */
+const RENAMED: Readonly<Record<string, Tab>> = { routing: 'models', reports: 'costs' };
 const TAB_KEY = 'mc_capacity_tab';
 /** How often the page asks again while it is visible. */
 export const POLL_MS = 5_000;
 
-/** The section to open: `#/capacity?tab=budgets`, else the last one seen. */
+/** The section to open: `#/teams/capacity?tab=budgets`, else the last one
+ * seen. */
 function savedTab(): Tab {
-  for (const t of [urlParam('tab'), storageGet(TAB_KEY)]) {
+  for (const raw of [urlParam('tab'), storageGet(TAB_KEY)]) {
+    const t = (raw && RENAMED[raw]) || raw;
     if (TABS.some((x) => x.id === t)) return t as Tab;
   }
   return 'now';
 }
 
 /**
- * Capacity (docs/ROUTING.md): how many role sessions may run and why the
+ * *Teams › Capacity* (docs/ROUTING.md), in five sections — Now · Budgets ·
+ * Models · Costs · Settings: how many role sessions may run and why the
  * others wait, the signals behind it (memory, plan windows, rate limits,
- * your cap), budgets, the routing policy and what tasks cost. One code path
- * for the desktop and the phone: a phone reads everything and changes
- * budgets and caps; the routing policy is edited on the desktop.
+ * your cap), budgets, which model each task class gets (the routing
+ * policy) and what tasks cost. Read again every few seconds while it shows.
+ * One code path for the desktop and the phone: a phone reads everything
+ * and changes budgets and caps; the routing policy is edited on the
+ * desktop.
  */
 @Component({
   selector: 'mc-capacity',
   imports: [
     RouterLink,
-    HubTabsComponent,
-    IconComponent,
     PlanMeterComponent,
     TimeAgoComponent,
     CapacityBudgetsComponent,
     CapacitySettingsComponent,
     RoutingPolicyComponent,
     RoutingReportComponent,
+    TeamsHeadComponent,
     TPipe,
   ],
   templateUrl: './capacity.component.html',

@@ -81,7 +81,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Find your way around',
         points: [
           'On the desktop app, the sidebar has your work first — **Sessions**, **Inbox** and **Teams** — then what you look after: **Computers**, **Accounts** and **Settings**. **Help** is at the bottom.',
-          'A place with more than one page shows them as tabs under its name: **Sessions** and **Agents**; **Teams** and **Capacity**; **Computers**: **Overview**, **Code sync**, **Activity** and **Options**; **Accounts**: **Accounts**, **Usage**, **Backups** and **Recent changes**. **Settings** opens the rest under **Connections**: **Phone & devices**, **Sessions started elsewhere**, **Browser**, **HTTP API** and **Claude Code tools**.',
+          'A place with more than one page shows them as tabs under its name: **Sessions**, **Agents** and **Projects**; **Teams**, **Templates** and **Capacity**; **Computers**: **Overview**, **Code sync**, **Activity** and **Options**; **Accounts**: **Accounts**, **Usage**, **Backups** and **Recent changes**. **Settings** opens the rest under **Connections**: **Phone & devices**, **Sessions started elsewhere**, **Browser**, **HTTP API** and **Claude Code tools**.',
           'On a phone, the tabs at the bottom are **Sessions**, **Inbox**, **Teams** and **More**. **More** has **Computers**, **Accounts**, **Settings** and **Help**, each with a line saying how it stands.',
           'The dot at the bottom of the sidebar (at the top on a phone) shows the connection. **Live** means updates arrive as they happen.',
           'The button beside it switches the theme between dark, light and system. **Settings › Appearance** also has the language, the accent colour and the background.',
@@ -283,8 +283,19 @@ const TOPICS: HelpTopicSource[] = [
     group: 'sessions',
     summary: "Every Claude Code session on your computer, what it's doing, and how to find one.",
     intro:
-      '**Sessions** lists every Claude Code session on your computer that is live or was active in the last 24 hours, whatever started it: a terminal, VS Code, JetBrains, Claude Desktop, a background job or Mother Claude itself.',
-    keywords: ['list', 'filter', 'status', 'surface', 'projects', 'agents', 'fleet'],
+      '**Sessions** lists every Claude Code session on your computer that is live or was active in the last 24 hours, whatever started it: a terminal, VS Code, JetBrains, Claude Desktop, a background job or Mother Claude itself. Its other tabs, **Agents** and **Projects**, show the agents at work and every project on disk.',
+    keywords: [
+      'list',
+      'filter',
+      'status',
+      'app',
+      'surface',
+      'projects',
+      'agents',
+      'teammates',
+      'agent teams',
+      'fleet',
+    ],
     sections: [
       {
         heading: 'How the list is grouped',
@@ -325,7 +336,7 @@ const TOPICS: HelpTopicSource[] = [
         steps: [
           'Type in **Search sessions**.',
           'Choose **Live**, **Needs you** or **All**.',
-          'Narrow it with **All surfaces** and **All projects** (and **All accounts**, with several accounts).',
+          'Narrow it with **All apps** (the app a session runs in: the CLI, VS Code, JetBrains, Claude Desktop…) and **All projects**, and with several accounts or computers, **All accounts** and **All computers**.',
           'Under **All**, press **Show ended sessions** to include earlier ones; **Load more** goes further back.',
         ],
         tips: ['When nothing matches, **Clear filters** shows everything again.'],
@@ -343,11 +354,13 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Projects',
         intro:
-          '**Projects**, beside **Sessions** at the top, lists every project folder that holds conversations, in every account: how many conversations it has, how many run, their size and the last activity.',
+          '**Projects**, a tab of **Sessions**, lists every project folder that holds conversations, in every account: how many conversations it has, how many run, their size and the last activity.',
         points: [
           "A project's menu shows its folder on disk (desktop app), copies its path, moves or copies it, or deletes it.",
+          '**Select** picks several projects to delete, move or copy together.',
           'Deleted projects stay under **Recently deleted** for seven days, with **Undo**. It shows the newest three; **See all** opens every delete on **Accounts › Recent changes**.',
         ],
+        links: [{ label: 'Open Projects', path: '/projects' }],
       },
       {
         heading: 'Agents',
@@ -357,6 +370,7 @@ const TOPICS: HelpTopicSource[] = [
           'Tap an agent to read its own transcript, live while it runs. A shell or monitor shows its output.',
           'Stop one where its session allows it.',
           'The number on **Agents** counts the agents running.',
+          "**Teammates**, below them, lists what Claude Code's own agent teams in your interactive sessions reported: a teammate gone idle, a task created or completed. Mother Claude only observes them; they are not its teams.",
         ],
         links: [
           { label: 'Open Sessions', path: '/' },
@@ -969,7 +983,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'What a phone can do',
         points: [
-          'The tabs at the bottom are **Sessions** (with **Agents** as a tab), **Inbox**, **Teams** (with **Capacity**) and **More**: **Computers**, **Accounts** (with **Usage**, **Backups** and **Recent changes**), **Settings** (with **Phone & devices**, **Browser**, **HTTP API** and **Claude Code tools** under **Connections**) and **Help**.',
+          'The tabs at the bottom are **Sessions** (with **Agents** and **Projects** as tabs), **Inbox**, **Teams** (with **Templates** and **Capacity**) and **More**: **Computers**, **Accounts** (with **Usage**, **Backups** and **Recent changes**), **Settings** (with **Phone & devices**, **Browser**, **HTTP API** and **Claude Code tools** under **Connections**) and **Help**.',
           'Watch every session, answer approvals, questions and plans, send messages and images, start sessions and continue them.',
           'Pairing devices, internet access, what each device may do and installing the plugin are changed only in the desktop app.',
           'Dangerous actions need a grant for this device in the desktop app (**Settings › Phone & devices**, under **Paired devices**).',
@@ -3093,13 +3107,13 @@ const TOPICS: HelpTopicSource[] = [
     group: 'browser-teams',
     summary: 'A lead and role sessions working through a task board in one project.',
     intro:
-      "A team applies a template to a project: a lead session writes tasks on the project's board, and role sessions do them, each in its own files. Mother Claude starts, wakes and stops the sessions it runs, as capacity allows.",
+      "A team applies a template to a project: a lead session writes tasks on the project's board, and role sessions do them, each in its own files. Mother Claude starts, wakes and stops the sessions it runs, as capacity allows. **Teams** has three tabs: your teams, the **Templates** they start from, and **Capacity**.",
     keywords: ['team', 'role', 'lead', 'board', 'task', 'template', 'worktree', 'workflow'],
     sections: [
       {
         heading: 'Start a team',
         steps: [
-          'Open **Teams** and press **Start a team**.',
+          'Open **Teams** and press **Start a team** (on every tab of Teams).',
           'Choose the **Project**.',
           'Choose a **Template**.',
           'With several accounts, choose the **Account**.',
@@ -3110,6 +3124,9 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Built-in templates: Software delivery, Content production, Research & analysis, Browser operations and Documentation.',
           'One team per project. Roles with their own worktree need the project to be a git repository.',
+        ],
+        tips: [
+          "Claude Code's own agent teams, in your interactive sessions, are not Mother Claude's teams: what they report is under **Sessions › Agents › Teammates**.",
         ],
         links: [{ label: 'Open Teams', path: '/teams' }],
       },
@@ -3147,7 +3164,7 @@ const TOPICS: HelpTopicSource[] = [
           "A role with work starts for its most urgent task, as capacity allows; an idle one gets the next task. With nothing to do, it stops after the template's idle minutes, never mid-turn. Its conversation is kept.",
           "A role card's **Stop**, **Start** and **Resume** act on one role.",
           "Tap the role's session to open it and message it like any other session.",
-          'A role that has to wait shows **Waiting** with the reasons. See Capacity.',
+          'A role that has to wait shows **Waiting** with the reasons; **Teams › Capacity** lists every role that waits, and why.',
         ],
         links: [{ label: 'See Capacity, routing and budgets', path: '/help/capacity' }],
       },
@@ -3172,7 +3189,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           "It works there in a worktree of its own, at this project's code. Your copy there is not touched.",
           'Its tasks are on this board. When it finishes one, its work comes back here as the branch `mother-claude/<computer>/<team>/<role>`, which the task names; the lead reviews and merges it.',
-          "Its card says **on DESKTOP-PC**, and why it waits or could not start. That computer's Capacity page counts it, not this one's; this one's lists it apart, under **On your other computers**, with that computer's last decision.",
+          "Its card says **on DESKTOP-PC**, and why it waits or could not start. That computer's **Teams › Capacity** counts it, not this one's; this one's lists it apart, under **On your other computers**, with that computer's last decision.",
           'It cannot message the lead with SendMessage: it writes on its task, and Mother Claude tells the lead.',
           "When its session is stopped, a message you send it from either computer starts it again with its role's settings, then reaches it. If that computer can't run it now, the message is refused with why.",
           'That computer lists it under **Computers › Activity › Team roles**, where **Stop** and **Remove** act on it there.',
@@ -3198,9 +3215,11 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Templates',
         points: [
+          'The **Templates** tab lists the built-in templates and your own, each with its roles and their models.',
           '**New template** writes your own; built-in ones are fixed, so press **View** and then **Duplicate to edit** to change one.',
           'Your own templates have **Edit** (JSON, with **Check** and **Save**), **Duplicate** and delete.',
         ],
+        links: [{ label: 'Open Templates', path: '/teams/templates' }],
       },
     ],
   },
@@ -3211,13 +3230,15 @@ const TOPICS: HelpTopicSource[] = [
     group: 'browser-teams',
     summary: 'Why a role session waits, your limits, budgets, model choice and costs.',
     intro:
-      "Capacity shows how many role sessions run and why others wait, with memory, each account's plan usage, budgets, the routing policy and reports. Money figures are estimates.",
+      "**Capacity**, a tab of **Teams**, shows how many role sessions run and why others wait, with memory and each account's plan usage, in five sections: **Now**, **Budgets**, **Models**, **Costs** and **Settings**. Money figures are estimates.",
     keywords: [
       'limit',
       'budget',
       'cost',
+      'costs',
       'routing',
       'model',
+      'models',
       'haiku',
       'classifier',
       'report',
@@ -3227,7 +3248,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Why a role session waits',
         intro:
-          'The **Now** tab shows the role sessions that run and the ones that wait, each with its reasons in plain words. A role waits when:',
+          '**Now** shows the role sessions that run and the ones that wait, each with its reasons in plain words. A role waits when:',
         points: [
           "Your limit of role sessions is reached (the lead does not count), or the project's.",
           'Not enough memory is free.',
@@ -3240,14 +3261,14 @@ const TOPICS: HelpTopicSource[] = [
           "The rate limits Claude reported, and how much of each account's plan is left, are also on **Accounts › Usage**.",
         ],
         links: [
-          { label: 'Open Capacity', path: '/capacity' },
+          { label: 'Open Capacity', path: '/teams/capacity' },
           { label: 'Open Usage', path: '/accounts/usage' },
         ],
       },
       {
         heading: 'Set your limits',
         steps: [
-          'Open the **Settings** tab and press **Edit**.',
+          'Open **Teams › Capacity › Settings** and press **Edit**.',
           "Set **Your limit** and **A project's limit** (1 to 16).",
           "For one folder, press **Add a project** under **A project's own limit**.",
           'Press **Save**.',
@@ -3259,7 +3280,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Budgets',
         steps: [
-          'Open the **Budgets** tab and press **Edit budgets**.',
+          'Open **Teams › Capacity › Budgets** and press **Edit budgets**.',
           'Set **Every project, per day (USD)**, **A role session (USD)** and **A task (USD)**. An empty field means no budget.',
           'Set **Alert at (%)** and how to be alerted.',
           'Press **Save budgets**.',
@@ -3275,7 +3296,7 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           'Each task class has a model and effort: planning, architecture and review on Opus, implementing, testing and fixing on Sonnet, search and summaries on Haiku. A task that keeps failing its checks moves up a step.',
         steps: [
-          'Open the **Routing** tab and press **Edit the policy**.',
+          'Open **Teams › Capacity › Models** and press **Edit the policy**.',
           'Change **Task classes**, **Escalation ladder**, **Budget gate** or **Fallback models**.',
           'Press **Save the policy**.',
         ],
@@ -3293,9 +3314,10 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
-        heading: 'Reports',
+        id: 'reports',
+        heading: 'Costs',
         points: [
-          'The **Reports** tab shows costs and outcomes for **7 days**, **30 days** or **90 days**. **CSV** and **Every task** download them.',
+          '**Costs** shows what tasks cost and how they ended, for **7 days**, **30 days** or **90 days**. **CSV** and **Every task** download them.',
           'On a plan, the cost is what the API would have charged.',
         ],
       },

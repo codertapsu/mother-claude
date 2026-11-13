@@ -723,7 +723,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
     group: 'browser-teams',
     summary: 'Một trưởng nhóm và các phiên vai trò cùng làm theo bảng tác vụ trong một dự án.',
     intro:
-      'Một nhóm áp dụng một mẫu cho một dự án: phiên trưởng nhóm viết tác vụ lên bảng của dự án, và các phiên vai trò thực hiện chúng, mỗi phiên trên các tệp của riêng mình. Mother Claude khởi chạy, đánh thức và dừng các phiên do nó chạy, tùy theo công suất cho phép.',
+      'Một nhóm áp dụng một mẫu cho một dự án: phiên trưởng nhóm viết tác vụ lên bảng của dự án, và các phiên vai trò thực hiện chúng, mỗi phiên trên các tệp của riêng mình. Mother Claude khởi chạy, đánh thức và dừng các phiên do nó chạy, tùy theo công suất cho phép. **Nhóm** có ba thẻ: các nhóm của bạn, các **Mẫu quy trình** để bắt đầu nhóm, và **Công suất**.',
     keywords: [
       'nhóm',
       'vai trò',
@@ -738,7 +738,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Bắt đầu một nhóm',
         steps: [
-          'Mở **Nhóm** và nhấn **Bắt đầu một nhóm**.',
+          'Mở **Nhóm** và nhấn **Bắt đầu một nhóm** (có trên mọi thẻ của Nhóm).',
           'Chọn **Dự án**.',
           'Chọn một **Mẫu**.',
           'Nếu có nhiều tài khoản, chọn **Tài khoản**.',
@@ -749,6 +749,9 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         points: [
           'Các mẫu có sẵn: Software delivery (phát triển phần mềm), Content production (sản xuất nội dung), Research & analysis (nghiên cứu và phân tích), Browser operations (thao tác trình duyệt) và Documentation (tài liệu).',
           'Mỗi dự án một nhóm. Vai trò có worktree riêng cần dự án là một kho git.',
+        ],
+        tips: [
+          'Các nhóm tác tử của chính Claude Code, trong các phiên tương tác của bạn, không phải nhóm của Mother Claude: những gì chúng báo nằm ở **Phiên › Tác tử › Đồng đội**.',
         ],
         links: [{ label: 'Mở Nhóm', path: '/teams' }],
       },
@@ -786,7 +789,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Vai trò có việc sẽ bắt đầu với tác vụ gấp nhất của nó, khi công suất cho phép; vai trò đang rảnh nhận tác vụ kế tiếp. Khi không còn việc, nó dừng sau số phút rảnh mà mẫu quy định, không bao giờ dừng giữa lượt. Cuộc trò chuyện của nó được giữ lại.',
           '**Dừng**, **Bắt đầu** và **Tiếp tục** trên ô của một vai trò chỉ tác động lên vai trò đó.',
           'Chạm vào phiên của vai trò để mở và nhắn tin cho nó như mọi phiên khác.',
-          'Vai trò phải chờ sẽ hiện **Đang chờ** kèm lý do. Xem phần Công suất.',
+          'Vai trò phải chờ sẽ hiện **Đang chờ** kèm lý do; **Nhóm › Công suất** liệt kê mọi vai trò đang chờ, và vì sao.',
         ],
         links: [{ label: 'Xem Công suất, định tuyến và ngân sách', path: '/help/capacity' }],
       },
@@ -811,7 +814,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         points: [
           'Ở đó nó làm việc trong một worktree riêng, với mã nguồn của dự án này. Bản sao của bạn ở đó không bị động đến.',
           'Các tác vụ của nó nằm trên bảng này. Khi xong một tác vụ, kết quả của nó quay về đây thành nhánh `mother-claude/<computer>/<team>/<role>`, được ghi trên tác vụ; trưởng nhóm xem xét rồi gộp nhánh đó.',
-          'Ô của nó ghi **trên DESKTOP-PC**, kèm lý do nó phải chờ hoặc không khởi chạy được. Trang Công suất của máy kia tính phiên này, không phải trang của máy này; trang của máy này liệt kê nó riêng, trong mục **Trên các máy tính khác của bạn**, kèm quyết định gần nhất của máy kia.',
+          'Ô của nó ghi **trên DESKTOP-PC**, kèm lý do nó phải chờ hoặc không khởi chạy được. **Nhóm › Công suất** của máy kia tính phiên này, không phải của máy này; máy này liệt kê nó riêng, trong mục **Trên các máy tính khác của bạn**, kèm quyết định gần nhất của máy kia.',
           'Nó không nhắn được cho trưởng nhóm bằng SendMessage: nó ghi lên tác vụ của mình, và Mother Claude báo cho trưởng nhóm.',
           'Khi phiên của nó đã dừng, tin nhắn bạn gửi cho nó từ máy nào cũng khởi chạy lại nó với các thiết lập của vai trò, rồi đến được với nó. Nếu máy kia chưa thể chạy nó lúc này, tin nhắn bị từ chối kèm lý do.',
           'Máy kia liệt kê nó trong **Máy tính › Hoạt động › Vai trò trong nhóm**, nơi **Dừng** và **Gỡ bỏ** tác động lên nó ở đó.',
@@ -837,9 +840,11 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Mẫu',
         points: [
+          'Thẻ **Mẫu quy trình** liệt kê các mẫu có sẵn và mẫu của bạn, mỗi mẫu với các vai trò và mô hình của chúng.',
           '**Mẫu mới** để tự viết mẫu; mẫu có sẵn thì cố định, nên muốn đổi một mẫu, hãy nhấn **Xem** rồi **Nhân bản để sửa**.',
           'Mẫu của bạn có **Sửa** (JSON, với **Kiểm tra** và **Lưu**), **Nhân bản** và xóa.',
         ],
+        links: [{ label: 'Mở Mẫu quy trình', path: '/teams/templates' }],
       },
     ],
   },
@@ -851,7 +856,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
     summary:
       'Vì sao một phiên vai trò phải chờ, giới hạn của bạn, ngân sách, cách chọn mô hình và chi phí.',
     intro:
-      'Trang Công suất cho biết có bao nhiêu phiên vai trò đang chạy và vì sao các phiên khác phải chờ, kèm bộ nhớ, mức dùng gói của từng tài khoản, ngân sách, chính sách định tuyến và báo cáo. Các con số tiền chỉ là ước tính.',
+      '**Công suất**, một thẻ của **Nhóm**, cho biết có bao nhiêu phiên vai trò đang chạy và vì sao các phiên khác phải chờ, kèm bộ nhớ và mức dùng gói của từng tài khoản, trong năm mục: **Hiện tại**, **Ngân sách**, **Mô hình**, **Chi phí** và **Cài đặt**. Các con số tiền chỉ là ước tính.',
     keywords: [
       'giới hạn',
       'ngân sách',
@@ -868,7 +873,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Vì sao một phiên vai trò phải chờ',
         intro:
-          'Thẻ **Hiện tại** cho thấy các phiên vai trò đang chạy và đang chờ, mỗi phiên kèm lý do bằng lời dễ hiểu. Một vai trò phải chờ khi:',
+          'Mục **Hiện tại** cho thấy các phiên vai trò đang chạy và đang chờ, mỗi phiên kèm lý do bằng lời dễ hiểu. Một vai trò phải chờ khi:',
         points: [
           'Đã chạm giới hạn số phiên vai trò của bạn (không tính trưởng nhóm), hoặc của dự án.',
           'Không đủ bộ nhớ trống.',
@@ -881,14 +886,14 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Các giới hạn tốc độ mà Claude đã báo, và gói của mỗi tài khoản còn lại bao nhiêu, cũng có trên **Tài khoản › Mức dùng**.',
         ],
         links: [
-          { label: 'Mở Công suất', path: '/capacity' },
+          { label: 'Mở Công suất', path: '/teams/capacity' },
           { label: 'Mở Mức dùng', path: '/accounts/usage' },
         ],
       },
       {
         heading: 'Đặt giới hạn',
         steps: [
-          'Mở thẻ **Cài đặt** và nhấn **Sửa**.',
+          'Mở **Nhóm › Công suất › Cài đặt** và nhấn **Sửa**.',
           'Đặt **Giới hạn của bạn** và **Giới hạn mỗi dự án** (từ 1 đến 16).',
           'Cho riêng một thư mục, nhấn **Thêm dự án** ở **Giới hạn riêng cho dự án**.',
           'Nhấn **Lưu**.',
@@ -900,7 +905,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Ngân sách',
         steps: [
-          'Mở thẻ **Ngân sách** và nhấn **Sửa ngân sách**.',
+          'Mở **Nhóm › Công suất › Ngân sách** và nhấn **Sửa ngân sách**.',
           'Đặt **Mỗi dự án, theo ngày (USD)**, **Một phiên vai trò (USD)** và **Một tác vụ (USD)**. Để trống nghĩa là không có ngân sách.',
           'Đặt **Cảnh báo ở mức (%)** và cách nhận cảnh báo.',
           'Nhấn **Lưu ngân sách**.',
@@ -916,7 +921,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         intro:
           'Mỗi loại tác vụ có mô hình và mức nỗ lực riêng: lập kế hoạch, kiến trúc và rà soát dùng Opus; viết mã, kiểm thử và sửa lỗi dùng Sonnet; tìm kiếm và tóm tắt dùng Haiku. Tác vụ liên tục không qua được kiểm tra sẽ được nâng lên một bậc.',
         steps: [
-          'Mở thẻ **Định tuyến** và nhấn **Sửa chính sách**.',
+          'Mở **Nhóm › Công suất › Mô hình** và nhấn **Sửa chính sách**.',
           'Đổi **Loại tác vụ**, **Thang nâng bậc**, **Chốt ngân sách** hoặc **Mô hình dự phòng**.',
           'Nhấn **Lưu chính sách**.',
         ],
@@ -934,9 +939,9 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
       },
       {
-        heading: 'Báo cáo',
+        heading: 'Chi phí',
         points: [
-          'Thẻ **Báo cáo** hiện chi phí và kết quả trong **7 ngày**, **30 ngày** hoặc **90 ngày**. **CSV** và **Mọi tác vụ** để tải chúng về.',
+          'Mục **Chi phí** hiện chi phí và kết quả của các tác vụ trong **7 ngày**, **30 ngày** hoặc **90 ngày**. **CSV** và **Mọi tác vụ** để tải chúng về.',
           'Với tài khoản dùng gói, chi phí là số tiền mà API lẽ ra sẽ tính.',
         ],
       },

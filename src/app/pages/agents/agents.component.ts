@@ -13,6 +13,7 @@ import {
   WorkflowRun,
 } from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
+import { ObservedEvent } from '../../core/teams';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import {
@@ -23,15 +24,18 @@ import {
   taskFromAgent,
 } from '../../shared/agents';
 import { ChipComponent } from '../../shared/chip.component';
-import { HubTabsComponent } from '../../shared/hub-tabs.component';
 import { IconComponent } from '../../shared/icon.component';
+import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { ElapsedPipe } from '../../shared/time.pipes';
 import { formatTokens, sessionName } from '../../shared/util';
 import { TaskOutputComponent } from '../session-detail/task-output.component';
+import { SessionsHeadComponent } from '../sessions/sessions-head.component';
 
 /** While Limited (no socket, so no `fleet` frames), refresh every this many
  * poll ticks (2 s each). */
 const FLEET_POLL_TICKS = 4;
+/** What Claude Code's own agent teams reported, the latest first. */
+const TEAMMATE_EVENTS = 20;
 
 interface FleetGroup {
   sessionId: string;
@@ -46,12 +50,14 @@ interface FleetGroup {
 }
 
 /**
- * The fleet: every running agent (subagents, workflow agents, background
- * shells, monitors) grouped by session, with live activity, elapsed time and
- * tokens, plus each session's running workflow runs. Tap an agent to open
- * its transcript, or a shell/monitor for its output; stop it where the
- * session allows. Each session names its Claude account while there are
- * several.
+ * *Sessions › Agents*, the fleet: every running agent (subagents, workflow
+ * agents, background shells, monitors) grouped by session, with live
+ * activity, elapsed time and tokens, plus each session's running workflow
+ * runs. Tap an agent to open its transcript, or a shell/monitor for its
+ * output; stop it where the session allows. Each session names its Claude
+ * account while there are several. *Teammates* lists what Claude Code's own
+ * agent teams reported through the hooks (interactive sessions: Mother
+ * Claude observes them, it does not run them, docs/TEAMS.md "Hooks").
  */
 @Component({
   selector: 'mc-agents',
@@ -60,21 +66,16 @@ interface FleetGroup {
     AccountChipComponent,
     ActivityLineComponent,
     ChipComponent,
-    HubTabsComponent,
     IconComponent,
     ElapsedPipe,
+    SessionsHeadComponent,
     TaskOutputComponent,
+    TimeAgoComponent,
     TPipe,
   ],
   template: `
     <div class="page">
-      <div class="page-head">
-        <h1>{{ 'Agents' | t }}</h1>
-        @if (total()) {
-          <span class="muted">{{ '{n} running' | t: { n: total() } }}</span>
-        }
-      </div>
-      <mc-hub-tabs place="sessions" />
+      <mc-sessions-head />
 
       @if (error()) {
         <p class="notice error">
@@ -200,6 +201,32 @@ interface FleetGroup {
         } @else {
           <div class="skeleton" [attr.aria-label]="'Loading' | t"><span></span><span></span></div>
         }
+      }
+
+      @if (teammates().length) {
+        <section class="teammates" [attr.aria-label]="'Teammates' | t">
+          <h2>{{ 'Teammates' | t }}</h2>
+          <p class="muted small">
+            {{
+              "What Claude Code's own agent teams reported through the hooks (interactive sessions; Mother Claude observes them, it does not run them)."
+                | t
+            }}
+          </p>
+          <div class="card list">
+            @for (e of teammates(); track $index) {
+              <div class="list-row event">
+                <span class="badge">{{ e.event }}</span>
+                <span class="grow small"
+                  >{{ e.teammate || e.toModel || e.source || '' }}
+                  @if (e.subject) {
+                    · {{ e.subject }}
+                  }
+                </span>
+                <mc-time class="faint small" [ms]="e.at" />
+              </div>
+            }
+          </div>
+        </section>
       }
     </div>
 
@@ -349,6 +376,22 @@ interface FleetGroup {
         align-items: center;
         gap: 0.25rem;
       }
+      .teammates {
+        margin-top: 1.5rem;
+      }
+      .teammates .list {
+        padding-top: 0;
+        padding-bottom: 0;
+      }
+      .event {
+        flex-wrap: wrap;
+        gap: 0.4rem 0.75rem;
+      }
+      .event .grow {
+        flex: 1 1 16rem;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
     `,
   ],
 })
@@ -358,6 +401,8 @@ export class AgentsComponent {
   private notices = inject(NoticeService);
 
   private readonly fleet = signal<FleetSession[]>([]);
+  /** Claude Code's own agent teams, as the hooks reported them. */
+  protected readonly teammates = signal<ObservedEvent[]>([]);
   protected readonly loaded = signal(false);
   protected readonly error = signal('');
   protected readonly stopping = signal<ReadonlySet<string>>(new Set());
@@ -384,10 +429,6 @@ export class AgentsComponent {
       })
       .filter((g) => g.agents.length || g.workflows.length || g.shells.length);
   });
-  protected readonly total = computed(() =>
-    this.groups().reduce((n, g) => n + g.agents.length + g.shells.length, 0),
-  );
-
   protected readonly tokens = formatTokens;
 
   constructor() {
@@ -398,7 +439,10 @@ export class AgentsComponent {
         this.fleet.set(f.sessions ?? []);
         this.loaded.set(true);
       }),
-      this.realtime.refetch$.subscribe(() => void this.load()),
+      this.realtime.refetch$.subscribe(() => {
+        void this.load();
+        void this.loadTeammates();
+      }),
       // Limited (polling): no fleet frames arrive, so refresh now and then.
       this.realtime.pollTick$.subscribe(() => {
         this.tick += 1;
@@ -410,6 +454,7 @@ export class AgentsComponent {
       subs.forEach((s) => s.unsubscribe());
     });
     void this.load();
+    void this.loadTeammates();
   }
 
   protected readonly kindIcon = agentKindIcon;
@@ -459,6 +504,17 @@ export class AgentsComponent {
     } finally {
       this.loading = false;
       this.loaded.set(true);
+    }
+  }
+
+  /** What agent teams in interactive sessions reported (an older server
+   * has none to say). */
+  private async loadTeammates(): Promise<void> {
+    try {
+      const { events } = await this.api.getTeamEvents();
+      this.teammates.set((events ?? []).slice(0, TEAMMATE_EVENTS));
+    } catch {
+      // Only a convenience: the fleet above is the page.
     }
   }
 }

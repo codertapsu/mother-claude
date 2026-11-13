@@ -6,8 +6,8 @@ import type { IconName } from '../shared/icon.component';
  * you look after — with their tabs, Settings' connections, and Help. The
  * desktop sidebar, the phone's bottom bar and its More list, the phone's
  * top-bar title and a place's tabs (`mc-hub-tabs`) all read it; nothing
- * else names the places. A stage of the redesign moves routes and this map
- * together: for now every tab and connection opens today's route.
+ * else names the places. Routes and this map move together; an old route
+ * redirects to where its page is now ({@link REDIRECTED}).
  *
  * One map for the desktop and the phone: the sidebar lists the work, a
  * line, then what you look after; the phone's bar shows the work and
@@ -94,10 +94,11 @@ export const PLACES: readonly NavPlace[] = [
     group: 'work',
     help: 'sessions',
     // `new`: the home's primary button; `session`: one of them.
-    sections: ['', 'agents', 'new', 'session'],
+    sections: ['', 'agents', 'projects', 'new', 'session'],
     tabs: [
       { path: '/', label: 'Sessions', exact: true },
       { path: '/agents', label: 'Agents', badge: 'agents' },
+      { path: '/projects', label: 'Projects' },
     ],
   },
   {
@@ -117,10 +118,12 @@ export const PLACES: readonly NavPlace[] = [
     icon: 'layers',
     group: 'work',
     help: 'teams',
-    sections: ['teams', 'capacity'],
+    // A team's own page (`/teams/:id`) too.
+    sections: ['teams'],
     tabs: [
-      { path: '/teams', label: 'Teams' },
-      { path: '/capacity', label: 'Capacity' },
+      { path: '/teams', label: 'Teams', exact: true },
+      { path: '/teams/templates', label: 'Templates' },
+      { path: '/teams/capacity', label: 'Capacity' },
     ],
   },
   {
@@ -258,6 +261,7 @@ export const REDIRECTED: readonly string[] = [
   'browser',
   'api',
   'services',
+  'capacity',
 ];
 
 /** The first segment of a URL's path (`/teams/tm_1?x#y` → `teams`). */

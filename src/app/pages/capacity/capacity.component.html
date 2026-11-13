@@ -1,18 +1,5 @@
 <div class="page">
-  <div class="page-head">
-    <h1>{{ 'Capacity' | t }}</h1>
-    <span class="spacer"></span>
-    <button class="btn small" type="button" [disabled]="loading()" (click)="load()">
-      <mc-icon name="refresh" [size]="14" /> {{ 'Refresh' | t }}
-    </button>
-  </div>
-  <p class="lede">
-    {{
-      'How many role sessions may run, why the others wait, what tasks cost and which model each gets. Money figures are estimates.'
-        | t
-    }}
-  </p>
-  <mc-hub-tabs place="teams" />
+  <mc-teams-head />
 
   <div class="segmented tabs" [attr.aria-label]="'Capacity sections' | t">
     @for (section of tabs; track section.id) {
@@ -356,10 +343,10 @@
       @case ('budgets') {
         <mc-capacity-budgets [view]="v" (changed)="applied($event)" />
       }
-      @case ('routing') {
+      @case ('models') {
         <mc-routing-policy [routes]="v.routes" />
       }
-      @case ('reports') {
+      @case ('costs') {
         <mc-routing-report />
       }
       @case ('settings') {

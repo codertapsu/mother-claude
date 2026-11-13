@@ -44,7 +44,6 @@ describe("SessionsComponent with other computers' sessions", () => {
     fixture?.destroy();
     TestBed.inject(RealtimeService).stop();
     setActiveMock(null);
-    storageRemove('mc_sessions_view');
     storageRemove('mc_sessions_filter');
   });
 
@@ -221,5 +220,9 @@ describe("SessionsComponent with other computers' sessions", () => {
       'Fix tray icon',
     ]);
     expect(TestBed.inject(Router).url).toBe(`/?machine=${PEER_ID}`);
+    // A new session starts on the computer shown.
+    expect(el.querySelector('mc-sessions-head a.btn.primary')?.getAttribute('href')).toBe(
+      `/new?machine=${PEER_ID}`,
+    );
   });
 });

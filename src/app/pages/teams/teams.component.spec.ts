@@ -8,6 +8,7 @@ import { RealtimeService } from '../../core/realtime.service';
 import { TeamView, TemplateEntry } from '../../core/teams';
 import { StartTeamSheetComponent } from './start-team-sheet.component';
 import { TeamsComponent } from './teams.component';
+import { TemplatesPageComponent } from './templates-page.component';
 
 const ok = { errors: [], warnings: [] };
 
@@ -92,7 +93,10 @@ describe('TeamsComponent', () => {
     return fixture.nativeElement as HTMLElement;
   };
 
-  it('lists the teams with their roles and board, and the templates', async () => {
+  const text = (e: Element | null | undefined) =>
+    (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  it('lists the teams with their roles and board, under the Teams head', async () => {
     const el = await render();
     const card = el.querySelector('a.team') as HTMLAnchorElement;
     expect(card.textContent).toContain('shop');
@@ -100,11 +104,45 @@ describe('TeamsComponent', () => {
     expect(card.textContent).toContain('3 open · 3 done');
     expect(card.textContent).toContain('1 to review');
     expect(card.getAttribute('href')).toBe('/teams/tm_0123456789ab');
+    // The templates are a tab of their own; nothing is read for them yet.
+    expect(el.querySelector('.template')).toBeNull();
+    expect(backend.calls).not.toContain('GET /team-templates');
+    const head = el.querySelector('mc-teams-head')!;
+    expect(text(head.querySelector('h1'))).toBe('Teams');
+    expect(text(head.querySelector('.page-head .btn.primary'))).toBe('Start a team');
+    expect([...head.querySelectorAll('nav.hub-tabs a')].map((a) => text(a))).toEqual([
+      'Teams',
+      'Templates',
+      'Capacity',
+    ]);
+  });
+
+  it('opens Start a team from the head, with the templates read then', async () => {
+    const el = await render();
+    (el.querySelector('mc-teams-head .btn.primary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(backend.calls).toContain('GET /team-templates');
+    const sheet = el.querySelector('mc-start-team-sheet') as HTMLElement;
+    const names = [...sheet.querySelectorAll('select[name="template"] option')].map((o) => text(o));
+    expect(names).toEqual(['Software delivery', 'Mine']);
+  });
+
+  it('lists the templates on their tab: built in or yours, and their problems', async () => {
+    const page = TestBed.createComponent(TemplatesPageComponent);
+    page.detectChanges();
+    await flush();
+    page.detectChanges();
+    const el = page.nativeElement as HTMLElement;
+    expect(text(el.querySelector('mc-teams-head h1'))).toBe('Teams');
     const rows = [...el.querySelectorAll('.template')].map((r) => r.textContent ?? '');
     expect(rows[0]).toContain('built in');
     expect(rows[0]).toContain('View');
+    expect(rows[0]).toContain('Lead (lead) · opus');
     expect(rows[1]).toContain('1 problem');
     expect(rows[1]).toContain('Edit');
+    page.destroy();
   });
 
   it('follows a team through `teams` frames', async () => {

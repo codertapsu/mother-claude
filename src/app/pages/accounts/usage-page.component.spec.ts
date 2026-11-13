@@ -108,7 +108,7 @@ describe('UsagePageComponent: Accounts › Usage', () => {
     expect(text(cards[0].querySelector('.running'))).toBe('No session running');
     const limits = el.querySelector('section[aria-label="Rate limits teams hit"]');
     expect(text(limits)).toContain('Claude refused a request on the 5-hour limit · Work');
-    expect(el.querySelector('a[href="/capacity"]')).not.toBeNull();
+    expect(el.querySelector('a[href="/teams/capacity"]')).not.toBeNull();
   });
 
   it('sets how often usage is read on the desktop', async () => {

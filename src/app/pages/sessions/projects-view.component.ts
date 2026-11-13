@@ -330,7 +330,6 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
         flex: 1 1 9rem;
         max-width: 14rem;
       }
-      .rows,
       .section-head {
         display: flex;
         align-items: center;
@@ -340,6 +339,7 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
       .section-head h2 {
         margin: 0;
       }
+      .rows,
       .jobs {
         padding-top: 0;
         padding-bottom: 0;

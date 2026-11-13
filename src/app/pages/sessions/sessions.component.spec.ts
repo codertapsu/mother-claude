@@ -12,7 +12,7 @@ import {
 import { MOCK_ACCOUNT_WORK, buildAccounts, ownedCaps } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { AccountRef, SessionSummary } from '../../core/models';
-import { storageGet, storageRemove } from '../../core/platform';
+import { storageRemove } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { inAccount } from '../../shared/accounts';
 import { sessionMatches } from '../../shared/session-search';
@@ -107,7 +107,7 @@ describe('SessionsComponent accounts', () => {
 
   afterEach(() => {
     setActiveMock(null);
-    storageRemove('mc_sessions_view');
+    storageRemove('mc_sessions_filter');
   });
 
   const store = (list: SessionSummary[]) =>
@@ -370,32 +370,27 @@ describe('SessionsComponent accounts', () => {
     expect(text(el.querySelector('.empty-state strong'))).toBe('No current sessions match');
   });
 
-  it('switches to the projects on disk, and remembers it', async () => {
+  it('heads the list with Select and New session, and the tabs of Sessions', async () => {
     serveAccounts(backend, buildAccounts(Date.now(), false));
-    backend.routes.set('/data/projects', () => ({ status: 200, body: { projects: [] } }));
-    backend.routes.set('/data/jobs', () => ({ status: 200, body: { jobs: [] } }));
     store([card('a')]);
-    let el = await render();
-    const view = (label: string) =>
-      [...el.querySelectorAll<HTMLButtonElement>('[aria-label="Show"] button')].find(
-        (b) => text(b) === label,
-      )!;
-    expect(view('Sessions').getAttribute('aria-pressed')).toBe('true');
-    view('Projects').click();
-    fixture.detectChanges();
-    await flush();
-    fixture.detectChanges();
-    expect(el.querySelector('mc-session-card')).toBeNull();
-    expect(text(el.querySelector('mc-projects-view .empty-state'))).toContain(
-      'No conversations on disk',
-    );
-    // The page's Select is the sessions'; the projects have their own.
-    expect(
-      [...el.querySelectorAll('.page-head button')].map((b) => text(b)).includes('Select'),
-    ).toBe(false);
-    expect(storageGet('mc_sessions_view')).toBe('projects');
-    fixture.destroy();
-    el = await render();
-    expect(el.querySelector('mc-projects-view')).not.toBeNull();
+    const el = await render();
+    const head = el.querySelector('mc-sessions-head')!;
+    expect(text(head.querySelector('h1'))).toBe('Sessions');
+    expect([...head.querySelectorAll('.page-head .btn')].map((b) => text(b))).toEqual([
+      'Select',
+      'New session',
+    ]);
+    expect(head.querySelector('a.btn.primary')?.getAttribute('href')).toBe('/new');
+    expect([...head.querySelectorAll('nav.hub-tabs a')].map((a) => text(a))).toEqual([
+      'Sessions',
+      'Agents',
+      'Projects',
+    ]);
+    // Projects is a tab of its own (`/projects`): no switch on the list.
+    expect(el.querySelector('mc-projects-view')).toBeNull();
+    expect(el.querySelector('[aria-label="Show"]')).toBeNull();
+    // The filter of the app a session runs in.
+    const apps = el.querySelector<HTMLSelectElement>('select[aria-label="App"]')!;
+    expect(text(apps.options[0])).toBe('All apps');
   });
 });

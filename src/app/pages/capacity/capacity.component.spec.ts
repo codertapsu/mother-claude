@@ -98,6 +98,28 @@ describe('CapacityComponent', () => {
     fixture.destroy();
   });
 
+  it('is a tab of Teams, its sections Now · Budgets · Models · Costs · Settings', async () => {
+    // A section kept under its name before opens under its new one.
+    localStorage.setItem('mc_capacity_tab', 'reports');
+    backend.routes.set('/capacity', () => ({ status: 200, body: view() }));
+    const fixture = TestBed.createComponent(CapacityComponent);
+    await flush();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const text = (e: Element | null | undefined) =>
+      (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const sections = [...el.querySelectorAll('[aria-label="Capacity sections"] button')];
+    expect(sections.map((b) => text(b))).toEqual(['Now', 'Budgets', 'Models', 'Costs', 'Settings']);
+    expect(sections.filter((b) => b.getAttribute('aria-pressed') === 'true').map(text)).toEqual([
+      'Costs',
+    ]);
+    expect(el.querySelector('mc-routing-report')).not.toBeNull();
+    // The Teams head; no Refresh: the page reads again by itself.
+    expect(text(el.querySelector('mc-teams-head h1'))).toBe('Teams');
+    expect([...el.querySelectorAll('button')].map((b) => text(b))).not.toContain('Refresh');
+    fixture.destroy();
+  });
+
   it('says so when the server has no capacity data', async () => {
     backend.routes.set('/capacity', () => ({
       status: 404,

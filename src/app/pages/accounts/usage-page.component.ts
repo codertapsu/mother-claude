@@ -166,7 +166,7 @@ const LIMITS_SHOWN = 5;
           }
         </section>
         <p class="muted small more">
-          <a routerLink="/capacity">{{ 'Teams › Capacity' | t }}</a>
+          <a routerLink="/teams/capacity">{{ 'Teams › Capacity' | t }}</a>
           {{ 'says which role sessions wait for a window.' | t }}
         </p>
       }

@@ -1,8 +1,6 @@
 <div class="page">
-  <div class="page-head">
-    <h1>{{ 'Sessions' | t }}</h1>
-    <span class="spacer"></span>
-    @if (view() === 'sessions' && loaded() && (all().length || history().length)) {
+  <mc-sessions-head [machine]="machineInEffect() === HERE ? '' : machineInEffect()">
+    @if (loaded() && (all().length || history().length)) {
       <button
         class="btn"
         type="button"
@@ -16,284 +14,257 @@
         }
       </button>
     }
-    @if (machineInEffect() && machineInEffect() !== HERE) {
-      <a class="btn primary" routerLink="/new" [queryParams]="{ machine: machineInEffect() }"
-        ><mc-icon name="plus" [size]="16" /> {{ 'New session' | t }}</a
-      >
-    } @else {
-      <a class="btn primary" routerLink="/new"
-        ><mc-icon name="plus" [size]="16" /> {{ 'New session' | t }}</a
-      >
-    }
-  </div>
-  <mc-hub-tabs place="sessions" />
+  </mc-sessions-head>
 
-  <div class="segmented view-switch" role="group" [attr.aria-label]="'Show' | t">
-    <button type="button" [attr.aria-pressed]="view() === 'sessions'" (click)="setView('sessions')">
-      {{ 'Sessions' | t }}
-    </button>
-    <button type="button" [attr.aria-pressed]="view() === 'projects'" (click)="setView('projects')">
-      {{ 'Projects' | t }}
-    </button>
-  </div>
+  @if (loaded()) {
+    <mc-fleet-summary
+      [account]="account()"
+      (filter)="setFilter($event)"
+      (accountPicked)="showAccount($event)"
+    />
+    <mc-limit-offer class="offers" />
+  }
 
-  @if (view() === 'projects') {
-    <mc-projects-view />
-  } @else {
-    @if (loaded()) {
-      <mc-fleet-summary
-        [account]="account()"
-        (filter)="setFilter($event)"
-        (accountPicked)="showAccount($event)"
+  <div class="toolbar">
+    <label class="search">
+      <mc-icon name="search" [size]="16" />
+      <input
+        type="search"
+        [placeholder]="'Search sessions' | t"
+        [attr.aria-label]="'Search sessions' | t"
+        [ngModel]="query()"
+        (ngModelChange)="query.set($event)"
+        autocapitalize="off"
+        spellcheck="false"
       />
-      <mc-limit-offer class="offers" />
-    }
+    </label>
+    <div class="filters">
+      <div class="segmented" role="group" [attr.aria-label]="'Show sessions' | t">
+        <button type="button" [attr.aria-pressed]="filter() === 'live'" (click)="setFilter('live')">
+          {{ 'Live||sessions' | t }} <span class="n">{{ liveCount() }}</span>
+        </button>
+        <button
+          type="button"
+          [attr.aria-pressed]="filter() === 'needs'"
+          (click)="setFilter('needs')"
+        >
+          {{ 'Needs you' | t }}
+          @if (needsCount()) {
+            <span class="n warn">{{ needsCount() }}</span>
+          }
+        </button>
+        <button type="button" [attr.aria-pressed]="filter() === 'all'" (click)="setFilter('all')">
+          {{ 'All' | t }} <span class="n">{{ everything().length }}</span>
+        </button>
+      </div>
+      <select
+        [attr.aria-label]="'App' | t"
+        [ngModel]="surface()"
+        (ngModelChange)="surface.set($event)"
+      >
+        <option value="">{{ 'All apps' | t }}</option>
+        @for (sf of surfaces(); track sf) {
+          <option [value]="sf">{{ surfaceLabel(sf) }}</option>
+        }
+      </select>
+      <select
+        [attr.aria-label]="'Project' | t"
+        [ngModel]="project()"
+        (ngModelChange)="project.set($event)"
+      >
+        <option value="">{{ 'All projects' | t }}</option>
+        @for (p of projects(); track p) {
+          <option [value]="p">{{ p }}</option>
+        }
+      </select>
+      @if (multi()) {
+        <select
+          class="acct-filter"
+          [attr.aria-label]="'Account' | t"
+          [ngModel]="account()"
+          (ngModelChange)="account.set($event)"
+        >
+          <option value="">{{ 'All accounts' | t }}</option>
+          @for (a of accountList(); track a.id) {
+            <option [value]="a.id">{{ a.name }}</option>
+          }
+        </select>
+      }
+      @if (machines().length) {
+        <select
+          class="machine-filter"
+          [attr.aria-label]="'Computer' | t"
+          [ngModel]="machineInEffect()"
+          (ngModelChange)="machine.set($event)"
+        >
+          <option value="">{{ 'All computers' | t }}</option>
+          <option [value]="HERE">{{ 'This {computer}' | t: { computer: computer() } }}</option>
+          @for (m of machines(); track m.id) {
+            <option [value]="m.id">
+              {{ m.online ? m.name : ('{name} (offline)' | t: { name: m.name }) }}
+            </option>
+          }
+        </select>
+      }
+    </div>
+  </div>
 
-    <div class="toolbar">
-      <label class="search">
-        <mc-icon name="search" [size]="16" />
-        <input
-          type="search"
-          [placeholder]="'Search sessions' | t"
-          [attr.aria-label]="'Search sessions' | t"
-          [ngModel]="query()"
-          (ngModelChange)="query.set($event)"
-          autocapitalize="off"
-          spellcheck="false"
-        />
-      </label>
-      <div class="filters">
-        <div class="segmented" role="group" [attr.aria-label]="'Show sessions' | t">
-          <button
-            type="button"
-            [attr.aria-pressed]="filter() === 'live'"
-            (click)="setFilter('live')"
-          >
-            {{ 'Live||sessions' | t }} <span class="n">{{ liveCount() }}</span>
-          </button>
-          <button
-            type="button"
-            [attr.aria-pressed]="filter() === 'needs'"
-            (click)="setFilter('needs')"
-          >
-            {{ 'Needs you' | t }}
-            @if (needsCount()) {
-              <span class="n warn">{{ needsCount() }}</span>
-            }
-          </button>
-          <button type="button" [attr.aria-pressed]="filter() === 'all'" (click)="setFilter('all')">
-            {{ 'All' | t }} <span class="n">{{ everything().length }}</span>
-          </button>
-        </div>
-        <select
-          [attr.aria-label]="'Surface' | t"
-          [ngModel]="surface()"
-          (ngModelChange)="surface.set($event)"
+  @if (!loaded()) {
+    @if (connection() === 'offline' || connection() === 'unreachable') {
+      <div class="card empty-state">
+        <strong>{{
+          connection() === 'offline'
+            ? ("You're offline" | t)
+            : ("Can't reach your {computer}" | t: { computer: computer() })
+        }}</strong>
+        {{
+          "It may be asleep, offline, or the tunnel is down. This page updates as soon as it's back."
+            | t
+        }}
+      </div>
+    } @else {
+      <div class="skeleton" [attr.aria-label]="'Loading your sessions' | t">
+        <span></span><span></span><span></span>
+      </div>
+    }
+  } @else if (!everything().length && !machinesLoading().length) {
+    <div class="card empty-state">
+      <strong>{{ 'No sessions in the last 24 h' | t }}</strong>
+      {{ 'Start one here, or run' | t }} <code>claude</code>
+      {{ 'in a terminal or your editor — it shows up automatically.' | t }}
+      <div class="empty-actions">
+        <a class="btn primary" routerLink="/new"
+          ><mc-icon name="plus" [size]="15" /> {{ 'New session' | t }}</a
         >
-          <option value="">{{ 'All surfaces' | t }}</option>
-          @for (sf of surfaces(); track sf) {
-            <option [value]="sf">{{ surfaceLabel(sf) }}</option>
-          }
-        </select>
-        <select
-          [attr.aria-label]="'Project' | t"
-          [ngModel]="project()"
-          (ngModelChange)="project.set($event)"
-        >
-          <option value="">{{ 'All projects' | t }}</option>
-          @for (p of projects(); track p) {
-            <option [value]="p">{{ p }}</option>
-          }
-        </select>
-        @if (multi()) {
-          <select
-            class="acct-filter"
-            [attr.aria-label]="'Account' | t"
-            [ngModel]="account()"
-            (ngModelChange)="account.set($event)"
-          >
-            <option value="">{{ 'All accounts' | t }}</option>
-            @for (a of accountList(); track a.id) {
-              <option [value]="a.id">{{ a.name }}</option>
-            }
-          </select>
-        }
-        @if (machines().length) {
-          <select
-            class="machine-filter"
-            [attr.aria-label]="'Computer' | t"
-            [ngModel]="machineInEffect()"
-            (ngModelChange)="machine.set($event)"
-          >
-            <option value="">{{ 'All computers' | t }}</option>
-            <option [value]="HERE">{{ 'This {computer}' | t: { computer: computer() } }}</option>
-            @for (m of machines(); track m.id) {
-              <option [value]="m.id">
-                {{ m.online ? m.name : ('{name} (offline)' | t: { name: m.name }) }}
-              </option>
-            }
-          </select>
-        }
+        <button class="btn" type="button" (click)="openHistory()">
+          <mc-icon name="clock" [size]="15" /> {{ 'Show ended sessions' | t }}
+        </button>
       </div>
     </div>
-
-    @if (!loaded()) {
-      @if (connection() === 'offline' || connection() === 'unreachable') {
-        <div class="card empty-state">
-          <strong>{{
-            connection() === 'offline'
-              ? ("You're offline" | t)
-              : ("Can't reach your {computer}" | t: { computer: computer() })
-          }}</strong>
-          {{
-            "It may be asleep, offline, or the tunnel is down. This page updates as soon as it's back."
-              | t
-          }}
-        </div>
+  } @else if (!groups().length && !machinesLoading().length) {
+    <div class="card empty-state">
+      @if (historyOpen() && filter() === 'all') {
+        <strong>{{ 'No current sessions match' | t }}</strong>
+        {{ 'Earlier sessions are searched below.' | t }}
       } @else {
-        <div class="skeleton" [attr.aria-label]="'Loading your sessions' | t">
-          <span></span><span></span><span></span>
-        </div>
+        <strong>{{ 'No sessions match' | t }}</strong>
       }
-    } @else if (!everything().length && !machinesLoading().length) {
-      <div class="card empty-state">
-        <strong>{{ 'No sessions in the last 24 h' | t }}</strong>
-        {{ 'Start one here, or run' | t }} <code>claude</code>
-        {{ 'in a terminal or your editor — it shows up automatically.' | t }}
-        <div class="empty-actions">
-          <a class="btn primary" routerLink="/new"
-            ><mc-icon name="plus" [size]="15" /> {{ 'New session' | t }}</a
-          >
-          <button class="btn" type="button" (click)="openHistory()">
-            <mc-icon name="clock" [size]="15" /> {{ 'Show ended sessions' | t }}
-          </button>
-        </div>
-      </div>
-    } @else if (!groups().length && !machinesLoading().length) {
-      <div class="card empty-state">
-        @if (historyOpen() && filter() === 'all') {
-          <strong>{{ 'No current sessions match' | t }}</strong>
-          {{ 'Earlier sessions are searched below.' | t }}
-        } @else {
-          <strong>{{ 'No sessions match' | t }}</strong>
+      <button class="btn" type="button" (click)="clearFilters()">
+        {{ 'Clear filters' | t }}
+      </button>
+    </div>
+  }
+
+  @if (loaded()) {
+    @for (m of machinesLoading(); track m.id) {
+      <p class="muted small machine-loading" role="status">
+        {{ "Loading {name}'s sessions…" | t: { name: m.name } }}
+      </p>
+    }
+  }
+
+  @for (g of groups(); track g.key) {
+    <section class="group" [attr.aria-label]="g.title">
+      <h2>
+        {{ g.title }} <span class="gcount">{{ g.items.length }}</span>
+      </h2>
+      <div class="cards">
+        @for (s of g.items; track cardKey(s)) {
+          <mc-session-card
+            [session]="s"
+            [selectable]="selecting() && !s.machine"
+            [selected]="picked().has(s.id)"
+            [machine]="tagOf(s)"
+            (toggled)="flip(s.id)"
+          />
         }
-        <button class="btn" type="button" (click)="clearFilters()">
-          {{ 'Clear filters' | t }}
-        </button>
       </div>
-    }
+    </section>
+  }
 
-    @if (loaded()) {
-      @for (m of machinesLoading(); track m.id) {
-        <p class="muted small machine-loading" role="status">
-          {{ "Loading {name}'s sessions…" | t: { name: m.name } }}
-        </p>
-      }
-    }
-
-    @for (g of groups(); track g.key) {
-      <section class="group" [attr.aria-label]="g.title">
-        <h2>
-          {{ g.title }} <span class="gcount">{{ g.items.length }}</span>
-        </h2>
+  @if (loaded() && historyShown() && (filter() === 'all' || historyOpen())) {
+    <section class="history" [attr.aria-label]="'Ended sessions' | t">
+      @if (!historyOpen()) {
+        <button class="btn block" type="button" (click)="openHistory()">
+          <mc-icon name="clock" [size]="16" /> {{ 'Show ended sessions' | t }}
+        </button>
+      } @else {
+        <h2>{{ 'Earlier sessions' | t }}</h2>
         <div class="cards">
-          @for (s of g.items; track cardKey(s)) {
+          @for (s of historyVisible(); track s.id) {
             <mc-session-card
               [session]="s"
-              [selectable]="selecting() && !s.machine"
+              [selectable]="selecting()"
               [selected]="picked().has(s.id)"
-              [machine]="tagOf(s)"
               (toggled)="flip(s.id)"
             />
+          } @empty {
+            @if (!historyLoading()) {
+              <p class="muted">
+                {{ query() ? ('No earlier sessions match.' | t) : ('No earlier sessions.' | t) }}
+              </p>
+            }
           }
         </div>
-      </section>
-    }
-
-    @if (loaded() && historyShown() && (filter() === 'all' || historyOpen())) {
-      <section class="history" [attr.aria-label]="'Ended sessions' | t">
-        @if (!historyOpen()) {
-          <button class="btn block" type="button" (click)="openHistory()">
-            <mc-icon name="clock" [size]="16" /> {{ 'Show ended sessions' | t }}
-          </button>
-        } @else {
-          <h2>{{ 'Earlier sessions' | t }}</h2>
-          <div class="cards">
-            @for (s of historyVisible(); track s.id) {
-              <mc-session-card
-                [session]="s"
-                [selectable]="selecting()"
-                [selected]="picked().has(s.id)"
-                (toggled)="flip(s.id)"
-              />
-            } @empty {
-              @if (!historyLoading()) {
-                <p class="muted">
-                  {{ query() ? ('No earlier sessions match.' | t) : ('No earlier sessions.' | t) }}
-                </p>
-              }
-            }
-          </div>
-          @if (historyError()) {
-            <p class="error-text small">{{ historyError() }}</p>
-          }
-          @if (!historyDone()) {
-            <button
-              class="btn block"
-              type="button"
-              [disabled]="historyLoading()"
-              (click)="loadMoreHistory()"
-            >
-              {{ historyLoading() ? ('Loading…' | t) : ('Load more' | t) }}
-            </button>
-          }
+        @if (historyError()) {
+          <p class="error-text small">{{ historyError() }}</p>
         }
-      </section>
-    }
+        @if (!historyDone()) {
+          <button
+            class="btn block"
+            type="button"
+            [disabled]="historyLoading()"
+            (click)="loadMoreHistory()"
+          >
+            {{ historyLoading() ? ('Loading…' | t) : ('Load more' | t) }}
+          </button>
+        }
+      }
+    </section>
+  }
 
-    @if (selecting()) {
-      <div class="selbar" role="region" [attr.aria-label]="'Selected sessions' | t">
-        <span class="selcount" aria-live="polite">{{
-          '{n} selected' | t: { n: picked().size }
-        }}</span>
-        <button
-          class="btn small ghost"
-          type="button"
-          [disabled]="selectingAll()"
-          [title]="'Every session the search and filters match, earlier ones too' | t"
-          (click)="selectAll()"
-        >
-          {{ selectingAll() ? ('Selecting…' | t) : selectAllLabel() }}
+  @if (selecting()) {
+    <div class="selbar" role="region" [attr.aria-label]="'Selected sessions' | t">
+      <span class="selcount" aria-live="polite">{{
+        '{n} selected' | t: { n: picked().size }
+      }}</span>
+      <button
+        class="btn small ghost"
+        type="button"
+        [disabled]="selectingAll()"
+        [title]="'Every session the search and filters match, earlier ones too' | t"
+        (click)="selectAll()"
+      >
+        {{ selectingAll() ? ('Selecting…' | t) : selectAllLabel() }}
+      </button>
+      @if (picked().size) {
+        <button class="btn small ghost" type="button" (click)="clearPicked()">
+          {{ 'Clear||selection' | t }}
         </button>
-        @if (picked().size) {
-          <button class="btn small ghost" type="button" (click)="clearPicked()">
-            {{ 'Clear||selection' | t }}
-          </button>
-        }
-        <span class="spacer"></span>
+      }
+      <span class="spacer"></span>
+      <button
+        class="btn small danger"
+        type="button"
+        [disabled]="!picked().size"
+        (click)="openDelete()"
+      >
+        <mc-icon name="trash" [size]="14" /> {{ 'Delete {n}…' | t: { n: picked().size || '' } }}
+      </button>
+      @if (moveOffered()) {
         <button
-          class="btn small danger"
+          class="btn small primary"
           type="button"
           [disabled]="!picked().size"
-          (click)="openDelete()"
+          (click)="openMove()"
         >
-          <mc-icon name="trash" [size]="14" /> {{ 'Delete {n}…' | t: { n: picked().size || '' } }}
+          <mc-icon name="move" [size]="14" />
+          {{ 'Move or copy {n}…' | t: { n: picked().size || '' } }}
         </button>
-        @if (moveOffered()) {
-          <button
-            class="btn small primary"
-            type="button"
-            [disabled]="!picked().size"
-            (click)="openMove()"
-          >
-            <mc-icon name="move" [size]="14" />
-            {{ 'Move or copy {n}…' | t: { n: picked().size || '' } }}
-          </button>
-        }
-      </div>
-      @if (selectAllError()) {
-        <p class="error-text small selerr" role="alert">{{ selectAllError() }}</p>
       }
+    </div>
+    @if (selectAllError()) {
+      <p class="error-text small selerr" role="alert">{{ selectAllError() }}</p>
     }
   }
 </div>

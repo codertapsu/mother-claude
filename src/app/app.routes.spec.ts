@@ -85,6 +85,24 @@ describe('old routes (docs/UI-REDESIGN.md §10.1)', () => {
     expect(await land('/services')).toBe('/settings/tools');
   });
 
+  it('sends Capacity to Teams › Capacity, with its section and the fragment', async () => {
+    expect(await land('/capacity')).toBe('/teams/capacity');
+    expect(await land('/capacity?tab=budgets#x')).toBe('/teams/capacity?tab=budgets#x');
+  });
+
+  it("opens Teams' tabs, never as a team", () => {
+    const paths = routes.map((r) => r.path);
+    const team = paths.indexOf('teams/:id');
+    for (const tab of ['teams/templates', 'teams/capacity']) {
+      expect(paths.indexOf(tab), tab).toBeGreaterThanOrEqual(0);
+      expect(paths.indexOf(tab), tab).toBeLessThan(team);
+    }
+  });
+
+  it('opens the projects on disk as a page of their own', async () => {
+    expect(await land('/projects')).toBe('/projects');
+  });
+
   it('keeps the links that never move', async () => {
     expect(await land('/pair?c=K7QM-4R2X')).toBe('/pair?c=K7QM-4R2X');
     expect(await land('/session/abc?pending=p1')).toBe('/session/abc?pending=p1');

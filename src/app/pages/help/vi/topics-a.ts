@@ -80,7 +80,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Làm quen với ứng dụng',
         points: [
           'Trên ứng dụng máy tính, thanh bên có phần việc của bạn trước — **Phiên**, **Hộp thư** và **Nhóm** — rồi đến những gì bạn quản lý: **Máy tính**, **Tài khoản** và **Cài đặt**. **Trợ giúp** nằm ở dưới cùng.',
-          'Nơi nào có nhiều trang sẽ hiện chúng thành các thẻ dưới tên của nó: **Phiên** và **Tác tử**; **Nhóm** và **Công suất**; **Máy tính**: **Tổng quan**, **Đồng bộ mã nguồn**, **Hoạt động** và **Tùy chọn**; **Tài khoản**: **Tài khoản**, **Mức dùng**, **Bản sao lưu** và **Thay đổi gần đây**. **Cài đặt** mở phần còn lại trong **Các kết nối**: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**.',
+          'Nơi nào có nhiều trang sẽ hiện chúng thành các thẻ dưới tên của nó: **Phiên**, **Tác tử** và **Dự án**; **Nhóm**, **Mẫu quy trình** và **Công suất**; **Máy tính**: **Tổng quan**, **Đồng bộ mã nguồn**, **Hoạt động** và **Tùy chọn**; **Tài khoản**: **Tài khoản**, **Mức dùng**, **Bản sao lưu** và **Thay đổi gần đây**. **Cài đặt** mở phần còn lại trong **Các kết nối**: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**.',
           'Trên điện thoại, các thẻ ở dưới cùng là **Phiên**, **Hộp thư**, **Nhóm** và **Thêm**. **Thêm** có **Máy tính**, **Tài khoản**, **Cài đặt** và **Trợ giúp**, mỗi mục kèm một dòng cho biết tình trạng của nó.',
           'Chấm ở cuối thanh bên (ở trên cùng trên điện thoại) cho biết trạng thái kết nối. **Trực tiếp** nghĩa là cập nhật đến ngay khi có.',
           'Nút bên cạnh đổi giao diện giữa tối, sáng và theo hệ thống. **Cài đặt › Hiển thị** còn có ngôn ngữ, màu nhấn và nền.',
@@ -293,8 +293,18 @@ const TOPICS: HelpTopicSource[] = [
     summary:
       'Mọi phiên Claude Code trên máy tính của bạn, phiên đó đang làm gì, và cách tìm một phiên.',
     intro:
-      'Trang **Phiên** liệt kê mọi phiên Claude Code trên máy tính của bạn đang chạy hoặc có hoạt động trong 24 giờ qua, bất kể thứ gì đã bắt đầu nó: terminal, VS Code, JetBrains, Claude Desktop, một tác vụ nền hay chính Mother Claude.',
-    keywords: ['danh sách', 'bộ lọc', 'trạng thái', 'môi trường', 'dự án', 'tác tử', 'tìm phiên'],
+      'Trang **Phiên** liệt kê mọi phiên Claude Code trên máy tính của bạn đang chạy hoặc có hoạt động trong 24 giờ qua, bất kể thứ gì đã bắt đầu nó: terminal, VS Code, JetBrains, Claude Desktop, một tác vụ nền hay chính Mother Claude. Hai thẻ còn lại, **Tác tử** và **Dự án**, hiện các tác tử đang làm việc và mọi dự án trên ổ đĩa.',
+    keywords: [
+      'danh sách',
+      'bộ lọc',
+      'trạng thái',
+      'ứng dụng',
+      'môi trường',
+      'dự án',
+      'tác tử',
+      'đồng đội',
+      'tìm phiên',
+    ],
     sections: [
       {
         heading: 'Danh sách được nhóm thế nào',
@@ -335,7 +345,7 @@ const TOPICS: HelpTopicSource[] = [
         steps: [
           'Gõ vào ô **Tìm phiên**.',
           'Chọn **Đang chạy**, **Cần bạn** hoặc **Tất cả**.',
-          'Thu hẹp kết quả bằng **Mọi môi trường** và **Mọi dự án** (và **Mọi tài khoản**, khi có nhiều tài khoản).',
+          'Thu hẹp kết quả bằng **Mọi ứng dụng** (ứng dụng mà phiên chạy trong đó: CLI, VS Code, JetBrains, Claude Desktop…) và **Mọi dự án**, và khi có nhiều tài khoản hay máy tính, bằng **Mọi tài khoản** và **Mọi máy tính**.',
           'Trong **Tất cả**, nhấn **Hiện các phiên đã kết thúc** để thêm các phiên trước đó; **Tải thêm** đi xa hơn về trước.',
         ],
         tips: ['Khi không có kết quả nào, **Xóa bộ lọc** hiện lại mọi thứ.'],
@@ -353,11 +363,13 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Dự án',
         intro:
-          '**Dự án**, cạnh **Phiên** ở trên cùng, liệt kê mọi thư mục dự án có cuộc trò chuyện, trong mọi tài khoản: có bao nhiêu cuộc trò chuyện, bao nhiêu đang chạy, dung lượng và hoạt động gần nhất.',
+          '**Dự án**, một thẻ của **Phiên**, liệt kê mọi thư mục dự án có cuộc trò chuyện, trong mọi tài khoản: có bao nhiêu cuộc trò chuyện, bao nhiêu đang chạy, dung lượng và hoạt động gần nhất.',
         points: [
           'Menu của một dự án mở thư mục của nó trên ổ đĩa (ứng dụng máy tính), sao chép đường dẫn, di chuyển hay sao chép dự án, hoặc xóa nó.',
+          '**Chọn** để chọn nhiều dự án và xóa, di chuyển hay sao chép chúng cùng lúc.',
           'Dự án đã xóa nằm trong **Đã xóa gần đây** trong bảy ngày, kèm **Hoàn tác**. Mục này hiện ba lần xóa mới nhất; **Xem tất cả** mở mọi lần xóa trên **Tài khoản › Thay đổi gần đây**.',
         ],
+        links: [{ label: 'Mở trang Dự án', path: '/projects' }],
       },
       {
         heading: 'Tác tử',
@@ -367,6 +379,7 @@ const TOPICS: HelpTopicSource[] = [
           'Chạm vào một tác tử để đọc bản ghi riêng của nó, cập nhật trực tiếp trong lúc nó chạy. Shell hoặc trình giám sát thì hiện đầu ra của nó.',
           'Bạn có thể dừng một tác tử khi phiên của nó cho phép.',
           'Con số trên **Tác tử** đếm số tác tử đang chạy.',
+          '**Đồng đội**, bên dưới, liệt kê những gì các nhóm tác tử của chính Claude Code trong các phiên tương tác của bạn đã báo: một đồng đội đang rảnh, một tác vụ được tạo hoặc đã xong. Mother Claude chỉ quan sát chúng; đó không phải nhóm của Mother Claude.',
         ],
         links: [
           { label: 'Mở trang Phiên', path: '/' },
@@ -978,7 +991,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Điện thoại làm được gì',
         points: [
-          'Các thẻ ở dưới cùng là **Phiên** (có thẻ **Tác tử**), **Hộp thư**, **Nhóm** (có **Công suất**) và **Thêm**: **Máy tính**, **Tài khoản** (có **Mức dùng**, **Bản sao lưu** và **Thay đổi gần đây**), **Cài đặt** (có **Điện thoại & thiết bị**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code** trong **Các kết nối**) và **Trợ giúp**.',
+          'Các thẻ ở dưới cùng là **Phiên** (có các thẻ **Tác tử** và **Dự án**), **Hộp thư**, **Nhóm** (có **Mẫu quy trình** và **Công suất**) và **Thêm**: **Máy tính**, **Tài khoản** (có **Mức dùng**, **Bản sao lưu** và **Thay đổi gần đây**), **Cài đặt** (có **Điện thoại & thiết bị**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code** trong **Các kết nối**) và **Trợ giúp**.',
           'Xem mọi phiên, trả lời yêu cầu duyệt, câu hỏi và kế hoạch, gửi tin nhắn và ảnh, bắt đầu phiên và tiếp tục phiên.',
           'Việc ghép nối thiết bị, truy cập qua internet, quyền của từng thiết bị và cài plugin chỉ thay đổi được trong ứng dụng máy tính.',
           'Thao tác nguy hiểm cần được cấp quyền cho thiết bị này trong ứng dụng máy tính (**Cài đặt › Điện thoại & thiết bị**, trong **Thiết bị đã ghép nối**).',

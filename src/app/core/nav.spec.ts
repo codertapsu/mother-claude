@@ -97,15 +97,21 @@ describe('the map (core/nav.ts)', () => {
   });
 
   it('gives each place its tabs', () => {
+    // Sessions: the list, the agents, the projects on disk (§6.2).
     expect(tabsOf('sessions').map((t) => [t.label, t.path])).toEqual([
       ['Sessions', '/'],
       ['Agents', '/agents'],
+      ['Projects', '/projects'],
     ]);
+    expect(tabsOf('sessions')[0].exact).toBe(true);
     expect(tabsOf('sessions')[1].badge).toBe('agents');
+    // Teams: the teams, their templates, Capacity (§6.2).
     expect(tabsOf('teams').map((t) => [t.label, t.path])).toEqual([
       ['Teams', '/teams'],
-      ['Capacity', '/capacity'],
+      ['Templates', '/teams/templates'],
+      ['Capacity', '/teams/capacity'],
     ]);
+    expect(tabsOf('teams')[0].exact).toBe(true);
     // Accounts in four tabs (docs/UI-REDESIGN.md §6.6).
     expect(tabsOf('accounts').map((t) => [t.label, t.path])).toEqual([
       ['Accounts', '/accounts'],
@@ -154,7 +160,8 @@ describe('the map (core/nav.ts)', () => {
   it("titles the phone's top bar by the place, or the page's own name", () => {
     expect(titleOf('')).toBe('Sessions');
     expect(titleOf('agents')).toBe('Sessions');
-    expect(titleOf('capacity')).toBe('Teams');
+    expect(titleOf('projects')).toBe('Sessions');
+    // Templates, Capacity and a team are pages of Teams.
     expect(titleOf('teams')).toBe('Teams');
     expect(titleOf('accounts')).toBe('Accounts');
     expect(titleOf('computers')).toBe('Computers');
@@ -174,7 +181,7 @@ describe('the map (core/nav.ts)', () => {
     for (const s of ['more', 'computers', 'accounts', 'settings', 'onboarding', 'help']) {
       expect(moreActive(s), s).toBe(true);
     }
-    for (const s of ['', 'inbox', 'agents', 'teams', 'capacity', 'new', 'session', 'pair']) {
+    for (const s of ['', 'inbox', 'agents', 'projects', 'teams', 'new', 'session', 'pair']) {
       expect(moreActive(s), s).toBe(false);
     }
   });

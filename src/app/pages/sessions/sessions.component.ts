@@ -21,7 +21,6 @@ import {
   deletedIds,
 } from '../../shared/delete-data-sheet.component';
 import { FleetSummaryComponent } from '../../shared/fleet-summary.component';
-import { HubTabsComponent } from '../../shared/hub-tabs.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitOfferComponent } from '../../shared/limit-offer.component';
 import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
@@ -34,11 +33,9 @@ import {
   sessionPasses,
 } from '../../shared/session-search';
 import { surfaceLabel } from '../../shared/util';
-import { ProjectsViewComponent } from './projects-view.component';
+import { SessionsHeadComponent } from './sessions-head.component';
 
 type Filter = 'live' | 'needs' | 'all';
-/** Sessions, or every project on disk (docs/ACCOUNTS.md §14.4). */
-type View = 'sessions' | 'projects';
 
 interface Group {
   key: string;
@@ -47,7 +44,6 @@ interface Group {
 }
 
 const FILTER_KEY = 'mc_sessions_filter';
-const VIEW_KEY = 'mc_sessions_view';
 const HISTORY_PAGE = 25;
 /** How long typing waits before earlier sessions are searched again. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -67,8 +63,9 @@ const HERE = 'here';
 
 /**
  * Every session in the active scope (live, or active in the last 24 h),
- * searchable and filterable (by surface, project and — while more than the
- * Default exists — Claude account), grouped by what they need; ended
+ * searchable and filterable (by the app it runs in, project and — while
+ * more than the Default exists — Claude account), grouped by what they
+ * need; ended
  * sessions page in on demand. A card with one simple pending request can be
  * answered right here. Earlier sessions are searched and filtered on the
  * server, so a search finds them all, not only the pages read so far.
@@ -77,11 +74,11 @@ const HERE = 'here';
  * included), *Delete N…* (docs/ACCOUNTS.md §14) and,
  * when there is somewhere to move them, *Move or copy N…*, which opens Move
  * data with those conversations (from several accounts at once: each goes
- * from where it is). The *Sessions / Projects* switch shows every project
- * on disk instead (`ProjectsViewComponent`).
+ * from where it is). Every project on disk is the *Projects* tab
+ * (`/projects`).
  *
  * Other computers' sessions (docs/PLAN-MACHINES.md §6.1) join the same
- * groups with their computer's chip, and a *Machine* filter picks every
+ * groups with their computer's chip, and a *Computer* filter picks every
  * computer, this one or one other (`?machine=<id>` opens it so); an offline
  * computer's sessions stay, greyed, in a group of their own. They are never
  * selected, an account filter (this computer's accounts) leaves them out,
@@ -94,13 +91,12 @@ const HERE = 'here';
     RouterLink,
     FormsModule,
     FleetSummaryComponent,
-    HubTabsComponent,
     IconComponent,
     DeleteDataSheetComponent,
     LimitOfferComponent,
     MoveDataSheetComponent,
-    ProjectsViewComponent,
     SessionCardComponent,
+    SessionsHeadComponent,
     TPipe,
   ],
   templateUrl: './sessions.component.html',
@@ -155,9 +151,6 @@ export class SessionsComponent {
   protected readonly cardKey = cardKey;
   protected readonly HERE = HERE;
 
-  protected readonly view = signal<View>(
-    storageGet(VIEW_KEY) === 'projects' ? 'projects' : 'sessions',
-  );
   protected readonly query = signal('');
   protected readonly filter = signal<Filter>(readFilter());
   protected readonly surface = signal('');
@@ -332,13 +325,6 @@ export class SessionsComponent {
       untracked(() => this.historyFiltersChanged(key));
     });
     inject(DestroyRef).onDestroy(() => clearTimeout(this.historyTimer));
-  }
-
-  setView(v: View): void {
-    this.view.set(v);
-    storageSet(VIEW_KEY, v);
-    this.selecting.set(false);
-    this.picked.set(new Set());
   }
 
   setFilter(f: Filter): void {
