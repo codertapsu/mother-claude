@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, input, signal } from '@angular/core';
 
 import { TPipe } from '../core/i18n/t.pipe';
+import { copyText } from './clipboard';
 import { IconComponent } from './icon.component';
 
 /** Copies `text` to the clipboard (with a fallback for non-secure contexts,
@@ -31,35 +32,10 @@ export class CopyButtonComponent {
   private timer?: ReturnType<typeof setTimeout>;
 
   async copy(): Promise<void> {
-    const text = this.text();
-    let ok: boolean;
-    try {
-      await navigator.clipboard.writeText(text);
-      ok = true;
-    } catch {
-      ok = legacyCopy(text);
-    }
-    if (ok) {
+    if (await copyText(this.text())) {
       this.copied.set(true);
       clearTimeout(this.timer);
       this.timer = setTimeout(() => this.copied.set(false), 1500);
     }
-  }
-}
-
-function legacyCopy(text: string): boolean {
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.setAttribute('readonly', '');
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
   }
 }
