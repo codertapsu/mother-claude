@@ -20,6 +20,7 @@ import {
   taskFromAgent,
 } from '../../shared/agents';
 import { ChipComponent } from '../../shared/chip.component';
+import { CodeCopyDirective } from '../../shared/code-copy.directive';
 import { IconComponent } from '../../shared/icon.component';
 import { renderMarkdown } from '../../shared/markdown';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
@@ -49,6 +50,7 @@ const AGENTS_POLL_TICKS = 4;
     RouterLink,
     ActivityLineComponent,
     ChipComponent,
+    CodeCopyDirective,
     IconComponent,
     TaskOutputBodyComponent,
     TimeAgoComponent,
@@ -159,7 +161,7 @@ const AGENTS_POLL_TICKS = 4;
                 }
               </p>
               @if (resultHtml()) {
-                <div class="md" [innerHTML]="resultHtml()"></div>
+                <div class="md" mcCodeCopy [innerHTML]="resultHtml()"></div>
               } @else if (resultLoading()) {
                 <p class="muted small">{{ 'Looking for the result…' | t }}</p>
               } @else {

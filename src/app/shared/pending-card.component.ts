@@ -39,6 +39,7 @@ import { AccountChipComponent } from './account-chip.component';
 import { BrowserActionComponent } from './browser-action.component';
 import { CapLimitsComponent } from './cap-limits.component';
 import { ChipComponent } from './chip.component';
+import { CodeCopyDirective } from './code-copy.directive';
 import { IconComponent, IconName } from './icon.component';
 import { MachineRunActionComponent } from './machine-run-action.component';
 import { MachineTaskActionComponent } from './machine-task-action.component';
@@ -116,6 +117,7 @@ interface SchemaField {
     BrowserActionComponent,
     CapLimitsComponent,
     ChipComponent,
+    CodeCopyDirective,
     IconComponent,
     MachineRunActionComponent,
     MachineTaskActionComponent,

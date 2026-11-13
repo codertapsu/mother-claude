@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { StreamBubble } from '../../core/live-stream';
+import { CodeCopyDirective } from '../../shared/code-copy.directive';
 import { IconComponent } from '../../shared/icon.component';
 import { renderMarkdown } from '../../shared/markdown';
 import { toolIcon } from './tool-icons';
@@ -16,7 +17,7 @@ import { toolIcon } from './tool-icons';
 @Component({
   selector: 'mc-stream-bubble',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, TPipe],
+  imports: [CodeCopyDirective, IconComponent, TPipe],
   host: { '[attr.aria-busy]': '!bubble().done', '[attr.aria-label]': 'label()' },
   template: `
     @for (b of blocks(); track b.index) {
@@ -36,7 +37,7 @@ import { toolIcon } from './tool-icons';
           </p>
         }
         @default {
-          <div class="md text" [innerHTML]="b.html"></div>
+          <div class="md text" mcCodeCopy [innerHTML]="b.html"></div>
         }
       }
     } @empty {

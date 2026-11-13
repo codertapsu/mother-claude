@@ -72,12 +72,12 @@
       </div>
     }
     @case ('text') {
-      <div class="text md" [innerHTML]="html()"></div>
+      <div class="text md" mcCodeCopy [innerHTML]="html()"></div>
     }
     @case ('thinking') {
       <details class="thinking">
         <summary><mc-icon name="sparkle" [size]="13" /> {{ 'Thinking' | t }}</summary>
-        <div class="md" [innerHTML]="html()"></div>
+        <div class="md" mcCodeCopy [innerHTML]="html()"></div>
       </details>
     }
     @case ('image') {
@@ -127,7 +127,12 @@
     @case ('plan') {
       <div class="plan">
         <p class="ptitle"><mc-icon name="map" [size]="14" /> {{ 'Plan||document' | t }}</p>
-        <div class="md" [class.folded]="planLong() && !planOpen()" [innerHTML]="html()"></div>
+        <div
+          class="md"
+          mcCodeCopy
+          [class.folded]="planLong() && !planOpen()"
+          [innerHTML]="html()"
+        ></div>
         @if (planLong()) {
           <button class="btn ghost small" type="button" (click)="planOpen.set(!planOpen())">
             {{ planOpen() ? ('Show less' | t) : ('Show the whole plan' | t) }}

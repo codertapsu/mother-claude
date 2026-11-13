@@ -743,5 +743,7 @@
   "Approve dangerous actions on the {computer}, or allow this device to take them (Settings › Phone & devices). You can still deny it here.": "Hãy duyệt thao tác nguy hiểm trên {computer}, hoặc cho phép thiết bị này thực hiện chúng (Cài đặt › Điện thoại & thiết bị). Bạn vẫn có thể từ chối ở đây.",
   "Rules saved to settings files need the {computer}, or a device allowed to take dangerous actions (Settings › Phone & devices).": "Quy tắc lưu vào tệp cài đặt cần làm trên {computer}, hoặc trên thiết bị được phép thực hiện thao tác nguy hiểm (Cài đặt › Điện thoại & thiết bị).",
   "This session runs without permission prompts: switching it needs dangerous actions for this device, granted on the computer in Settings › Phone & devices.": "Phiên này chạy không có lời nhắc xin quyền: để chuyển nó, thiết bị này cần quyền thao tác nguy hiểm, được cấp trên máy tính ở Cài đặt › Điện thoại & thiết bị.",
-  "Saved in Mother Claude (Settings › Browser › Always allowed)": "Lưu trong Mother Claude (Cài đặt › Trình duyệt › Luôn cho phép)"
+  "Saved in Mother Claude (Settings › Browser › Always allowed)": "Lưu trong Mother Claude (Cài đặt › Trình duyệt › Luôn cho phép)",
+  "Table": "Bảng",
+  "Couldn't copy the code.": "Không sao chép được mã."
 }

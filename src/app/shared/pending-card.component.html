@@ -202,7 +202,7 @@
         }
 
         @case ('plan') {
-          <div class="plan md" [innerHTML]="planHtml()"></div>
+          <div class="plan md" mcCodeCopy [innerHTML]="planHtml()"></div>
         }
 
         @case ('elicitation') {
@@ -526,7 +526,7 @@
     [open]="planSheet()"
     (closed)="planSheet.set(false)"
   >
-    <div class="md plan-full" [innerHTML]="planHtml()"></div>
+    <div class="md plan-full" mcCodeCopy [innerHTML]="planHtml()"></div>
     @if (canAct() && !settled()) {
       <ng-container *ngTemplateOutlet="planActions" />
     }

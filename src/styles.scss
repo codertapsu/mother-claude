@@ -978,42 +978,465 @@ pre {
   font-family: var(--mono);
 }
 
-/* Markdown output (shared/markdown.ts). */
+/* ------------------------------------------- Markdown (shared/markdown.ts)
+ * Claude's messages, thinking, plans and agents' results, in both themes
+ * from the tokens. Code blocks and tables scroll sideways inside themselves,
+ * a fade on the side that has more (where the browser can tell); whatever
+ * moves stops under reduced motion. */
+
+$md-icon-copy: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E");
+$md-icon-check: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+$md-icon-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21'/%3E%3C/svg%3E");
+
 .md {
-  line-height: 1.55;
+  line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.md > :first-child {
+.md > :first-child,
+.md blockquote > :first-child,
+.md li > :first-child,
+.md li.md-task > .md-check + * {
   margin-top: 0;
 }
-.md > :last-child {
+.md > :last-child,
+.md blockquote > :last-child,
+.md li > :last-child {
   margin-bottom: 0;
 }
-.md pre.md-code {
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.6rem 0.75rem;
-  overflow-x: auto;
-  font-size: 0.8rem;
+.md p {
+  margin: 0.75em 0;
 }
-.md code {
-  font-size: 0.85em;
+
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: 1.3em 0 0.45em;
+  line-height: 1.3;
+  font-weight: 650;
 }
-.md pre.md-code code {
-  background: none;
-  border: 0;
-  padding: 0;
+.md h3 {
+  font-size: 1.12em;
 }
-.md blockquote {
-  margin: 0.5rem 0;
-  padding-left: 0.75rem;
-  border-left: 3px solid var(--border-strong);
+.md h4 {
+  font-size: 1.02em;
+}
+.md h5 {
+  font-size: 0.95em;
+}
+.md h6 {
+  font-size: 0.9em;
   color: var(--muted);
 }
+
+.md strong {
+  font-weight: 650;
+}
+.md del {
+  color: var(--muted);
+}
+.md a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 0.2em;
+  transition: text-decoration-color 0.15s ease;
+}
+.md a:hover {
+  text-decoration-color: currentColor;
+}
+/* An image: a link to it (never loaded), marked as one. */
+.md a.md-img::before {
+  content: '';
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: 0.25em;
+  vertical-align: -0.15em;
+  background: currentColor;
+  mask: $md-icon-image no-repeat center / contain;
+}
+/* A link that isn't http(s): its text, and a relative target as a tooltip. */
+.md .md-link {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--faint);
+  text-underline-offset: 0.2em;
+}
+
+.md code {
+  font-size: 0.86em;
+  padding: 0.1em 0.38em;
+  border-radius: 0.35em;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+/* Code blocks: a card with the language as a chip and Copy, which shows on
+   hover or focus (always on touch screens). Without a language, Copy floats
+   in the corner. */
+.md .md-pre {
+  position: relative;
+  margin: 0.85em 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  color: var(--text);
+  overflow: hidden;
+}
+.md pre.md-code {
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  tab-size: 4;
+}
+.md pre.md-code code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: inherit;
+}
+.md .md-pre-bar {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+@mixin md-pre-strip {
+  position: static;
+  min-height: 2.1rem;
+  padding: 0.25rem 0.35rem 0.25rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-2) 65%, var(--code-bg));
+}
+.md .md-pre.has-lang .md-pre-bar {
+  @include md-pre-strip;
+}
+.md .md-lang {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.05rem 0.55rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--panel-3);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  line-height: 1.6;
+}
+.md .md-copy {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+  min-height: 1.6rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 0.4rem;
+  border: 1px solid transparent;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+.md .md-copy::before {
+  content: '';
+  width: 0.85rem;
+  height: 0.85rem;
+  background: currentColor;
+  mask: $md-icon-copy no-repeat center / contain;
+}
+.md .md-pre:not(.has-lang) .md-copy {
+  border-color: var(--border);
+  background: var(--panel-2);
+}
+.md .md-pre:hover .md-copy,
+.md .md-pre:focus-within .md-copy,
+.md .md-copy.copied {
+  opacity: 1;
+}
+.md .md-copy:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--panel-3);
+}
+.md .md-copy.copied,
+.md .md-copy.copied:hover {
+  color: var(--green);
+  border-color: var(--green-border);
+  background: var(--green-soft);
+}
+.md .md-copy.copied::before {
+  mask-image: $md-icon-check;
+}
+@media (hover: none) {
+  .md .md-copy {
+    opacity: 1;
+  }
+  .md .md-pre-bar {
+    @include md-pre-strip;
+  }
+}
+/* A finger-sized target without a taller strip. */
+@media (pointer: coarse) {
+  .md .md-copy::after {
+    content: '';
+    position: absolute;
+    inset: -0.55rem -0.3rem;
+  }
+}
+
+/* Tables: a rounded card with a tinted header and zebra rows; a wide one
+   scrolls sideways inside its region. */
+.md .md-table {
+  margin: 0.85em 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-radius: var(--radius-sm);
+}
+.md table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.875em;
+  line-height: 1.45;
+  /* Words stay whole: a table too wide for its place scrolls instead. */
+  overflow-wrap: normal;
+}
+.md th,
+.md td {
+  padding: 0.5rem 0.8rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+  transition: background-color 0.12s ease;
+}
+.md th {
+  font-weight: 600;
+  background: var(--panel-2);
+  border-bottom-color: var(--border-strong);
+}
+/* Phones: columns don't squeeze until "12.4 KB" breaks; the table scrolls. */
+@media (max-width: 767px) {
+  .md th,
+  .md td {
+    min-width: 6em;
+  }
+}
+.md tbody tr:last-child > td,
+.md thead:last-child th {
+  border-bottom: 0;
+}
+.md tbody tr:nth-child(even) > td {
+  background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+}
+.md tbody tr:hover > td {
+  background: var(--accent-soft);
+}
+.md th:first-child {
+  border-top-left-radius: calc(var(--radius-sm) - 1px);
+}
+.md th:last-child {
+  border-top-right-radius: calc(var(--radius-sm) - 1px);
+}
+.md tbody tr:last-child > td:first-child,
+.md thead:last-child th:first-child {
+  border-bottom-left-radius: calc(var(--radius-sm) - 1px);
+}
+.md tbody tr:last-child > td:last-child,
+.md thead:last-child th:last-child {
+  border-bottom-right-radius: calc(var(--radius-sm) - 1px);
+}
+.md .al-left {
+  text-align: left;
+}
+.md .al-center {
+  text-align: center;
+}
+.md .al-right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Where the browser follows scrolling in CSS, a side with more to see
+   fades out. */
+@property --md-fade-l {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@property --md-fade-r {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes md-edges {
+  0% {
+    --md-fade-l: 0px;
+    --md-fade-r: 1.75rem;
+  }
+  12% {
+    --md-fade-l: 1.75rem;
+  }
+  88% {
+    --md-fade-r: 1.75rem;
+  }
+  100% {
+    --md-fade-l: 1.75rem;
+    --md-fade-r: 0px;
+  }
+}
+@supports (animation-timeline: scroll()) {
+  .md .md-table,
+  .md pre.md-code {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--md-fade-l),
+      #000 calc(100% - var(--md-fade-r)),
+      transparent
+    );
+    animation: md-edges auto linear both;
+    animation-timeline: scroll(self inline);
+  }
+  /* The mask would hide the focus ring. */
+  .md .md-table:focus-visible {
+    mask-image: none;
+  }
+}
+
+.md blockquote {
+  margin: 0.85em 0;
+  padding: 0.5em 0.9em;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+  color: var(--muted);
+}
+
 .md ul,
 .md ol {
-  padding-left: 1.3rem;
+  margin: 0.65em 0;
+  padding-left: 1.45em;
+}
+.md li + li {
+  margin-top: 0.25em;
+}
+.md li > ul,
+.md li > ol {
+  margin: 0.25em 0;
+}
+.md li > p {
+  margin: 0.4em 0;
+}
+.md li::marker {
+  color: var(--faint);
+}
+.md ol > li::marker {
+  font-variant-numeric: tabular-nums;
+}
+/* Task items: a check box drawn where the bullet would be. */
+.md li.md-task {
+  position: relative;
+  list-style: none;
+}
+.md .md-check {
+  position: absolute;
+  left: -1.4em;
+  top: 0.32em;
+  width: 0.95em;
+  height: 0.95em;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 0.28em;
+  background: var(--panel);
+}
+.md li.done > .md-check {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.md li.done > .md-check::after {
+  content: '';
+  position: absolute;
+  inset: 0.1em;
+  background: var(--on-accent);
+  mask: $md-icon-check no-repeat center / contain;
+}
+
+.md hr {
+  height: 1px;
+  margin: 1.4em 0;
+  border: 0;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--border-strong) 15%,
+    var(--border-strong) 85%,
+    transparent
+  );
+}
+
+/* A heading sits close to what it introduces. */
+.md :is(h3, h4, h5, h6) + :is(p, ul, ol, blockquote, .md-pre, .md-table) {
+  margin-top: 0.45em;
+}
+
+/* High contrast: the glyphs drawn with a mask keep their colour (the
+   system's palette would paint over their backgrounds) — the text's, or
+   the palette's own for the check boxes. */
+@media (forced-colors: active) {
+  .md .md-check,
+  .md .md-check::after,
+  .md .md-copy::before,
+  .md a.md-img::before {
+    forced-color-adjust: none;
+  }
+  .md .md-check {
+    border-color: CanvasText;
+    background: Canvas;
+  }
+  .md li.done > .md-check {
+    border-color: Highlight;
+    background: Highlight;
+  }
+  .md li.done > .md-check::after {
+    background: HighlightText;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .md .md-copy.copied {
+    animation: md-copied 0.32s ease-out;
+  }
+}
+@keyframes md-copied {
+  0% {
+    transform: scale(0.9);
+  }
+  60% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* Live indicators pulse, unless the user asked for less motion. */
