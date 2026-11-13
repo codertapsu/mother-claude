@@ -1,7 +1,7 @@
 # UI redesign — a proposal to choose from
 
-**Proposal of 2026-11-12; direction A built through stage 8 on
-2026-11-13** ([status](#status)). How Mother Claude's dashboard (`src/`: the
+**Proposal of 2026-11-12; direction A built through stage 8, and the
+borrowed stages 9–11, on 2026-11-13** ([status](#status)). How Mother Claude's dashboard (`src/`: the
 desktop webview and the phone, one code path) could be reorganized so that
 each thing you come to do has one obvious place. §2 reads the app as it was
 on `main` at `b8c0aae`, before the redesign. Three directions are drawn;
@@ -849,7 +849,8 @@ leads *CONTINUE*; for one on another computer, *Bring back to this Mac*.
 - *Phone & devices*, *Browser* and *HTTP API* move one click further away
   (Settings › …): they are set up once.
 - Per-project settings stay on three pages (F10), now each reachable without
-  the wizard; C's project settings sheet would gather them (§9).
+  the wizard; C's project settings sheet would gather them (§9) — it does
+  since stage 10.
 - No server change but the words that name pages (F17), and the Help.
 
 ---
@@ -1222,7 +1223,9 @@ As of 2026-11-13, on `main`:
 | 6 | Sessions and Teams tabs | `b5db0d9` |
 | 7 | A session's menu | `7e38620` |
 | 8 | One template, Help and docs | `888edee` (the app, Help) and the docs commit after it |
-| 9–11 | List and detail on wide screens · Project settings · Jump to… | not started |
+| 9 | List and detail on wide screens | `3658dbe` |
+| 10 | Project settings | `86b558d` |
+| 11 | Jump to… | `de03895` |
 
 What a stage took on beyond the plan, or left:
 
@@ -1238,9 +1241,36 @@ What a stage took on beyond the plan, or left:
   value where it has one, never disabled (the setup, Computers' checks,
   Backups' passphrase, *Claude Code tools*' switch, a session's plugin
   limit); a page head without a ⋯ menu makes no sheet.
-- **Left for later:** stages 9–11 (§9; decision 9 of §11). Section
-  headings still sit inside their cards on *Phone & devices*, *Computers*
-  and *New session* (§5 (4), F14c). A session's page and an agent's page
+- **Stage 9** is one layout for the work's lists and the sessions they
+  open (`pages/list-detail`): `/`, `/inbox`, `/agents` and `/projects`
+  are its list routes and every `/session/…` page (an agent's too) its
+  detail routes, the paths as before. The layout draws the list itself,
+  so the list stays the same one — scrolled where it was, its search and
+  filters kept — while sessions open beside it from 1280 px (the list
+  `clamp(21rem, 30vw, 28rem)` wide). A session opened from Projects,
+  whose rows open none, has the Sessions list beside it; a push's link
+  opened before any list, the Inbox. ✕ replaces back only beside the
+  list; Esc closes the session except from a field or a dialog. ↓/↑ and
+  Enter work in every list at every width (`mcListNav`), and ↓ goes
+  from *Search sessions* into the list. On the way, the session page's
+  dock stopped showing the last session's request as "answered
+  elsewhere" when another opens in the same page.
+- **Stage 10** is a sheet the shell hosts, loaded the first time it
+  opens (`ProjectSettingsService`), opened from ⚙ and the menu of each
+  row of *Sessions › Projects*, a session's ⋮ menu (this computer's
+  sessions: another computer's project is that computer's) and *Jump
+  to…*. *On each computer* reads the shared folders (roots) only — the
+  folder pairs from Backups are not consulted — and the computers'
+  sections show only while Computers is in use. *Team limits* are
+  Capacity's per-project role-session cap and daily budget, with what it
+  spent today and its teams.
+- **Stage 11** opens on a phone from the top bar's search button (not
+  *More*). It searches what the app holds — the live sessions of every
+  computer, the projects on disk, the map, Settings' and Computers ›
+  Options' sections, Help — not ended sessions older than the Sessions
+  list's 24 hours. Settings' sections got ids for it.
+- **Left for later:** section headings still sit inside their cards on
+  *Phone & devices*, *Computers* and *New session* (§5 (4), F14c). A session's page and an agent's page
   keep their own header bars (§6.8), and the first-run screens (*Pair*,
   *Welcome*) their hero, rather than `mc-page-head`. *Escalation ladder*,
   *budget gate* and *task classifier* still wait for their words
@@ -1337,13 +1367,39 @@ Settings and connections · Troubleshooting — and `help.component.spec.ts`
 follows `HELP_GROUPS`. README, CLAUDE.md and the docs that name pages
 (REMOTE, BACKUP, ACCOUNTS, MACHINES, BROWSER, BRIDGE, MCP, TEAMS, ROUTING).
 
+**Stage 9 — List and detail on wide screens** (B). The work's lists and
+the session pages in one layout route (`pages/list-detail`,
+`core/list-detail.ts`), the paths unchanged: from 1280 px a session
+opens beside the list it came from (Sessions, Agents, the Inbox), marked
+there, ✕ and Esc closing it; narrower, it takes the page as before; ↓/↑
+and Enter in every list (`shared/list-nav.directive.ts`). Help: *The
+Sessions list*, *A session's page*, *Approvals and the Inbox*. Specs: the
+layout's switch, its routes (deep links, Back, a push's `?pending=`,
+another computer's session), the keys.
+
+**Stage 10 — Project settings** (C). One sheet per project
+(`pages/project-settings`, `core/project-settings.ts`): its account,
+its folder on each computer, code sync, how it moves and the copies of
+its sessions, its team limits — each section the component or service
+that edits it on its own page, for this project. From *Sessions ›
+Projects* and a session's ⋮ menu; a phone sees what only the desktop
+changes, and says so. Help: *The Sessions list*, *Keep a project in
+sync*. Specs: the mapping through the roots, each section, the entry
+points.
+
+**Stage 11 — Jump to… ⌘K** (B). A palette (`pages/jump`, `core/jump.ts`)
+over every computer's sessions, the projects, the computers, the map's
+pages and tabs, Settings' sections and the Help topics; fuzzy, recent
+first; ⌘K or Ctrl+K, the sidebar's *Jump to…*, the phone's top bar.
+Help: *Getting started*. Specs: matching, ranking, the keys, opening.
+
 ### 10.3 Routes after A
 
 | Today | After A | How |
 |---|---|---|
 | `/`, `/inbox`, `/new`, `/agents` | the same | — |
 | the *Projects* switch on `/` | `/projects` | new route |
-| `/session/…` (all four) | the same | — |
+| `/session/…` (all four) | the same, beside the list from 1280 px (stage 9) | one layout with the lists |
 | `/teams`, `/teams/:id` | the same, + `/teams/templates` | — |
 | `/capacity` | `/teams/capacity` | relative redirect |
 | `/machines`, `/machines/setup` | `/computers`, `/computers/setup` (+ `sync`, `activity`, `options`) | one prefix redirect |
@@ -1385,4 +1441,5 @@ follows `HELP_GROUPS`. README, CLAUDE.md and the docs that name pages
 8. **Permissions and Claude Code's background service** under *Computers ›
    This Mac* *(recommended)*, or kept in Settings and Services.
 9. **The borrowed stages** — list and detail on wide screens, the Project
-   settings sheet, *Jump to… ⌘K*: which, and when.
+   settings sheet, *Jump to… ⌘K*: which, and when. *(All three, built as
+   stages 9–11 after stage 8.)*
