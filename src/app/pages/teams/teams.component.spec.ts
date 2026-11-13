@@ -22,6 +22,7 @@ const templates: TemplateEntry[] = [
       { id: 'lead', title: 'Lead', lead: true, model: 'opus', autostart: true },
       { id: 'frontend', title: 'Frontend', model: 'sonnet', permissionMode: 'acceptEdits' },
     ],
+    flow: [{ from: 'lead', to: 'frontend', note: 'the plan' }],
   },
   {
     id: 'mine',
@@ -140,6 +141,10 @@ describe('TeamsComponent', () => {
     expect(rows[0]).toContain('built in');
     expect(rows[0]).toContain('View');
     expect(rows[0]).toContain('Lead (lead) · opus');
+    // Where finished work goes next, when the template has a flow.
+    const flows = [...el.querySelectorAll('.template')].map((r) => r.querySelector('.flow-line'));
+    expect(text(flows[0])).toBe('Lead → Frontend');
+    expect(flows[1]).toBeNull();
     expect(rows[1]).toContain('1 problem');
     expect(rows[1]).toContain('Edit');
     page.destroy();

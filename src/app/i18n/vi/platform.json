@@ -746,5 +746,6 @@
   "{title} (copy)": "{title} (bản sao)",
   "Delete the {role} role? Its handoffs go with it.": "Xóa vai trò {role}? Các bước chuyển giao của vai trò này cũng bị xóa.",
   "Tab to a role to select it. The arrow keys move it, further with Shift, and Delete deletes it. Plus and minus zoom, 0 fits the template in view.": "Nhấn Tab đến một vai trò để chọn. Các phím mũi tên di chuyển vai trò, giữ Shift để đi xa hơn, và Delete để xóa. Phím cộng và trừ để thu phóng, 0 để hiện vừa toàn bộ mẫu.",
-  "Tab to a role to select it. Plus and minus zoom, 0 fits the template in view.": "Nhấn Tab đến một vai trò để chọn. Phím cộng và trừ để thu phóng, 0 để hiện vừa toàn bộ mẫu."
+  "Tab to a role to select it. Plus and minus zoom, 0 fits the template in view.": "Nhấn Tab đến một vai trò để chọn. Phím cộng và trừ để thu phóng, 0 để hiện vừa toàn bộ mẫu.",
+  "Where finished work goes next": "Kết quả được chuyển tiếp cho ai"
 }

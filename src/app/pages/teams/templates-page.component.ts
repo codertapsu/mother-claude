@@ -7,15 +7,16 @@ import { TPipe } from '../../core/i18n/t.pipe';
 import { RealtimeService } from '../../core/realtime.service';
 import { TemplateEntry, machineWords } from '../../core/teams';
 import { IconComponent } from '../../shared/icon.component';
+import { flowSummary } from './template-graph';
 import { TemplateSheetComponent, TemplateSheetMode } from './template-sheet.component';
 import { TeamsHeadComponent } from './teams-head.component';
 
 /**
  * *Teams › Templates* (docs/TEAMS.md "Templates"): the workflows a team
  * starts from — the built-in ones (viewed, duplicated) and your own (edited
- * as JSON, duplicated, deleted) — each with its roles, models and where they
- * run, and a template's problems. Kept current by `teams` frames that say
- * the templates changed.
+ * on a canvas or as JSON, duplicated, deleted) — each with its roles, models
+ * and where they run, its flow, and a template's problems. Kept current by
+ * `teams` frames that say the templates changed.
  */
 @Component({
   selector: 'mc-team-templates',
@@ -57,6 +58,12 @@ import { TeamsHeadComponent } from './teams-head.component';
                   <div class="muted small">{{ t.description }}</div>
                 }
                 <div class="small roles-line">{{ rolesLine(t) }}</div>
+                @if (flowLine(t); as flow) {
+                  <div class="small flow-line" [title]="'Where finished work goes next' | t">
+                    <mc-icon name="workflow" [size]="13" />
+                    <span>{{ flow }}</span>
+                  </div>
+                }
               </div>
               <div class="row actions">
                 <button
@@ -122,6 +129,16 @@ import { TeamsHeadComponent } from './teams-head.component';
         color: var(--muted);
         margin-top: 0.2rem;
       }
+      .flow-line {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-top: 0.15rem;
+        color: var(--accent-text);
+      }
+      .flow-line mc-icon {
+        flex: none;
+      }
       .actions {
         gap: 0.35rem;
       }
@@ -159,6 +176,11 @@ export class TemplatesPageComponent {
         return r.model ? `${named} · ${r.model}` : named;
       })
       .join('  ·  ');
+  }
+
+  /** "Scriptwriter → Designer → QA": where finished work goes next. */
+  protected flowLine(t: TemplateEntry): string {
+    return flowSummary(t);
   }
 
   protected async load(): Promise<void> {
