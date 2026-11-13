@@ -346,13 +346,9 @@
       </p>
     }
   } @else if (accounts.loadError()) {
-    <div class="card empty-state">
-      <strong>{{ "Can't load the accounts" | t }}</strong>
-      {{ accounts.loadError() }}
-      <div class="retry">
-        <button class="btn" type="button" (click)="reload()">{{ 'Retry' | t }}</button>
-      </div>
-    </div>
+    <mc-empty-state icon="alert" tone="red" [heading]="cantLoad()" [text]="accounts.loadError()">
+      <button class="btn" type="button" (click)="reload()">{{ 'Retry' | t }}</button>
+    </mc-empty-state>
   } @else {
     <p class="muted">{{ 'Loading…' | t }}</p>
   }

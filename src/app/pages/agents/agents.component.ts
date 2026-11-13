@@ -24,6 +24,7 @@ import {
   taskFromAgent,
 } from '../../shared/agents';
 import { ChipComponent } from '../../shared/chip.component';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { IconComponent } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { ElapsedPipe } from '../../shared/time.pipes';
@@ -66,6 +67,7 @@ interface FleetGroup {
     AccountChipComponent,
     ActivityLineComponent,
     ChipComponent,
+    EmptyStateComponent,
     IconComponent,
     ElapsedPipe,
     SessionsHeadComponent,
@@ -74,7 +76,7 @@ interface FleetGroup {
     TPipe,
   ],
   template: `
-    <div class="page">
+    <div class="page narrow">
       <mc-sessions-head />
 
       @if (error()) {
@@ -192,12 +194,14 @@ interface FleetGroup {
         </section>
       } @empty {
         @if (loaded()) {
-          <div class="card empty-state">
-            <strong>{{ 'No agents running' | t }}</strong>
-            {{
+          <mc-empty-state
+            icon="agents"
+            [heading]="'No agents running' | t"
+            [text]="
               'Subagents, workflow agents and background shells show up here while they work.' | t
-            }}
-          </div>
+            "
+            help="sessions"
+          />
         } @else {
           <div class="skeleton" [attr.aria-label]="'Loading' | t"><span></span><span></span></div>
         }

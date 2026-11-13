@@ -79,7 +79,8 @@ export class TeamsHeadComponent {
       });
   }
 
-  protected start(): void {
+  /** Open *Start a team* (the Teams tab's empty state too). */
+  start(): void {
     this.startOpen.set(true);
     if (!this.read) void this.loadTemplates();
   }

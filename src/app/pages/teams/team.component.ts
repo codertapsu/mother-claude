@@ -26,6 +26,7 @@ import {
 } from '../../core/teams';
 import { ViewportService } from '../../core/viewport.service';
 import { IconComponent } from '../../shared/icon.component';
+import { PageHeadComponent, PageState } from '../../shared/page-head.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { NewTaskSheetComponent } from './new-task-sheet.component';
 import { TaskSheetComponent } from './task-sheet.component';
@@ -39,6 +40,7 @@ import { TaskSheetComponent } from './task-sheet.component';
     NgTemplateOutlet,
     RouterLink,
     IconComponent,
+    PageHeadComponent,
     TimeAgoComponent,
     TPipe,
     NewTaskSheetComponent,
@@ -50,13 +52,13 @@ import { TaskSheetComponent } from './task-sheet.component';
         ><mc-icon name="back" [size]="14" /> {{ 'Teams' | t }}</a
       >
       @if (team(); as t) {
-        <div class="page-head named">
-          <h1>{{ t.label }}</h1>
-          @if (t.stopped) {
-            <span class="badge">{{ 'stopped' | t }}</span>
-          }
-          <span class="muted small">{{ t.templateName }}</span>
-          <span class="spacer"></span>
+        <mc-page-head
+          [heading]="t.label"
+          [named]="true"
+          [state]="stoppedState()"
+          [lede]="'{template}, in {project}' | t: { template: t.templateName, project: t.project }"
+          help="teams"
+        >
           @if (t.stopped) {
             <button class="btn" type="button" [disabled]="busy()" (click)="resume()">
               <mc-icon name="play" [size]="14" /> {{ 'Resume' | t }}
@@ -69,8 +71,7 @@ import { TaskSheetComponent } from './task-sheet.component';
               <mc-icon name="stop" [size]="14" /> {{ 'Stop the team' | t }}
             </button>
           }
-        </div>
-        <div class="mono small path">{{ t.project }}</div>
+        </mc-page-head>
         @if (t.brief) {
           <details class="brief">
             <summary class="muted small">{{ "The lead's brief" | t }}</summary>
@@ -315,11 +316,6 @@ import { TaskSheetComponent } from './task-sheet.component';
         margin-bottom: 0.4rem;
         text-decoration: none;
       }
-      .path {
-        color: var(--muted);
-        overflow-wrap: anywhere;
-        margin: -0.4rem 0 0.75rem;
-      }
       .brief p {
         white-space: pre-wrap;
       }
@@ -429,6 +425,10 @@ export class TeamComponent {
   protected readonly tasks = signal<TeamTask[]>([]);
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
+  /** A stopped team says so beside its name. */
+  protected readonly stoppedState = computed<PageState | null>(() =>
+    this.team()?.stopped ? { tone: 'warn', text: tr('stopped') } : null,
+  );
   protected readonly error = signal('');
   protected readonly newOpen = signal(false);
   protected readonly selected = signal<TeamTask | null>(null);

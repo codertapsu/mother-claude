@@ -1,16 +1,10 @@
 import { IconName } from '../../shared/icon.component';
 import { slugify } from './help-text';
 
-/** The headings the Help landing groups its topics under, in order. */
+/** The headings the Help landing groups its topics under, in order: the
+ * map's places (core/nav.ts), between Basics and Troubleshooting. */
 export type HelpGroupId =
-  | 'basics'
-  | 'sessions'
-  | 'remote'
-  | 'machines'
-  | 'data'
-  | 'browser-teams'
-  | 'advanced'
-  | 'troubleshooting';
+  'basics' | 'sessions' | 'teams' | 'machines' | 'data' | 'settings' | 'troubleshooting';
 
 export interface HelpGroup {
   id: HelpGroupId;

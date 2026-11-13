@@ -27,6 +27,7 @@ import { accountErrorText, cannotRunReason } from '../../shared/accounts';
 import { IconComponent } from '../../shared/icon.component';
 import { MAX_IMAGES, prepareImage } from '../../shared/images';
 import { LaunchOptionsComponent } from '../../shared/launch-options.component';
+import { PageHeadComponent } from '../../shared/page-head.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
 import { shortPath } from '../../shared/util';
 
@@ -61,19 +62,24 @@ interface Where {
  */
 @Component({
   selector: 'mc-new-session',
-  imports: [FormsModule, IconComponent, LaunchOptionsComponent, RelativeTimePipe, TPipe],
+  imports: [
+    FormsModule,
+    IconComponent,
+    LaunchOptionsComponent,
+    PageHeadComponent,
+    RelativeTimePipe,
+    TPipe,
+  ],
   template: `
     <div class="page narrow">
-      <div class="page-head">
-        <h1>{{ 'New session' | t }}</h1>
-      </div>
-      <p class="lede">
-        {{ 'Sessions started here are' | t }} <strong>{{ 'owned||by Mother Claude' | t }}</strong>
-        {{
-          'by Mother Claude: full control from this device and your phone — approvals, questions, interrupts and model switches.'
+      <mc-page-head
+        [heading]="'New session' | t"
+        [lede]="
+          'A session started here is one Mother Claude runs: full control from this device and your phone.'
             | t
-        }}
-      </p>
+        "
+        help="new-session"
+      />
 
       @if (wheres().length) {
         <section class="card">

@@ -130,15 +130,13 @@
   </article>
 } @else {
   <div class="page landing">
-    <div class="page-head">
-      <h1>{{ 'Help' | t }}</h1>
-    </div>
-    <p class="lede">
-      {{
-        'How to use every part of Mother Claude, step by step. Pick a topic, or search for what you want to do.'
+    <mc-page-head
+      [heading]="'Help' | t"
+      [lede]="
+        'How to use every part of Mother Claude, step by step: pick a topic, or search for what you want to do.'
           | t
-      }}
-    </p>
+      "
+    />
 
     <div class="search" role="search">
       <mc-icon name="search" [size]="17" />
@@ -198,15 +196,15 @@
         </ul>
       </section>
     } @empty {
-      <div class="card empty-state">
-        <strong>{{ 'No topics match “{query}”' | t: { query: query() } }}</strong>
-        {{ 'Try fewer or other words.' | t }}
-        <div class="empty-actions">
-          <button class="btn" type="button" (click)="clearQuery(q)">
-            {{ 'Clear the search' | t }}
-          </button>
-        </div>
-      </div>
+      <mc-empty-state
+        icon="search"
+        [heading]="'No topics match “{query}”' | t: { query: query() }"
+        [text]="'Try fewer or other words.' | t"
+      >
+        <button class="btn" type="button" (click)="clearQuery(q)">
+          {{ 'Clear the search' | t }}
+        </button>
+      </mc-empty-state>
     }
   </div>
 }

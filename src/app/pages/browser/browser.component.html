@@ -2,19 +2,15 @@
   <a class="btn ghost small back" routerLink="/settings">
     <mc-icon name="back" [size]="15" /> {{ 'Settings' | t }}
   </a>
-  <div class="page-head named">
-    <h1>{{ 'Browser' | t }}</h1>
-    <span class="spacer"></span>
-    <button class="btn small" type="button" [disabled]="loading()" (click)="load()">
-      <mc-icon name="refresh" [size]="14" /> {{ 'Refresh' | t }}
-    </button>
-  </div>
-  <p class="lede">
-    {{
-      "Let Claude Code sessions use your own browser, signed in as you, through the Mother Claude extension. Each session gets its own tab group; every site is off until you open it here or in the extension; risky steps wait for your approval; Stop in the extension ends a session's browsing at once."
+  <mc-page-head
+    [heading]="'Browser' | t"
+    [named]="true"
+    [lede]="
+      'Let Claude Code sessions use your own browser, signed in as you, through the Mother Claude extension: every site is off until you open it, and risky steps wait for you.'
         | t
-    }}
-  </p>
+    "
+    help="browser"
+  />
 
   @if (error()) {
     <p class="notice error" role="alert">{{ error() }}</p>
@@ -103,12 +99,12 @@
         }
       </div>
     } @else {
-      <div class="card empty-state">
-        <strong>{{ 'No browser is paired yet.' | t }}</strong>
-        <span class="muted">{{
-          'Install the Mother Claude extension, then pair it below.' | t
-        }}</span>
-      </div>
+      <mc-empty-state
+        icon="globe"
+        [heading]="'No browser is paired yet.' | t"
+        [text]="'Install the Mother Claude extension, then pair it below.' | t"
+        help="browser"
+      />
     }
 
     <!-- Pairing -->
@@ -430,8 +426,8 @@
       </form>
     }
 
-    <!-- ─────────────── Settings ─────────────── -->
-    <h2>{{ 'Settings' | t }}</h2>
+    <!-- ─────────────── Options ─────────────── -->
+    <h2>{{ 'Options' | t }}</h2>
     <div class="card settings">
       <label class="switch">
         <input

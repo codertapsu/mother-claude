@@ -4,6 +4,7 @@ import { AuthService } from '../../core/auth.service';
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { MachinesService } from '../../core/machines.service';
+import { DesktopOnlyComponent } from '../../shared/desktop-only.component';
 import { HubTabsComponent } from '../../shared/hub-tabs.component';
 import { IconComponent } from '../../shared/icon.component';
 import { PageHeadComponent, PageState } from '../../shared/page-head.component';
@@ -21,6 +22,7 @@ import { PairSheetComponent } from './pair-sheet.component';
   selector: 'mc-computers-head',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    DesktopOnlyComponent,
     HubTabsComponent,
     IconComponent,
     JoinSheetComponent,
@@ -47,9 +49,10 @@ import { PairSheetComponent } from './pair-sheet.component';
     </mc-page-head>
     <mc-hub-tabs place="computers" />
     @if (!isDesktop()) {
-      <p class="notice small phone-note">
-        {{ 'Your computers are set up from the desktop app.' | t }}
-      </p>
+      <mc-desktop-only
+        class="phone-note"
+        [line]="'Your computers are set up from the desktop app.' | t"
+      />
     }
     @if (isDesktop()) {
       <mc-pair-machine-sheet [open]="pairOpen()" (closed)="pairOpen.set(false)" />
@@ -60,6 +63,10 @@ import { PairSheetComponent } from './pair-sheet.component';
     `
       :host {
         display: block;
+      }
+      .phone-note {
+        display: block;
+        margin: -0.4rem 0 0.9rem;
       }
     `,
   ],

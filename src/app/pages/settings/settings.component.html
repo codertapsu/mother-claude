@@ -1,7 +1,12 @@
 <div class="page narrow">
-  <div class="page-head">
-    <h1>{{ 'Settings' | t }}</h1>
-  </div>
+  <mc-page-head
+    [heading]="'Settings' | t"
+    [lede]="
+      'What you set once: this device’s notifications, look and connection, and what else works with Mother Claude.'
+        | t
+    "
+    help="settings"
+  />
 
   <!-- ─────────────── Notifications ─────────────── -->
   <h2>{{ 'Notifications' | t }}</h2>

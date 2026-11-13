@@ -15,6 +15,8 @@ import {
   roleComputer,
   upsertTeam,
 } from '../../core/teams';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { IconComponent } from '../../shared/icon.component';
 import { TeamsHeadComponent } from './teams-head.component';
 
 /** *Teams › Teams* (docs/TEAMS.md): your teams of Claude Code sessions,
@@ -24,10 +26,10 @@ import { TeamsHeadComponent } from './teams-head.component';
  * the phone. */
 @Component({
   selector: 'mc-teams',
-  imports: [RouterLink, TeamsHeadComponent, TPipe],
+  imports: [EmptyStateComponent, IconComponent, RouterLink, TeamsHeadComponent, TPipe],
   template: `
     <div class="page narrow">
-      <mc-teams-head (teamStarted)="started($event)" />
+      <mc-teams-head #head (teamStarted)="started($event)" />
 
       @if (error()) {
         <p class="notice error" role="alert">{{ error() }}</p>
@@ -71,13 +73,19 @@ import { TeamsHeadComponent } from './teams-head.component';
           }
         </div>
       } @else if (!loading()) {
-        <div class="empty-state card">
-          <strong>{{ 'No team yet.' | t }}</strong>
-          <span class="muted">{{
+        <mc-empty-state
+          icon="layers"
+          [heading]="'No team yet.' | t"
+          [text]="
             'Start one on a project: a lead and role sessions work through a task board, each role in its own files.'
               | t
-          }}</span>
-        </div>
+          "
+          help="teams"
+        >
+          <button class="btn primary" type="button" (click)="head.start()">
+            <mc-icon name="plus" [size]="16" /> {{ 'Start a team' | t }}
+          </button>
+        </mc-empty-state>
       }
     </div>
   `,

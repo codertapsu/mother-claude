@@ -30,7 +30,9 @@ import { PendingRef } from '../../core/models';
 import { NoticeService } from '../../core/notice.service';
 import { NowService } from '../../core/now.service';
 import { RealtimeService } from '../../core/realtime.service';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { IconComponent } from '../../shared/icon.component';
+import { PageHeadComponent } from '../../shared/page-head.component';
 import { PendingCardComponent } from '../../shared/pending-card.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { sessionName } from '../../shared/util';
@@ -39,14 +41,23 @@ import { sessionName } from '../../shared/util';
  * The Browser page: the Mother Claude extension (docs/BROWSER.md). Pair a
  * browser, see which are connected and which sessions act in them (Stop,
  * Resume), set each site's mode, see the sensitive list, the standing
- * grants, the settings and the activity — and answer waiting browser
+ * grants, the options and the activity — and answer waiting browser
  * approvals. One code path for the desktop and the phone: a phone reads,
  * approves (with the dangerous grant) and sets ordinary sites' modes; what
  * needs the desktop says so.
  */
 @Component({
   selector: 'mc-browser',
-  imports: [FormsModule, RouterLink, IconComponent, PendingCardComponent, TimeAgoComponent, TPipe],
+  imports: [
+    FormsModule,
+    RouterLink,
+    EmptyStateComponent,
+    IconComponent,
+    PageHeadComponent,
+    PendingCardComponent,
+    TimeAgoComponent,
+    TPipe,
+  ],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.scss',
 })

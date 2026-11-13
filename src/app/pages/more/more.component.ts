@@ -15,6 +15,7 @@ import { RealtimeService, connectionLabel } from '../../core/realtime.service';
 import { ThemeService } from '../../core/theme.service';
 import { usageLine } from '../../shared/accounts';
 import { IconComponent } from '../../shared/icon.component';
+import { PageHeadComponent } from '../../shared/page-head.component';
 
 /**
  * The phone's "More" tab: what you look after — Computers, Accounts,
@@ -25,9 +26,10 @@ import { IconComponent } from '../../shared/icon.component';
  */
 @Component({
   selector: 'mc-more',
-  imports: [RouterLink, IconComponent, TPipe],
+  imports: [RouterLink, IconComponent, PageHeadComponent, TPipe],
   template: `
     <div class="page narrow">
+      <mc-page-head [heading]="'More' | t" />
       <div class="card list">
         @for (e of entries(); track e.id) {
           <a class="list-row entry" [routerLink]="e.path" [attr.aria-label]="badges.label(e)">

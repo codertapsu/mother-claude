@@ -2,7 +2,7 @@ import { HelpTopicSource } from '../help-model';
 
 /** Vietnamese Help topics (docs/I18N.md "Help"), by topic id. */
 export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
-  // ──────────────────────────────────────────────────── Accounts & data
+  // ────────────────────────────────────────────────── Accounts and data
   accounts: {
     id: 'accounts',
     title: 'Tài khoản Claude',
@@ -568,12 +568,12 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
     ],
   },
 
-  // ──────────────────────────────────────────────────── Browser & teams
+  // ─────────────────── The browser (Settings and connections), then Teams
   browser: {
     id: 'browser',
     title: 'Tiện ích trình duyệt',
     icon: 'globe',
-    group: 'browser-teams',
+    group: 'settings',
     summary:
       'Cho phiên đọc và thao tác trong chính Chrome, Edge hoặc Brave của bạn, khi bạn cho phép.',
     intro:
@@ -703,7 +703,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Những việc không bao giờ làm',
         points: [
           'Phiên không bao giờ nhập vào ô mật khẩu, thẻ thanh toán, mã dùng một lần hay các ô bí mật khác: phiên sẽ nhờ bạn tự nhập.',
-          'Tệp tải lên chỉ lấy từ thư mục dự án của phiên hoặc thư mục bạn đã thêm ở **Thư mục các phiên được tải tệp lên từ đó** trên **Cài đặt › Trình duyệt**, không bao giờ từ các thư mục của Claude Code, `~/.ssh` hay những tệp thường chứa bí mật.',
+          'Tệp tải lên chỉ lấy từ thư mục dự án của phiên hoặc thư mục bạn đã thêm ở **Thư mục các phiên được tải tệp lên từ đó**, trong **Tùy chọn** trên **Cài đặt › Trình duyệt**, không bao giờ từ các thư mục của Claude Code, `~/.ssh` hay những tệp thường chứa bí mật.',
           '**Hoạt động** ghi lại công cụ, trang, đường dẫn, kết quả và thời gian, không bao giờ ghi nội dung đã nhập hay đã đọc.',
         ],
       },
@@ -720,7 +720,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
     id: 'teams',
     title: 'Nhóm phiên',
     icon: 'layers',
-    group: 'browser-teams',
+    group: 'teams',
     summary: 'Một trưởng nhóm và các phiên vai trò cùng làm theo bảng tác vụ trong một dự án.',
     intro:
       'Một nhóm áp dụng một mẫu cho một dự án: phiên trưởng nhóm viết tác vụ lên bảng của dự án, và các phiên vai trò thực hiện chúng, mỗi phiên trên các tệp của riêng mình. Mother Claude khởi chạy, đánh thức và dừng các phiên do nó chạy, tùy theo công suất cho phép. **Nhóm** có ba thẻ: các nhóm của bạn, các **Mẫu quy trình** để bắt đầu nhóm, và **Công suất**.',
@@ -852,7 +852,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
     id: 'capacity',
     title: 'Công suất, định tuyến và ngân sách',
     icon: 'gauge',
-    group: 'browser-teams',
+    group: 'teams',
     summary:
       'Vì sao một phiên vai trò phải chờ, giới hạn của bạn, ngân sách, cách chọn mô hình và chi phí.',
     intro:
@@ -955,12 +955,12 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
     ],
   },
 
-  // ────────────────────────────────────────────────────────── Advanced
+  // ───────────── Claude Code tools and the HTTP API (Settings and connections)
   'claude-code-tools': {
     id: 'claude-code-tools',
     title: 'Công cụ Claude Code',
     icon: 'zap',
-    group: 'advanced',
+    group: 'settings',
     summary:
       'Công cụ riêng của Mother Claude cho các phiên của bạn: trình duyệt, bảng tác vụ và nhiều thứ khác.',
     intro:
@@ -1018,7 +1018,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
     id: 'api',
     title: 'HTTP API',
     icon: 'code',
-    group: 'advanced',
+    group: 'settings',
     summary: 'Điều khiển Claude trên máy tính này từ script và công cụ, qua HTTP.',
     intro:
       'Mother Claude có thể chạy một HTTP API cục bộ để điều khiển Claude trên máy tính này bằng tài khoản của bạn: cuộc trò chuyện, lượt, sự kiện trực tiếp và yêu cầu duyệt công cụ. Cuộc trò chuyện bắt đầu qua API là một phiên bình thường trên bảng điều khiển, và yêu cầu duyệt của nó hiện dưới dạng thẻ.',

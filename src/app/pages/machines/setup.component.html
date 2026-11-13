@@ -1,13 +1,24 @@
 <div class="page">
-  <div class="page-head">
-    <a class="btn ghost small" routerLink="/computers" [attr.aria-label]="'Back to Computers' | t">
-      <mc-icon name="back" [size]="15" /> {{ 'Computers' | t }}
-    </a>
-    <h1>{{ 'Set up your computers' | t }}</h1>
-  </div>
+  <a
+    class="btn ghost small back"
+    routerLink="/computers"
+    [attr.aria-label]="'Back to Computers' | t"
+  >
+    <mc-icon name="back" [size]="15" /> {{ 'Computers' | t }}
+  </a>
+  <mc-page-head
+    [heading]="'Set up your computers' | t"
+    [named]="true"
+    [lede]="
+      'Check this {computer} and each computer you add, fix what can be fixed, and test each pair before anything moves.'
+        | t: { computer: computer() }
+    "
+    help="machines-setup"
+  />
 
   @if (!isDesktop()) {
-    <p class="notice small">{{ 'Your computers are set up from the desktop app.' | t }}</p>
+    <!-- The wizard is the desktop's: only made there. -->
+    <mc-desktop-only [line]="'Your computers are set up from the desktop app.' | t" />
   } @else {
     <nav class="rail" [attr.aria-label]="'Setup steps' | t">
       <ol>

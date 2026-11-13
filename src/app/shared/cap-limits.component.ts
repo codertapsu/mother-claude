@@ -8,6 +8,7 @@ import { CapLimit, LimitAction, SessionSummary } from '../core/models';
 import { SessionActionsService } from '../core/session-actions.service';
 import { capLimits } from './caps';
 import { CopyButtonComponent } from './copy-button.component';
+import { DesktopOnlyComponent } from './desktop-only.component';
 import { IconComponent } from './icon.component';
 
 /**
@@ -22,7 +23,7 @@ import { IconComponent } from './icon.component';
 @Component({
   selector: 'mc-cap-limits',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, CopyButtonComponent, IconComponent, TPipe],
+  imports: [RouterLink, CopyButtonComponent, DesktopOnlyComponent, IconComponent, TPipe],
   template: `
     <ul class="limits">
       @for (l of list(); track l.code) {
@@ -32,17 +33,17 @@ import { IconComponent } from './icon.component';
             <span>{{ l.text }}</span>
             @switch (l.action) {
               @case ('install-foreign-control') {
-                @if (isDesktop()) {
+                <mc-desktop-only
+                  [line]="
+                    'Set it up on the {computer}, in Settings › Sessions started elsewhere.'
+                      | t: { computer: computer() }
+                  "
+                >
                   <a class="btn small" routerLink="/settings/elsewhere" (click)="done.emit()"
                     ><mc-icon name="plug" [size]="14" />
                     {{ 'Set up Sessions started elsewhere' | t }}</a
                   >
-                } @else {
-                  <span class="muted small">{{
-                    'On the {computer}: Settings › Sessions started elsewhere › Install.'
-                      | t: { computer: computer() }
-                  }}</span>
-                }
+                </mc-desktop-only>
               }
               @case ('reload-plugins') {
                 <span class="row">

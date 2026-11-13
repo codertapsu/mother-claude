@@ -1381,7 +1381,7 @@ async fn run(
     if call.action == "screenshot" && !settings.screenshots {
         return Err(ToolError::new(
             "screenshots_off",
-            "Screenshots are turned off in Mother Claude (Settings › Browser › Settings). Use \
+            "Screenshots are turned off in Mother Claude (Settings › Browser › Options). Use \
              browser_snapshot or browser_read instead.",
         ));
     }

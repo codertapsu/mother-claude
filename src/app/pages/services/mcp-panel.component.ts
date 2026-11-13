@@ -7,6 +7,7 @@ import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { McpCall, McpToolsStatus } from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
+import { DesktopOnlyComponent } from '../../shared/desktop-only.component';
 import { IconComponent } from '../../shared/icon.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
 
@@ -22,7 +23,7 @@ const POLL_MS = 5000;
  */
 @Component({
   selector: 'mc-mcp-panel',
-  imports: [RouterLink, IconComponent, RelativeTimePipe, TPipe],
+  imports: [RouterLink, DesktopOnlyComponent, IconComponent, RelativeTimePipe, TPipe],
   template: `
     <h2>{{ 'Claude Code tools (MCP)' | t }}</h2>
     <div class="card">
@@ -34,29 +35,35 @@ const POLL_MS = 5000;
         <code class="mono">{{ prefix() }}…</code>
       </p>
       @if (status(); as s) {
-        <label class="switch list-row">
-          <input
-            type="checkbox"
-            [checked]="s.enabled"
-            [disabled]="busy() || !isDesktop()"
-            (change)="toggle($any($event.target).checked)"
-          />
-          <span class="switch-text">
-            <span>{{ "Give sessions Mother Claude's tools" | t }}</span>
-            <span class="muted small">
-              @if (!isDesktop()) {
-                {{ 'Changed on the desktop app.' | t }}
-              } @else if (s.enabled) {
-                {{
-                  'Sessions started from now on get them; running ones after /reload-plugins or a restart.'
-                    | t
-                }}
-              } @else {
-                {{ 'Off: sessions get no tools, and calls from running ones are refused.' | t }}
-              }
+        @if (isDesktop()) {
+          <label class="switch list-row">
+            <input
+              type="checkbox"
+              [checked]="s.enabled"
+              [disabled]="busy()"
+              (change)="toggle($any($event.target).checked)"
+            />
+            <span class="switch-text">
+              <span>{{ "Give sessions Mother Claude's tools" | t }}</span>
+              <span class="muted small">
+                @if (s.enabled) {
+                  {{
+                    'Sessions started from now on get them; running ones after /reload-plugins or a restart.'
+                      | t
+                  }}
+                } @else {
+                  {{ 'Off: sessions get no tools, and calls from running ones are refused.' | t }}
+                }
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
+        } @else {
+          <!-- A phone: the switch's value, and where it changes. -->
+          <div class="list-row elsewhere">
+            <span class="grow">{{ "Give sessions Mother Claude's tools" | t }}</span>
+            <mc-desktop-only [value]="s.enabled ? ('On' | t) : ('Off' | t)" />
+          </div>
+        }
         <dl class="kv">
           <dt>{{ 'Tools' | t }}</dt>
           <dd>{{ s.toolCount }}</dd>
@@ -117,6 +124,15 @@ const POLL_MS = 5000;
   `,
   styles: [
     `
+      /* A phone: the value goes under the name when both don't fit. */
+      .elsewhere {
+        flex-wrap: wrap;
+        gap: 0.25rem 0.75rem;
+      }
+      .elsewhere .grow {
+        flex: 1 1 12rem;
+        min-width: 0;
+      }
       .first {
         margin-top: 0;
       }

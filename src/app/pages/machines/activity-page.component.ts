@@ -35,7 +35,7 @@ const CHIPS: { id: Show; label: string }[] = [
   selector: 'mc-computers-activity',
   imports: [ComputersHeadComponent, MoveCardComponent, RunsCardComponent, TPipe],
   template: `
-    <div class="page">
+    <div class="page narrow">
       <mc-computers-head />
 
       <div class="chips" role="group" [attr.aria-label]="'Show' | t">

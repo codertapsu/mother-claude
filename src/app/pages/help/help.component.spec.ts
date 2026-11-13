@@ -4,6 +4,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 
 import { routes } from '../../app.routes';
 import { AuthService } from '../../core/auth.service';
+import { CONNECTIONS, PLACES } from '../../core/nav';
 import { HelpComponent } from './help.component';
 import { inlineRuns, plainText } from './help-text';
 import { HELP_GROUPS, HELP_TOPICS, helpTopic } from './help-topics';
@@ -45,6 +46,64 @@ describe('HelpComponent', () => {
       expect(text(el())).toContain(t.title);
     }
     expect(text(el().querySelector('#help-count'))).toBe(`${HELP_TOPICS.length} topics`);
+  });
+
+  it('groups the topics as the map: Basics, a group per place, then Troubleshooting', async () => {
+    expect(HELP_GROUPS.map((g) => g.title)).toEqual([
+      'Basics',
+      'Your sessions',
+      'Teams',
+      'Your computers',
+      'Accounts and data',
+      'Settings and connections',
+      'Troubleshooting',
+    ]);
+    // Each place's own topic is in its group (the Inbox's with the
+    // sessions), and Settings' connections are Settings and connections.
+    const groupOf = (id: string | undefined) => helpTopic(id)?.group;
+    expect(PLACES.map((p) => [p.id, groupOf(p.help)])).toEqual([
+      ['sessions', 'sessions'],
+      ['inbox', 'sessions'],
+      ['teams', 'teams'],
+      ['computers', 'machines'],
+      ['accounts', 'data'],
+      ['settings', 'settings'],
+    ]);
+    for (const c of CONNECTIONS) expect(groupOf(c.help), c.id).toBe('settings');
+    await harness.navigateByUrl('/help', HelpComponent);
+    const idsOf = (group: string) =>
+      [
+        ...(el()
+          .querySelector(`#help-group-${group}`)
+          ?.closest('section')
+          ?.querySelectorAll('.topic-card') ?? []),
+      ].map(
+        (a) =>
+          a
+            .getAttribute('href')
+            ?.replace(/^.*\/help\//, '')
+            .split('#')[0],
+      );
+    expect(idsOf('basics')).toEqual(['getting-started', 'good-to-know']);
+    expect(idsOf('sessions')).toEqual([
+      'sessions',
+      'session-page',
+      'messaging',
+      'approvals',
+      'new-session',
+    ]);
+    expect(idsOf('teams')).toEqual(['teams', 'capacity']);
+    expect(idsOf('data')).toEqual(['accounts', 'move-data', 'backup']);
+    expect(idsOf('settings')).toEqual([
+      'settings',
+      'phone',
+      'internet',
+      'foreign-sessions',
+      'browser',
+      'claude-code-tools',
+      'api',
+    ]);
+    expect(idsOf('troubleshooting')).toEqual(['troubleshooting', 'machines-troubleshooting']);
   });
 
   it('groups the Machines topics under Your computers, and finds a move by its words', async () => {

@@ -83,9 +83,12 @@ export class PageMenuDirective {
         }
       </p>
     }
-    <mc-sheet [open]="menuOpen()" [title]="heading()" (closed)="closeMenu()">
-      <div class="menu"><ng-content select="[mcPageMenu]" /></div>
-    </mc-sheet>
+    <!-- Only a head with a ⋯ menu has its sheet. -->
+    @if (menu().length) {
+      <mc-sheet [open]="menuOpen()" [title]="heading()" (closed)="closeMenu()">
+        <div class="menu"><ng-content select="[mcPageMenu]" /></div>
+      </mc-sheet>
+    }
   `,
   styles: [
     `

@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { CheckState, MachineAsk, SetupCheck, askOpen, byUrgency } from '../../core/machines';
+import { DesktopOnlyComponent } from '../../shared/desktop-only.component';
 import { IconComponent, IconName } from '../../shared/icon.component';
 import { askText, checkTexts } from './machines-text';
 
@@ -25,7 +26,7 @@ const MARKS: Record<CheckState, { icon: IconName; tone: string }> = {
 @Component({
   selector: 'mc-machine-checks',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, TPipe],
+  imports: [DesktopOnlyComponent, IconComponent, TPipe],
   template: `
     <ul class="checks" [attr.aria-label]="label()">
       @for (c of ordered(); track c.id) {
@@ -68,14 +69,17 @@ const MARKS: Record<CheckState, { icon: IconName; tone: string }> = {
                   @if (asked && open(asked)) {
                     <span class="muted small">{{ askedText(asked) }}</span>
                   } @else if (c.fix.kind !== 'manual') {
-                    <button
-                      type="button"
-                      class="btn small"
-                      [disabled]="readonly() || busy() === c.id"
-                      (click)="ask.emit(c.id)"
-                    >
-                      {{ 'Ask {name} to fix' | t: { name: machineName() } }}
-                    </button>
+                    <!-- A phone sees where it is fixed, not a disabled button. -->
+                    <mc-desktop-only [line]="'Fix it on the desktop app.' | t">
+                      <button
+                        type="button"
+                        class="btn small"
+                        [disabled]="readonly() || busy() === c.id"
+                        (click)="ask.emit(c.id)"
+                      >
+                        {{ 'Ask {name} to fix' | t: { name: machineName() } }}
+                      </button>
+                    </mc-desktop-only>
                   }
                   @if (asked && !open(asked)) {
                     <span class="muted small">{{ askedText(asked) }}</span>
@@ -85,27 +89,31 @@ const MARKS: Record<CheckState, { icon: IconName; tone: string }> = {
                   }}</span>
                 } @else if (c.fix.kind === 'manual') {
                   @if (c.id === 'pairing' || c.id === 'relay') {
-                    <button
-                      type="button"
-                      class="btn small"
-                      [disabled]="readonly()"
-                      (click)="manual.emit(c.id)"
-                    >
-                      {{ x.fix }}
-                    </button>
+                    <mc-desktop-only [value]="x.fix" [line]="'Fix it on the desktop app.' | t">
+                      <button
+                        type="button"
+                        class="btn small"
+                        [disabled]="readonly()"
+                        (click)="manual.emit(c.id)"
+                      >
+                        {{ x.fix }}
+                      </button>
+                    </mc-desktop-only>
                   } @else {
                     <span class="muted small">{{ x.fix }}</span>
                   }
                 } @else {
-                  <button
-                    type="button"
-                    class="btn small"
-                    [class.primary]="c.state === 'blocker'"
-                    [disabled]="readonly() || busy() === c.id"
-                    (click)="fix.emit(c.id)"
-                  >
-                    {{ busy() === c.id ? ('Working…' | t) : x.fix }}
-                  </button>
+                  <mc-desktop-only [value]="x.fix" [line]="'Fix it on the desktop app.' | t">
+                    <button
+                      type="button"
+                      class="btn small"
+                      [class.primary]="c.state === 'blocker'"
+                      [disabled]="readonly() || busy() === c.id"
+                      (click)="fix.emit(c.id)"
+                    >
+                      {{ busy() === c.id ? ('Working…' | t) : x.fix }}
+                    </button>
+                  </mc-desktop-only>
                   @if (c.fix.kind === 'admin') {
                     <span class="muted small">{{
                       'Windows asks for an administrator’s OK first.' | t

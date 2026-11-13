@@ -17,7 +17,9 @@ import {
   sameGrants,
 } from '../../core/machines';
 import { MachinesService } from '../../core/machines.service';
+import { DesktopOnlyComponent } from '../../shared/desktop-only.component';
 import { IconComponent } from '../../shared/icon.component';
+import { PageHeadComponent } from '../../shared/page-head.component';
 import { AccountsFoldersComponent } from './accounts-folders.component';
 import { CheckListComponent } from './check-list.component';
 import { GrantsMatrixComponent } from './grants-matrix.component';
@@ -55,6 +57,7 @@ interface TestColumn {
     RouterLink,
     AccountsFoldersComponent,
     CheckListComponent,
+    DesktopOnlyComponent,
     GrantsMatrixComponent,
     IconComponent,
     IntroSheetComponent,
@@ -62,6 +65,7 @@ interface TestColumn {
     IntrosCardComponent,
     JoinSheetComponent,
     OptionsFormComponent,
+    PageHeadComponent,
     PairSheetComponent,
     ProjectOptionsComponent,
     TPipe,

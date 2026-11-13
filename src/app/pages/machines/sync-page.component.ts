@@ -27,7 +27,7 @@ import { SyncCardComponent } from './sync-card.component';
     TPipe,
   ],
   template: `
-    <div class="page">
+    <div class="page narrow">
       <mc-computers-head />
       @if (notice()) {
         <p class="notice ok" role="status">{{ notice() }}</p>

@@ -22,6 +22,7 @@ import {
 } from '../../core/theme.service';
 import { UpdaterService } from '../../core/updater.service';
 import { IconComponent } from '../../shared/icon.component';
+import { PageHeadComponent } from '../../shared/page-head.component';
 import { UpdaterComponent } from '../../shared/updater.component';
 import { ConnectionsComponent } from './connections.component';
 import { StartupSettingComponent } from './startup-setting.component';
@@ -70,6 +71,7 @@ const INGRESS: Record<string, string> = {
     RouterLink,
     ConnectionsComponent,
     IconComponent,
+    PageHeadComponent,
     StartupSettingComponent,
     TPipe,
     UpdaterComponent,

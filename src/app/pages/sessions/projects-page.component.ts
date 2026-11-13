@@ -14,7 +14,7 @@ import { SessionsHeadComponent } from './sessions-head.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ProjectsViewComponent, SessionsHeadComponent],
   template: `
-    <div class="page">
+    <div class="page narrow">
       <mc-sessions-head />
       <mc-projects-view />
     </div>

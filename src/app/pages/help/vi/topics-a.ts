@@ -162,7 +162,7 @@ const TOPICS: HelpTopicSource[] = [
     id: 'settings',
     title: 'Cài đặt và cập nhật',
     icon: 'settings',
-    group: 'basics',
+    group: 'settings',
     summary: 'Thông báo, giao diện, kết nối và cập nhật phần mềm.',
     intro:
       'Cài đặt chứa những gì bạn đặt một lần: thông báo, giao diện và kết nối của thiết bị này, cùng những gì khác hoạt động với Mother Claude. Trong ứng dụng máy tính, Cài đặt còn có cập nhật phần mềm; các quyền macOS nằm trong **Máy tính › Máy Mac này**.',
@@ -876,12 +876,12 @@ const TOPICS: HelpTopicSource[] = [
     ],
   },
 
-  // ────────────────────────────────────────────── Điện thoại & từ xa
+  // ───────────────────────── Cài đặt và kết nối: điện thoại, nơi khác
   {
     id: 'phone',
     title: 'Dùng trên điện thoại',
     icon: 'phone',
-    group: 'remote',
+    group: 'settings',
     summary:
       'Ghép nối điện thoại qua Wi-Fi, tin cậy chứng chỉ, thêm vào Màn hình chính, nhận thông báo đẩy.',
     intro:
@@ -1007,7 +1007,7 @@ const TOPICS: HelpTopicSource[] = [
     id: 'internet',
     title: 'Truy cập qua internet và thiết bị',
     icon: 'shield',
-    group: 'remote',
+    group: 'settings',
     summary: 'Kết nối tới máy tính qua đường hầm, cho phép thiết bị, và quản lý quyền của chúng.',
     intro:
       'Khi không ở nhà, điện thoại kết nối tới máy tính của bạn qua một đường hầm do bạn chạy (Tailscale, ngrok hoặc Cloudflare). Mother Claude không bao giờ tự mở cổng ra internet, và truy cập qua internet tắt cho đến khi bạn bật nó.',
@@ -1124,7 +1124,7 @@ const TOPICS: HelpTopicSource[] = [
     id: 'foreign-sessions',
     title: 'Phiên bắt đầu ở nơi khác',
     icon: 'plug',
-    group: 'remote',
+    group: 'settings',
     summary:
       'Trả lời và nhắn tin cho phiên terminal, VS Code và JetBrains bằng plugin, hoặc qua tmux.',
     intro:

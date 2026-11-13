@@ -105,7 +105,7 @@
                 'It encrypts the backups. Without it nobody can read them, you included.' | t
               }}</span>
               @if (!v.passphraseSet) {
-                @if (isDesktop()) {
+                <mc-desktop-only [line]="'Set it in the desktop app.' | t">
                   <div class="sacts-row">
                     <button
                       class="btn small"
@@ -116,9 +116,7 @@
                       <mc-icon name="key" [size]="14" /> {{ 'Set a passphrase…' | t }}
                     </button>
                   </div>
-                } @else {
-                  <span class="small">{{ 'Set it in the desktop app.' | t }}</span>
-                }
+                </mc-desktop-only>
               }
             </div>
           </li>
@@ -613,13 +611,9 @@
       >.
     </p>
   } @else if (loadError()) {
-    <div class="card empty-state">
-      <strong>{{ "Can't load the backup settings" | t }}</strong>
-      {{ loadError() }}
-      <div class="retry">
-        <button class="btn" type="button" (click)="load()">{{ 'Retry' | t }}</button>
-      </div>
-    </div>
+    <mc-empty-state icon="alert" tone="red" [heading]="cantLoad()" [text]="loadError()">
+      <button class="btn" type="button" (click)="load()">{{ 'Retry' | t }}</button>
+    </mc-empty-state>
   } @else {
     <p class="muted">{{ 'Loading…' | t }}</p>
   }

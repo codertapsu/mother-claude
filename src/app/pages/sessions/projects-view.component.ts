@@ -33,6 +33,7 @@ import { RealtimeService } from '../../core/realtime.service';
 import { StorageService } from '../../core/storage.service';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { DataJobComponent } from '../../shared/data-job.component';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
 import {
   DeleteDataSheetComponent,
   DeleteStart,
@@ -69,6 +70,7 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
     AccountChipComponent,
     DataJobComponent,
     DeleteDataSheetComponent,
+    EmptyStateComponent,
     IconComponent,
     MoveDataSheetComponent,
     SheetComponent,
@@ -121,17 +123,18 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
 
     @if (list(); as all) {
       @if (!all.length) {
-        <div class="card empty-state">
-          <strong>{{ 'No conversations on disk' | t }}</strong>
-          {{ 'A project shows up here once Claude Code has written a conversation in it.' | t }}
-        </div>
+        <mc-empty-state
+          icon="folder"
+          [heading]="'No conversations on disk' | t"
+          [text]="'A project shows up here once Claude Code has written a conversation in it.' | t"
+          help="sessions"
+        />
       } @else if (!rows().length) {
-        <div class="card empty-state">
-          <strong>{{ 'No projects match' | t }}</strong>
+        <mc-empty-state icon="search" [heading]="'No projects match' | t">
           <button class="btn" type="button" (click)="clearFilters()">
             {{ 'Clear filters' | t }}
           </button>
-        </div>
+        </mc-empty-state>
       } @else {
         <section class="card list rows" [attr.aria-label]="'Projects on disk' | t">
           @for (p of rows(); track key(p)) {
@@ -178,13 +181,9 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
         </section>
       }
     } @else if (loadError()) {
-      <div class="card empty-state">
-        <strong>{{ "Can't list the projects" | t }}</strong>
-        {{ loadError() }}
-        <div class="empty-actions">
-          <button class="btn" type="button" (click)="load()">{{ 'Retry' | t }}</button>
-        </div>
-      </div>
+      <mc-empty-state icon="alert" tone="red" [heading]="cantList()" [text]="loadError()">
+        <button class="btn" type="button" (click)="load()">{{ 'Retry' | t }}</button>
+      </mc-empty-state>
     } @else {
       <div class="skeleton" [attr.aria-label]="'Loading the projects' | t">
         <span></span><span></span><span></span>
@@ -404,9 +403,6 @@ export const MIXED_ACCOUNTS = 'Pick projects of one account to move or copy them
       h2 {
         margin-top: 1.5rem;
       }
-      .empty-actions {
-        margin-top: 0.75rem;
-      }
       .skeleton {
         display: flex;
         flex-direction: column;
@@ -504,6 +500,7 @@ export class ProjectsViewComponent {
   /** `GET /data/projects` (null: not read yet). */
   protected readonly list = signal<DataProject[] | null>(null);
   protected readonly loadError = signal('');
+  protected readonly cantList = computed(() => tr("Can't list the projects"));
   protected readonly query = signal('');
   /** The account filter ('' = every account). */
   protected readonly account = signal('');

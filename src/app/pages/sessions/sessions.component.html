@@ -111,48 +111,44 @@
 
   @if (!loaded()) {
     @if (connection() === 'offline' || connection() === 'unreachable') {
-      <div class="card empty-state">
-        <strong>{{
-          connection() === 'offline'
-            ? ("You're offline" | t)
-            : ("Can't reach your {computer}" | t: { computer: computer() })
-        }}</strong>
-        {{
-          "It may be asleep, offline, or the tunnel is down. This page updates as soon as it's back."
-            | t
-        }}
-      </div>
+      <mc-empty-state icon="wifi" [heading]="away().heading" [text]="away().text" />
     } @else {
       <div class="skeleton" [attr.aria-label]="'Loading your sessions' | t">
         <span></span><span></span><span></span>
       </div>
     }
   } @else if (!everything().length && !machinesLoading().length) {
-    <div class="card empty-state">
-      <strong>{{ 'No sessions in the last 24 h' | t }}</strong>
-      {{ 'Start one here, or run' | t }} <code>claude</code>
-      {{ 'in a terminal or your editor — it shows up automatically.' | t }}
-      <div class="empty-actions">
-        <a class="btn primary" routerLink="/new"
-          ><mc-icon name="plus" [size]="15" /> {{ 'New session' | t }}</a
-        >
-        <button class="btn" type="button" (click)="openHistory()">
-          <mc-icon name="clock" [size]="15" /> {{ 'Show ended sessions' | t }}
-        </button>
-      </div>
-    </div>
+    <mc-empty-state
+      icon="sessions"
+      [heading]="'No sessions in the last 24 h' | t"
+      [text]="
+        'Start one here, or run claude in a terminal or your editor: it shows up by itself.' | t
+      "
+      help="sessions"
+    >
+      <a class="btn primary" routerLink="/new"
+        ><mc-icon name="plus" [size]="15" /> {{ 'New session' | t }}</a
+      >
+      <button class="btn" type="button" (click)="openHistory()">
+        <mc-icon name="clock" [size]="15" /> {{ 'Show ended sessions' | t }}
+      </button>
+    </mc-empty-state>
   } @else if (!groups().length && !machinesLoading().length) {
-    <div class="card empty-state">
-      @if (historyOpen() && filter() === 'all') {
-        <strong>{{ 'No current sessions match' | t }}</strong>
-        {{ 'Earlier sessions are searched below.' | t }}
-      } @else {
-        <strong>{{ 'No sessions match' | t }}</strong>
-      }
+    <mc-empty-state
+      icon="search"
+      [heading]="
+        historyOpen() && filter() === 'all'
+          ? ('No current sessions match' | t)
+          : ('No sessions match' | t)
+      "
+      [text]="
+        historyOpen() && filter() === 'all' ? ('Earlier sessions are searched below.' | t) : ''
+      "
+    >
       <button class="btn" type="button" (click)="clearFilters()">
         {{ 'Clear filters' | t }}
       </button>
-    </div>
+    </mc-empty-state>
   }
 
   @if (loaded()) {

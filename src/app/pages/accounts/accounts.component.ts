@@ -36,6 +36,7 @@ import {
   usageLine,
 } from '../../shared/accounts';
 import { DataJobComponent } from '../../shared/data-job.component';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { CompactMeter, compactPlan } from '../../shared/fleet-summary.component';
 import { IconComponent } from '../../shared/icon.component';
 import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
@@ -115,6 +116,7 @@ interface ProjectRow {
     AccountsHeadComponent,
     AccountSheetComponent,
     DataJobComponent,
+    EmptyStateComponent,
     IconComponent,
     IdentityWarningComponent,
     MoveDataSheetComponent,
@@ -131,6 +133,7 @@ export class AccountsComponent {
   private clock = inject(NowService);
   private storage = inject(StorageService);
   protected readonly isDesktop = inject(AuthService).isDesktop;
+  protected readonly cantLoad = computed(() => tr("Can't load the accounts"));
   /** The desktop's system: a project folder is typed its way. */
   private readonly hostOs = inject(AuthService).hostOs;
   protected readonly projectPlaceholder = computed(() => folderExample(this.hostOs(), 'project'));

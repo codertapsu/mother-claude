@@ -12,11 +12,10 @@ import { HelpGroup, HelpTopic, HelpTopicSource, resolveTopic } from './help-mode
 export const HELP_GROUPS: readonly HelpGroup[] = [
   { id: 'basics', title: 'Basics' },
   { id: 'sessions', title: 'Your sessions' },
-  { id: 'remote', title: 'Phone & remote' },
+  { id: 'teams', title: 'Teams' },
   { id: 'machines', title: 'Your computers' },
-  { id: 'data', title: 'Accounts & data' },
-  { id: 'browser-teams', title: 'Browser & teams' },
-  { id: 'advanced', title: 'Advanced' },
+  { id: 'data', title: 'Accounts and data' },
+  { id: 'settings', title: 'Settings and connections' },
   { id: 'troubleshooting', title: 'Troubleshooting' },
 ];
 
@@ -163,7 +162,7 @@ const TOPICS: HelpTopicSource[] = [
     id: 'settings',
     title: 'Settings and updates',
     icon: 'settings',
-    group: 'basics',
+    group: 'settings',
     summary: 'Notifications, theme, connection and software updates.',
     intro:
       'Settings holds what you set once: this device’s notifications, theme and connection, and what else works with Mother Claude. In the desktop app it also has software updates; macOS permissions are under **Computers › This Mac**.',
@@ -865,12 +864,12 @@ const TOPICS: HelpTopicSource[] = [
     ],
   },
 
-  // ───────────────────────────────────────────────────── Phone & remote
+  // ───────────────── Settings and connections: the phone, sessions elsewhere
   {
     id: 'phone',
     title: 'Use it from your phone',
     icon: 'phone',
-    group: 'remote',
+    group: 'settings',
     summary:
       'Pair a phone on your Wi-Fi, trust the certificate, add it to the Home Screen, get push.',
     intro:
@@ -999,7 +998,7 @@ const TOPICS: HelpTopicSource[] = [
     id: 'internet',
     title: 'Internet access and devices',
     icon: 'shield',
-    group: 'remote',
+    group: 'settings',
     summary: 'Reach your computer through a tunnel, approve devices, and manage their rights.',
     intro:
       'Away from home, your phone reaches your computer through a tunnel you run (Tailscale, ngrok or Cloudflare). Mother Claude never opens a port to the internet itself, and internet access is off until you turn it on.',
@@ -1114,7 +1113,7 @@ const TOPICS: HelpTopicSource[] = [
     id: 'foreign-sessions',
     title: 'Sessions started elsewhere',
     icon: 'plug',
-    group: 'remote',
+    group: 'settings',
     summary:
       'Answer and message terminal, VS Code and JetBrains sessions with the plugin, or tmux.',
     intro:
@@ -2379,7 +2378,7 @@ const TOPICS: HelpTopicSource[] = [
     ],
   },
 
-  // ──────────────────────────────────────────────────── Accounts & data
+  // ────────────────────────────────────────────────── Accounts and data
   {
     id: 'accounts',
     title: 'Claude accounts',
@@ -2944,12 +2943,12 @@ const TOPICS: HelpTopicSource[] = [
     ],
   },
 
-  // ──────────────────────────────────────────────────── Browser & teams
+  // ─────────────────── The browser (Settings and connections), then Teams
   {
     id: 'browser',
     title: 'The browser extension',
     icon: 'globe',
-    group: 'browser-teams',
+    group: 'settings',
     summary: 'Let sessions read and act in your own Chrome, Edge or Brave, with your approval.',
     intro:
       'The Mother Claude extension lets your Claude Code sessions read and act in your own browser, signed in as you. Each session works only in its own coloured tab group, every site starts **Off**, and risky steps wait for your answer. Nothing leaves your computer.',
@@ -3065,7 +3064,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'What is never done',
         points: [
           'Sessions never type into password, card, one-time-code or other secret fields: they ask you to type them yourself.',
-          "Uploads come only from the session's project folder or a folder you added under **Folders sessions may upload files from** on **Settings › Browser**, never from Claude Code's folders, `~/.ssh` or files that usually hold secrets.",
+          "Uploads come only from the session's project folder or a folder you added under **Folders sessions may upload files from**, in **Options** on **Settings › Browser**, never from Claude Code's folders, `~/.ssh` or files that usually hold secrets.",
           '**Activity** records the tool, site, path, outcome and time, never what was typed or read.',
         ],
       },
@@ -3082,7 +3081,7 @@ const TOPICS: HelpTopicSource[] = [
     id: 'teams',
     title: 'Teams of sessions',
     icon: 'layers',
-    group: 'browser-teams',
+    group: 'teams',
     summary: 'A lead and role sessions working through a task board in one project.',
     intro:
       "A team applies a template to a project: a lead session writes tasks on the project's board, and role sessions do them, each in its own files. Mother Claude starts, wakes and stops the sessions it runs, as capacity allows. **Teams** has three tabs: your teams, the **Templates** they start from, and **Capacity**.",
@@ -3205,7 +3204,7 @@ const TOPICS: HelpTopicSource[] = [
     id: 'capacity',
     title: 'Capacity, routing and budgets',
     icon: 'gauge',
-    group: 'browser-teams',
+    group: 'teams',
     summary: 'Why a role session waits, your limits, budgets, model choice and costs.',
     intro:
       "**Capacity**, a tab of **Teams**, shows how many role sessions run and why others wait, with memory and each account's plan usage, in five sections: **Now**, **Budgets**, **Models**, **Costs** and **Settings**. Money figures are estimates.",
@@ -3309,12 +3308,12 @@ const TOPICS: HelpTopicSource[] = [
     ],
   },
 
-  // ────────────────────────────────────────────────────────── Advanced
+  // ───────────── Claude Code tools and the HTTP API (Settings and connections)
   {
     id: 'claude-code-tools',
     title: 'Claude Code tools',
     icon: 'zap',
-    group: 'advanced',
+    group: 'settings',
     summary: "Mother Claude's own tools for your sessions: the browser, the task board and more.",
     intro:
       'Mother Claude gives every Claude Code session on your computer its own tools: the browser, the team task board, teams, your other computers (`machine_run` and the rest), and Mother Claude itself. Sessions see them as `mcp__plugin_mother-claude_mc__<tool>`.',
@@ -3372,7 +3371,7 @@ const TOPICS: HelpTopicSource[] = [
     id: 'api',
     title: 'The HTTP API',
     icon: 'code',
-    group: 'advanced',
+    group: 'settings',
     summary: 'Drive Claude on this computer from scripts and tools, over HTTP.',
     intro:
       'Mother Claude can run a local HTTP API that drives Claude on this computer with your account: conversations, turns, live events and tool approvals. A conversation started through it is a normal session in the dashboard, and its approvals appear as cards.',

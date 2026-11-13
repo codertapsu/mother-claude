@@ -19,8 +19,10 @@ import { map } from 'rxjs';
 
 import { plural } from '../../core/data-jobs';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitationsComponent } from '../../shared/limitations.component';
+import { PageHeadComponent } from '../../shared/page-head.component';
 import { HelpGroup, HelpSection, HelpTopic } from './help-model';
 import { fold, plainText, searchTerms } from './help-text';
 import { HelpTextComponent } from './help-text.component';
@@ -115,7 +117,15 @@ export function searchHelp(query: string): HelpHit[] {
 @Component({
   selector: 'mc-help',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, LimitationsComponent, HelpTextComponent, TPipe],
+  imports: [
+    RouterLink,
+    EmptyStateComponent,
+    IconComponent,
+    LimitationsComponent,
+    HelpTextComponent,
+    PageHeadComponent,
+    TPipe,
+  ],
   templateUrl: './help.component.html',
   styleUrl: './help.component.scss',
 })

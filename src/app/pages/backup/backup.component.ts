@@ -36,6 +36,8 @@ import { RealtimeService } from '../../core/realtime.service';
 import { StorageService } from '../../core/storage.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { DataJobComponent } from '../../shared/data-job.component';
+import { DesktopOnlyComponent } from '../../shared/desktop-only.component';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { IconComponent } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { relativeTime, shortPath } from '../../shared/util';
@@ -98,6 +100,8 @@ interface SetRow {
     BackupBrowserComponent,
     CopyButtonComponent,
     DataJobComponent,
+    DesktopOnlyComponent,
+    EmptyStateComponent,
     FolderPairsComponent,
     ForceBackupSheetComponent,
     IconComponent,
@@ -117,6 +121,7 @@ export class BackupComponent {
   protected readonly drag = inject(SyncDrag);
   /** The backups column as a drop target. */
   protected readonly backups: SyncDropTarget = { kind: 'backups' };
+  protected readonly cantLoad = computed(() => tr("Can't load the backup settings"));
   private readonly storageSection = viewChild(StorageSectionComponent);
   private api = inject(ApiService);
   private notices = inject(NoticeService);

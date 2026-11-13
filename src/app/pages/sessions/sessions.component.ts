@@ -20,6 +20,7 @@ import {
   countedWhat,
   deletedIds,
 } from '../../shared/delete-data-sheet.component';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { FleetSummaryComponent } from '../../shared/fleet-summary.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LimitOfferComponent } from '../../shared/limit-offer.component';
@@ -90,6 +91,7 @@ const HERE = 'here';
   imports: [
     RouterLink,
     FormsModule,
+    EmptyStateComponent,
     FleetSummaryComponent,
     IconComponent,
     DeleteDataSheetComponent,
@@ -296,6 +298,16 @@ export class SessionsComponent {
   protected readonly surfaceLabel = surfaceLabel;
   /** The desktop's computer in words ("Mac", "PC", "computer"). */
   protected readonly computer = computerNoun;
+  /** What the page says while it can't reach the desktop. */
+  protected readonly away = computed(() => ({
+    heading:
+      this.connection() === 'offline'
+        ? tr("You're offline")
+        : tr("Can't reach your {computer}", { computer: computerNoun() }),
+    text: tr(
+      "It may be asleep, offline, or the tunnel is down. This page updates as soon as it's back.",
+    ),
+  }));
 
   /** Somewhere to move conversations to (another account, or a
    * storage): the Select bar offers Move or copy. */

@@ -93,10 +93,13 @@ describe('McpPanelComponent', () => {
     const el = await render(status());
     expect(text(el)).toContain('Claude Code tools (MCP)');
     expect(text(el)).toContain('mcp__plugin_mother-claude_mc__');
-    const toggle = el.querySelector('input[type=checkbox]') as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
-    expect(toggle.disabled).toBe(true);
-    expect(text(el)).toContain('Changed on the desktop app.');
+    // A phone sees the switch's value and where it changes, never a
+    // disabled switch.
+    expect(el.querySelector('input[type=checkbox]')).toBeNull();
+    const row = el.querySelector('.elsewhere') as HTMLElement;
+    expect(text(row)).toContain("Give sessions Mother Claude's tools");
+    expect(text(row.querySelector('mc-desktop-only .value')!)).toBe('On');
+    expect(text(row)).toContain('Changed on the desktop app.');
     const calls = el.querySelectorAll('.call');
     expect(calls.length).toBe(2);
     expect(text(calls[0])).toContain('mc_session');

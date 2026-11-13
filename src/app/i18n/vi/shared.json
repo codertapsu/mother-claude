@@ -736,7 +736,7 @@
   "Works, but worse:": "Vẫn chạy, nhưng kém hơn:",
   "There is nowhere to move it yet: add an account with a folder of its own on the Accounts page, or a storage on Accounts › Backups.": "Chưa có nơi nào để chuyển đến: hãy thêm một tài khoản có thư mục riêng ở trang Tài khoản, hoặc một kho lưu trữ ở Tài khoản › Bản sao lưu.",
   "Deleting conversations needs dangerous actions for this device, granted on the computer in Settings › Phone & devices.": "Xóa cuộc trò chuyện cần quyền thao tác nguy hiểm cho thiết bị này, được cấp trên máy tính trong Cài đặt › Điện thoại & thiết bị.",
-  "On the {computer}: Settings › Sessions started elsewhere › Install.": "Trên {computer}: Cài đặt › Phiên bắt đầu ở nơi khác › Cài đặt.",
+  "Set it up on the {computer}, in Settings › Sessions started elsewhere.": "Thiết lập trên {computer}, trong Cài đặt › Phiên bắt đầu ở nơi khác.",
   "Set up Sessions started elsewhere": "Thiết lập Phiên bắt đầu ở nơi khác",
   "Needs dangerous actions for this device, granted on the computer in Settings › Phone & devices.": "Cần quyền thao tác nguy hiểm cho thiết bị này, được cấp trên máy tính trong Cài đặt › Điện thoại & thiết bị.",
   "Only approve a device you are holding. It gets access to all your Claude sessions until you revoke it in Settings › Phone & devices.": "Chỉ cho phép thiết bị bạn đang cầm trên tay. Thiết bị đó sẽ truy cập được mọi phiên Claude của bạn cho đến khi bạn thu hồi nó trong Cài đặt › Điện thoại & thiết bị.",

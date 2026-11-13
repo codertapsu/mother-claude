@@ -97,5 +97,7 @@ describe('PageHeadComponent', () => {
     fixture.componentInstance.withMenu.set(false);
     fixture.detectChanges();
     expect(el.querySelector('button[aria-label="More actions"]')).toBeNull();
+    // Nor its sheet: a page's own dialogs are the only ones there.
+    expect(el.querySelector('dialog')).toBeNull();
   });
 });

@@ -398,6 +398,7 @@
   "Could not delete it: {error}": "Không xóa được: {error}",
   "Resume": "Tiếp tục",
   "Stop the team": "Dừng nhóm",
+  "{template}, in {project}": "{template}, trong {project}",
   "The lead's brief": "Yêu cầu cho trưởng nhóm",
   "Roles": "Vai trò",
   "default model": "mô hình mặc định",
@@ -486,7 +487,7 @@
   "Duplicate to edit": "Nhân bản để sửa",
   "Check": "Kiểm tra",
   "Edit {name}": "Sửa {name}",
-  "Let Claude Code sessions use your own browser, signed in as you, through the Mother Claude extension. Each session gets its own tab group; every site is off until you open it here or in the extension; risky steps wait for your approval; Stop in the extension ends a session's browsing at once.": "Cho các phiên Claude Code dùng chính trình duyệt của bạn, với các tài khoản bạn đã đăng nhập, qua tiện ích Mother Claude. Mỗi phiên có nhóm thẻ riêng; mọi trang đều tắt cho đến khi bạn mở trang đó ở đây hoặc trong tiện ích; các bước rủi ro chờ bạn cho phép; nút Stop trong tiện ích dừng ngay việc dùng trình duyệt của một phiên.",
+  "Let Claude Code sessions use your own browser, signed in as you, through the Mother Claude extension: every site is off until you open it, and risky steps wait for you.": "Cho các phiên Claude Code dùng chính trình duyệt của bạn, với các tài khoản bạn đã đăng nhập, qua tiện ích Mother Claude: mọi trang đều tắt cho đến khi bạn mở, và các bước rủi ro chờ bạn.",
   "Browser actions waiting for you": "Thao tác trình duyệt đang chờ bạn",
   "Waiting for you": "Đang chờ bạn",
   "Browsers": "Trình duyệt",
@@ -599,7 +600,7 @@
   "Open Settings": "Mở Cài đặt",
   "Open Teams": "Mở Nhóm",
   "Other topics": "Các chủ đề khác",
-  "How to use every part of Mother Claude, step by step. Pick a topic, or search for what you want to do.": "Hướng dẫn từng bước cách dùng mọi phần của Mother Claude. Hãy chọn một chủ đề, hoặc tìm điều bạn muốn làm.",
+  "How to use every part of Mother Claude, step by step: pick a topic, or search for what you want to do.": "Hướng dẫn từng bước cách dùng mọi phần của Mother Claude: hãy chọn một chủ đề, hoặc tìm điều bạn muốn làm.",
   "Search help": "Tìm trong Trợ giúp",
   "Clear the search": "Xóa tìm kiếm",
   "{n} of {total} topics match": "{n} trên {total} chủ đề phù hợp",
@@ -623,6 +624,6 @@
   "{computer} (template)": "{computer} (theo mẫu)",
   "Also in the Inbox, with everything else waiting ›": "Cũng có trong Hộp thư, cùng mọi thứ khác đang chờ ›",
   "The Claude account conversations run under. Automatic takes the project's account, else the one Accounts sets for the API. A request can still name another.": "Tài khoản Claude dùng để chạy các cuộc trò chuyện. Tự động sẽ lấy tài khoản của dự án, nếu không thì tài khoản được đặt cho API trong Tài khoản. Một yêu cầu vẫn có thể chỉ định tài khoản khác.",
-  "A local HTTP API for Claude on this computer — conversations, turns, live streams, tool approvals, images. It is off until you start it.": "Một API HTTP cục bộ cho Claude trên máy tính này — cuộc trò chuyện, lượt, luồng trực tiếp, yêu cầu duyệt công cụ, hình ảnh. API chỉ chạy khi bạn khởi động nó.",
+  "A local HTTP API for Claude on this computer — conversations, turns, live streams, tool approvals and images — off until you start it.": "Một API HTTP cục bộ cho Claude trên máy tính này — cuộc trò chuyện, lượt, luồng trực tiếp, yêu cầu duyệt công cụ và hình ảnh — chỉ chạy khi bạn khởi động nó.",
   "Pair a browser on the Mother Claude desktop app (Settings › Browser › Pair a browser).": "Ghép nối trình duyệt trên ứng dụng máy tính Mother Claude (Cài đặt › Trình duyệt › Ghép nối trình duyệt)."
 }
