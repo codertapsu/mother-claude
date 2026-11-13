@@ -104,6 +104,20 @@ operations** (operator, read-only verifier) and **Documentation** (editor,
 read-only librarian, writer in a worktree). Their path globs are guesses at a
 common layout: duplicate the template and set your project's.
 
+**Teams › Templates** edits a template in a visual editor
+(`pages/teams/template-*`), with its JSON on a second tab kept in step:
+each role is a node on a canvas, beside one **Merge** node for
+`integration`. Faint dashed lines from the lead to every role show who
+assigns the tasks; dragging from a role's dot to another role adds a step
+to the flow, and to Merge makes that role `mergeBy`. Selecting a node
+opens its fields in a panel, which also offers every drag as a choice
+(*Its finished work goes next to*), for touch and keyboard. The editor
+checks as you type (one lead, ids, the flow's ends) and shows the server's
+**Check** on the node or step it concerns. Positions are saved in `layout`
+once something moves; a template without one (every built-in) is arranged
+by the flow, lead first and Merge last. A built-in opens read-only, with
+*Duplicate to edit*.
+
 ## Starting a team
 
 From the Teams page: a project (one of the known projects: a folder with
