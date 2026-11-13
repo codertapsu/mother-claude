@@ -733,6 +733,9 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       'mẫu',
       'quy trình',
       'nhánh',
+      'luồng công việc',
+      'chuyển giao',
+      'sơ đồ',
     ],
     sections: [
       {
@@ -840,9 +843,10 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Mẫu',
         points: [
-          'Thẻ **Mẫu quy trình** liệt kê các mẫu có sẵn và mẫu của bạn, mỗi mẫu với các vai trò và mô hình của chúng.',
+          'Thẻ **Mẫu quy trình** liệt kê các mẫu có sẵn và mẫu của bạn, mỗi mẫu với các vai trò, mô hình của chúng và luồng công việc: kết quả của một vai trò được chuyển tiếp cho ai.',
           '**Mẫu mới** để tự viết mẫu; mẫu có sẵn thì cố định, nên muốn đổi một mẫu, hãy nhấn **Xem** rồi **Nhân bản để sửa**.',
-          'Mẫu của bạn có **Sửa** (JSON, với **Kiểm tra** và **Lưu**), **Nhân bản** và xóa.',
+          'Mẫu của bạn có **Sửa**, **Nhân bản** và xóa. **Sửa** mở mẫu dưới dạng sơ đồ (**Trực quan**): kéo một vai trò để di chuyển, và kéo từ chấm ở cạnh phải của nó sang một vai trò khác để chuyển kết quả cho vai trò đó, hoặc sang **Gộp** để chọn ai gộp kết quả. **Thêm vai trò** và **Tự sắp xếp** nằm phía trên sơ đồ.',
+          'Chọn một vai trò, một mũi tên hoặc **Gộp** để sửa trong bảng bên cạnh sơ đồ (bên dưới trên điện thoại); bảng này làm được mọi việc mà thao tác kéo làm. **JSON** hiện cùng mẫu đó dưới dạng văn bản; **Kiểm tra** đặt từng vấn đề lên vai trò hoặc mũi tên của nó và liệt kê ra, còn **Lưu** giữ lại mẫu.',
         ],
         links: [{ label: 'Mở Mẫu quy trình', path: '/teams/templates' }],
       },

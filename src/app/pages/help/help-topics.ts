@@ -3157,7 +3157,19 @@ const TOPICS: HelpTopicSource[] = [
     summary: 'A lead and role sessions working through a task board in one project.',
     intro:
       "A team applies a template to a project: a lead session writes tasks on the project's board, and role sessions do them, each in its own files. Mother Claude starts, wakes and stops the sessions it runs, as capacity allows. **Teams** has three tabs: your teams, the **Templates** they start from, and **Capacity**.",
-    keywords: ['team', 'role', 'lead', 'board', 'task', 'template', 'worktree', 'workflow'],
+    keywords: [
+      'team',
+      'role',
+      'lead',
+      'board',
+      'task',
+      'template',
+      'worktree',
+      'workflow',
+      'flow',
+      'handoff',
+      'diagram',
+    ],
     sections: [
       {
         heading: 'Start a team',
@@ -3264,9 +3276,10 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Templates',
         points: [
-          'The **Templates** tab lists the built-in templates and your own, each with its roles and their models.',
+          'The **Templates** tab lists the built-in templates and your own, each with its roles, their models and its flow: where a role’s finished work goes next.',
           '**New template** writes your own; built-in ones are fixed, so press **View** and then **Duplicate to edit** to change one.',
-          'Your own templates have **Edit** (JSON, with **Check** and **Save**), **Duplicate** and delete.',
+          'Your own templates have **Edit**, **Duplicate** and delete. **Edit** opens the template as a diagram (**Visual**): drag a role to move it, and drag from the dot on its right edge to another role to send its finished work there next, or to **Merge** to choose who merges. **Add role** and **Auto-arrange** are above it.',
+          'Select a role, an arrow or **Merge** to change it in the panel beside the diagram (below it on a phone), which also does all a drag does. **JSON** shows the same template as text; **Check** puts each problem on its role or arrow and lists it, and **Save** keeps the template.',
         ],
         links: [{ label: 'Open Templates', path: '/teams/templates' }],
       },
