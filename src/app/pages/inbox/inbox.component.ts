@@ -16,6 +16,7 @@ import { AuthService } from '../../core/auth.service';
 import { DataJobsService } from '../../core/data-jobs.service';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { ListDetailService } from '../../core/list-detail';
 import { MachineScopes } from '../../core/machine-scope';
 import { MachinesService } from '../../core/machines.service';
 import { PendingPair, PendingRef, SessionSummary } from '../../core/models';
@@ -88,7 +89,10 @@ function entryKey(e: Entry): string {
  * account exists, each request names its account and an *Account* filter
  * shows one account's items; while another computer is paired, a *Computer*
  * filter shows one computer's. A phone sees what only the desktop answers,
- * with where it is done; the badge counts what can be answered here.
+ * with where it is done; the badge counts what can be answered here. On a
+ * wide screen a request's session opens beside the Inbox, its requests
+ * marked (docs/UI-REDESIGN.md §9); ↓/↑ move between requests too, and
+ * Enter on one opens its session (`mcListNav`, pages/list-detail).
  */
 @Component({
   selector: 'mc-inbox',
@@ -187,7 +191,7 @@ function entryKey(e: Entry): string {
           @if (needs().length) {
             <p class="muted small keys">
               {{
-                'Tip: on a keyboard, J/K move between requests; A allows, D denies, F adds feedback.'
+                'Tip: on a keyboard, J/K or ↓/↑ move between requests and Enter opens one’s session; A allows, D denies, F adds feedback.'
                   | t
               }}
             </p>
@@ -227,6 +231,9 @@ function entryKey(e: Entry): string {
                   <mc-time [ms]="e.ref.createdAt" mode="elapsed" [prefix]="('waiting' | t) + ' '" />
                 </p>
                 <mc-pending-card
+                  data-nav-item
+                  [class.current]="isOpen(e)"
+                  [attr.data-nav-current]="isOpen(e) ? '' : null"
                   [item]="e.ref"
                   [session]="e.session"
                   [showSession]="true"
@@ -291,6 +298,9 @@ function entryKey(e: Entry): string {
           <div class="stack">
             @for (e of desk(); track entryKey(e)) {
               <mc-pending-card
+                data-nav-item
+                [class.current]="isOpen(e)"
+                [attr.data-nav-current]="isOpen(e) ? '' : null"
                 [item]="e.ref"
                 [session]="e.session"
                 [showSession]="true"
@@ -346,6 +356,10 @@ function entryKey(e: Entry): string {
         flex-direction: column;
         gap: 0.2rem;
       }
+      /* Its session is open beside the Inbox. */
+      mc-pending-card.current {
+        box-shadow: inset 3px 0 0 var(--accent);
+      }
       .waited {
         display: flex;
         align-items: center;
@@ -390,6 +404,7 @@ export class InboxComponent {
   private attention = inject(AttentionService);
   protected readonly pairService = inject(PairRequestsService);
   protected readonly accounts = inject(AccountsService);
+  private readonly listDetail = inject(ListDetailService);
 
   private readonly cards = viewChildren(PendingCardComponent, { read: ElementRef });
   private readonly fetched = signal(false);
@@ -567,6 +582,11 @@ export class InboxComponent {
     // What failed lately, and the accounts' sign-ins, as they are now.
     void this.jobs.loadRecent();
     void this.accounts.ensureLoaded();
+  }
+
+  /** Its session is the one open beside the Inbox (wide screens). */
+  protected isOpen(e: Entry): boolean {
+    return this.listDetail.isOpen(e.ref.sessionId, e.machine?.id ?? null);
   }
 
   protected pickAccount(e: Event): void {

@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 import { ApiService, describeError } from '../../core/api.service';
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { ListDetailService } from '../../core/list-detail';
 import { NoticeService } from '../../core/notice.service';
 import {
   AccountRef,
@@ -58,7 +59,9 @@ interface FleetGroup {
  * output; stop it where the session allows. Each session names its Claude
  * account while there are several. *Teammates* lists what Claude Code's own
  * agent teams reported through the hooks (interactive sessions: Mother
- * Claude observes them, it does not run them, docs/TEAMS.md "Hooks").
+ * Claude observes them, it does not run them, docs/TEAMS.md "Hooks"). On a
+ * wide screen a session or an agent opens beside the list, marked in it
+ * (docs/UI-REDESIGN.md §9); ↓/↑ move between them (`mcListNav`).
  */
 @Component({
   selector: 'mc-agents',
@@ -88,7 +91,14 @@ interface FleetGroup {
 
       @for (g of groups(); track g.sessionId) {
         <section class="group">
-          <a class="ghead" [routerLink]="['/session', g.sessionId]">
+          <a
+            class="ghead"
+            data-nav-item
+            [class.current]="isOpen(g.sessionId)"
+            [attr.data-nav-current]="isOpen(g.sessionId) ? '' : null"
+            [attr.aria-current]="isOpen(g.sessionId) ? 'page' : null"
+            [routerLink]="['/session', g.sessionId]"
+          >
             <span class="gname">{{ g.name }}</span>
             @if (g.account; as acc) {
               <mc-account-chip class="gacct" [account]="acc" />
@@ -134,7 +144,14 @@ interface FleetGroup {
           <div class="list card" [hidden]="!g.agents.length">
             @for (a of g.agents; track a.id) {
               <div class="agent" [style.--depth]="a.level">
-                <a class="main" [routerLink]="['/session', a.sessionId, 'agent', a.id]">
+                <a
+                  class="main"
+                  data-nav-item
+                  [class.current]="isOpen(a.sessionId, a.id)"
+                  [attr.data-nav-current]="isOpen(a.sessionId, a.id) ? '' : null"
+                  [attr.aria-current]="isOpen(a.sessionId, a.id) ? 'page' : null"
+                  [routerLink]="['/session', a.sessionId, 'agent', a.id]"
+                >
                   <span class="kind" [title]="kindLabel(a)"
                     ><mc-icon [name]="kindIcon(a)" [size]="16"
                   /></span>
@@ -314,6 +331,14 @@ interface FleetGroup {
         margin-left: auto;
         color: var(--faint);
       }
+      /* Open beside the list. */
+      .ghead.current,
+      .main.current {
+        box-shadow: inset 3px 0 0 var(--accent);
+        padding-left: 0.6rem;
+        border-radius: var(--radius-sm);
+        background: color-mix(in srgb, var(--accent-soft) 40%, transparent);
+      }
       .gacct {
         flex: 0 1 auto;
         max-width: 45%;
@@ -403,6 +428,14 @@ export class AgentsComponent {
   private realtime = inject(RealtimeService);
   private api = inject(ApiService);
   private notices = inject(NoticeService);
+  private listDetail = inject(ListDetailService);
+
+  /** This session (or this agent of it) is open beside the list. */
+  protected isOpen(sessionId: string, agent: string | null = null): boolean {
+    return (
+      this.listDetail.isOpen(sessionId, null) && (this.listDetail.detail()?.agent ?? null) === agent
+    );
+  }
 
   private readonly fleet = signal<FleetSession[]>([]);
   /** Claude Code's own agent teams, as the hooks reported them. */

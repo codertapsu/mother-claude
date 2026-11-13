@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 
-import { routes } from '../../app.routes';
+import { routePaths, routes } from '../../app.routes';
 import { AuthService } from '../../core/auth.service';
 import { CONNECTIONS, PLACES } from '../../core/nav';
 import { HelpComponent } from './help.component';
@@ -268,7 +268,8 @@ describe('HelpComponent', () => {
 });
 
 describe('Help content', () => {
-  const pagePaths = new Set(routes.map((r) => `/${r.path ?? ''}`));
+  // A layout's pages under it (`/inbox` is the work layout's).
+  const pagePaths = new Set(routePaths().map((p) => `/${p}`));
 
   it('gives every topic a unique id, a summary and sections', () => {
     const ids = HELP_TOPICS.map((t) => t.id);

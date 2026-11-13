@@ -332,6 +332,19 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
+        heading: 'Phiên mở bên cạnh danh sách',
+        intro:
+          'Trên màn hình rộng, từ 1280 điểm ảnh trở lên, phiên bạn mở từ **Phiên**, **Tác tử** hoặc **Hộp thư** hiện bên cạnh danh sách thay vì thế chỗ nó. Địa chỉ của phiên vẫn là của riêng nó, nên dấu trang, nút **Quay lại** của trình duyệt và thông báo vẫn mở phiên như trước.',
+        points: [
+          'Phiên đang mở được đánh dấu trong danh sách. Mở phiên khác thì phiên đó thế chỗ bên cạnh danh sách, còn danh sách vẫn ở nguyên chỗ bạn để.',
+          '**✕** ở góc trên bên trái của phiên, hoặc phím **Esc**, đóng phiên và trả lại toàn bộ chiều rộng cho danh sách.',
+          'Cửa sổ hẹp hơn, hoặc điện thoại, mở phiên trên trang riêng của nó.',
+        ],
+        tips: [
+          'Trên bàn phím, **↓** và **↑** di chuyển trong danh sách, **Enter** mở mục bạn đang ở; từ ô **Tìm phiên**, **↓** đi vào danh sách.',
+        ],
+      },
+      {
         heading: 'Ngay lúc này',
         intro:
           'Hàng trên cùng đếm những gì đang diễn ra: phiên **đang làm việc**, phiên **sẽ tiếp tục**, **tác tử đang chạy**, phiên **cần bạn**, và chi phí từ đầu ngày. Mỗi phần là một lối tắt.',
@@ -401,7 +414,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Phần đầu trang',
         points: [
-          'Mũi tên ở góc trên bên trái đưa bạn về trang **Phiên**. Dòng dưới tên cho biết Claude đang làm gì, ví dụ công cụ nó đang chạy, và đã bao lâu.',
+          'Mũi tên ở góc trên bên trái đưa bạn về trang **Phiên**; khi phiên mở bên cạnh danh sách trên màn hình rộng, đó là **✕**, để đóng phiên. Dòng dưới tên cho biết Claude đang làm gì, ví dụ công cụ nó đang chạy, và đã bao lâu.',
           'Hàng kế tiếp cho biết phiên chạy ở đâu và được kết nối thế nào (ví dụ **VS Code · Qua hook**), rồi đến mô hình, chế độ quyền và mức nỗ lực, mức dùng ngữ cảnh và chi phí.',
           'Chạm vào một nhãn để thay đổi nó. Nhãn nào không đổi được sẽ giải thích lý do khi bạn chạm vào.',
           '**⋮** mở menu của phiên: những việc bạn có thể làm với phiên.',
@@ -701,7 +714,7 @@ const TOPICS: HelpTopicSource[] = [
           'Trên điện thoại, những gì chỉ ứng dụng máy tính trả lời hay sửa được sẽ ghi rõ như vậy, và không được tính vào con số.',
         ],
         tips: [
-          'Trên bàn phím, J và K chuyển giữa các yêu cầu; A cho phép, D từ chối, F thêm phản hồi.',
+          'Trên bàn phím, J và K (hoặc ↓ và ↑) chuyển giữa các yêu cầu, Enter mở phiên của yêu cầu; A cho phép, D từ chối, F thêm phản hồi.',
           '**Đóng thông báo** cất một lỗi đi trên thiết bị này; các lỗi tự rời đi sau một ngày.',
         ],
         links: [{ label: 'Mở trang Hộp thư', path: '/inbox' }],

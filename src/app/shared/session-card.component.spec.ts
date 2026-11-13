@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
+import { ListDetailService } from '../core/list-detail';
 import { FakeBackend, useFakeServer } from '../core/mock/fake-server.testing';
 import { ownedCaps } from '../core/mock/fixtures';
 import { setActiveMock } from '../core/mock/mock-api';
@@ -172,5 +173,38 @@ describe('SessionCardComponent chips', () => {
     const alone = chips(base({ ultracode: 'on', ultracodeSource: 'applied' }));
     expect(alone[1]).toEqual(expect.objectContaining({ text: 'Ultracode', tone: 'accent' }));
     expect(chips(base({})).map((c) => c.text)).toEqual(['Opus 5.5']);
+  });
+});
+
+describe('SessionCardComponent beside an open session (docs/UI-REDESIGN.md §9)', () => {
+  beforeEach(() => useFakeServer(new FakeBackend(), [provideRouter([])]));
+  afterEach(() => setActiveMock(null));
+
+  const render = (s: SessionSummary) => {
+    const fixture = TestBed.createComponent(SessionCardComponent);
+    fixture.componentRef.setInput('session', s);
+    fixture.detectChanges();
+    return fixture;
+  };
+
+  it('marks the card of the session open beside the list, and only on a wide screen', () => {
+    const ld = TestBed.inject(ListDetailService);
+    ld.showDetail({ id: 's1', machine: null, agent: null }, false);
+    const fixture = render(base({}));
+    const el = fixture.nativeElement as HTMLElement;
+    const name = el.querySelector('a.name')!;
+    // The link the list's keys go to.
+    expect(name.hasAttribute('data-nav-open')).toBe(true);
+    expect(el.classList).not.toContain('current');
+    ld.wide.set(true);
+    fixture.detectChanges();
+    expect(el.classList).toContain('current');
+    expect(el.hasAttribute('data-nav-current')).toBe(true);
+    expect(name.getAttribute('aria-current')).toBe('page');
+    // The same id on another computer is another session.
+    ld.showDetail({ id: 's1', machine: 'm1', agent: null }, false);
+    fixture.detectChanges();
+    expect(el.classList).not.toContain('current');
+    expect(name.getAttribute('aria-current')).toBeNull();
   });
 });

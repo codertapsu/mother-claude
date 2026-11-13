@@ -15,6 +15,7 @@ import { PairRequestsService, isStillPending } from './core/pair-requests.servic
 import { PushService } from './core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from './core/realtime.service';
 import { I18nService } from './core/i18n/i18n.service';
+import { ListDetailService, listSection } from './core/list-detail';
 import {
   HELP_ENTRY,
   MORE_ENTRY,
@@ -86,6 +87,8 @@ export class AppComponent {
   private readonly pairs = inject(PairRequestsService);
   /** What the map's badges show. */
   protected readonly badges = inject(NavBadges);
+  /** A session beside its list (wide screens). */
+  private readonly listDetail = inject(ListDetailService);
 
   protected readonly ready = signal(false);
   protected readonly connection = this.realtime.connection;
@@ -115,6 +118,11 @@ export class AppComponent {
   protected readonly pageTitle = computed(() => tr(titleOf(this.section())));
   /** The session page owns the whole phone screen (its own header). */
   protected readonly immersive = computed(() => this.section() === 'session');
+  /** The section the sidebar marks: beside its list, a session belongs to
+   * that list's place (the Inbox's, when opened from it). */
+  private readonly navSection = computed(() =>
+    this.listDetail.split() ? listSection(this.listDetail.beside()) : this.section(),
+  );
 
   // The map (core/nav.ts): the sidebar, the phone's bar and its More tab.
   protected readonly sidebar = computed(() => sidebarPlaces(this.isDesktop()));
@@ -269,7 +277,7 @@ export class AppComponent {
 
   /** The entry the page shown belongs to. */
   protected isCurrent(entry: NavEntry): boolean {
-    return entry.sections.includes(this.section());
+    return entry.sections.includes(this.navSection());
   }
 
   protected themeIcon(): IconName {

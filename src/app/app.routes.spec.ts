@@ -1,13 +1,16 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { Route, Router, provideRouter } from '@angular/router';
+import { Route, Router, RouterOutlet, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 
-import { pairedGuard, routes } from './app.routes';
+import { pairedGuard, routePaths, routes } from './app.routes';
 import { AuthService } from './core/auth.service';
 
 @Component({ template: '' })
 class BlankComponent {}
+
+@Component({ imports: [RouterOutlet], template: '<router-outlet />' })
+class BlankLayoutComponent {}
 
 describe('pairedGuard', () => {
   beforeEach(() => {
@@ -38,11 +41,18 @@ describe('pairedGuard', () => {
   });
 });
 
-/** The app's routes, each page a blank one: where a URL lands. */
-function blankRoutes(): Route[] {
-  return routes.map((r) =>
-    r.loadComponent ? { path: r.path, component: BlankComponent, canActivate: r.canActivate } : r,
-  );
+/** The app's routes, each page a blank one (a layout, an outlet): where a
+ * URL lands. */
+function blankRoutes(list: Route[] = routes): Route[] {
+  return list.map((r) => {
+    if (!r.loadComponent) return r;
+    const rest: Route = { ...r };
+    delete rest.loadComponent;
+    const children = rest.children;
+    return children
+      ? { ...rest, component: BlankLayoutComponent, children: blankRoutes(children) }
+      : { ...rest, component: BlankComponent };
+  });
 }
 
 describe('old routes (docs/UI-REDESIGN.md §10.1)', () => {
@@ -109,5 +119,48 @@ describe('old routes (docs/UI-REDESIGN.md §10.1)', () => {
     expect(await land('/teams/tm_0123456789ab')).toBe('/teams/tm_0123456789ab');
     expect(await land('/good-to-know#links')).toBe('/help/good-to-know#links');
     expect(await land('/')).toBe('/');
+  });
+
+  it('keeps every list and session path as it was, inside the list and detail layout', async () => {
+    for (const url of [
+      '/?machine=m1',
+      '/inbox',
+      '/agents',
+      '/projects',
+      '/session/abc',
+      '/session/abc?tab=info',
+      '/session/abc/agent/ag1',
+      '/session/abc/on/m1',
+      '/session/abc/agent/ag1/on/m1',
+    ]) {
+      expect(await land(url), url).toBe(url);
+    }
+    // The places beside it are not the layout's: they still land.
+    expect(await land('/new?machine=m1')).toBe('/new?machine=m1');
+    expect(await land('/settings/api?server=work')).toBe('/settings/api?server=work');
+    expect(await land('/nowhere')).toBe('/');
+  });
+
+  it('guards each page of the layout, the layout as a whole', () => {
+    const layout = routes.find((r) => r.children)!;
+    expect(layout.path).toBe('');
+    expect(layout.canActivateChild).toEqual([pairedGuard]);
+    expect(routePaths(layout.children)).toEqual([
+      '',
+      'inbox',
+      'agents',
+      'projects',
+      'session/:id',
+      'session/:id/agent/:agentId',
+      'session/:id/on/:machine',
+      'session/:id/agent/:agentId/on/:machine',
+    ]);
+  });
+
+  it('sends an unpaired device to /pair from a page of the layout too', async () => {
+    const auth = TestBed.inject(AuthService);
+    auth.state.set('unpaired');
+    expect(await land('/session/abc?pending=p1')).toBe('/pair');
+    expect(await land('/inbox')).toBe('/pair');
   });
 });

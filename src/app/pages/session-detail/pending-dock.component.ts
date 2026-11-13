@@ -131,9 +131,15 @@ export class PendingDockComponent {
   private viewport = inject(ViewportService);
 
   private readonly lingering = lingerList<PendingRef>(() => this.ctx.pending());
-  protected readonly list = computed(() =>
-    [...this.lingering()].sort((a, b) => a.item.createdAt - b.item.createdAt),
-  );
+  /** This session's requests: another one opened in the same page (beside
+   * the list, docs/UI-REDESIGN.md §9) leaves the last one's behind, never
+   * as "answered elsewhere". */
+  protected readonly list = computed(() => {
+    const id = this.ctx.id();
+    return this.lingering()
+      .filter((p) => p.item.sessionId === id)
+      .sort((a, b) => a.item.createdAt - b.item.createdAt);
+  });
   protected readonly index = linkedSignal<number, number>({
     source: () => this.list().length,
     computation: (len, prev) => Math.max(0, Math.min(prev?.value ?? 0, len - 1)),

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 import { IsActiveMatchOptions, RouterLink, RouterLinkActive } from '@angular/router';
 
 import { TPipe } from '../core/i18n/t.pipe';
+import { LIST_PATHS, ListDetailService } from '../core/list-detail';
 import { NavTab, PLACES, tabsOf } from '../core/nav';
 import { NavBadges } from '../core/nav-badges';
 
@@ -21,6 +22,8 @@ const EXACT: IsActiveMatchOptions = { ...SUBSET, paths: 'exact' };
  * with its count while something goes on, scrolling sideways on a phone.
  * Panels inside one page (a session's Chat · Agents · Changes · Info) stay
  * a `tablist`; these are routes. Nothing shows for a place of one page.
+ * Beside a session open on a wide screen, the tab of the list it shows is
+ * marked as the current one is (docs/UI-REDESIGN.md §9).
  */
 @Component({
   selector: 'mc-hub-tabs',
@@ -32,6 +35,7 @@ const EXACT: IsActiveMatchOptions = { ...SUBSET, paths: 'exact' };
         @for (t of shown(); track t.path) {
           <a
             class="tab"
+            [class.beside]="besidePath() === t.path"
             [routerLink]="t.path"
             routerLinkActive="current"
             ariaCurrentWhenActive="page"
@@ -84,7 +88,8 @@ const EXACT: IsActiveMatchOptions = { ...SUBSET, paths: 'exact' };
       .tab:hover {
         color: var(--text);
       }
-      .tab.current {
+      .tab.current,
+      .tab.beside {
         color: var(--text);
         border-bottom-color: var(--accent);
       }
@@ -117,6 +122,7 @@ const EXACT: IsActiveMatchOptions = { ...SUBSET, paths: 'exact' };
 })
 export class HubTabsComponent {
   protected readonly badges = inject(NavBadges);
+  private readonly listDetail = inject(ListDetailService);
   protected readonly subset = SUBSET;
   protected readonly exact = EXACT;
 
@@ -126,6 +132,10 @@ export class HubTabsComponent {
   readonly tabs = input<readonly NavTab[] | null>(null);
 
   protected readonly shown = computed(() => this.tabs() ?? tabsOf(this.place()));
+  /** The list shown beside an open session: its tab's path. */
+  protected readonly besidePath = computed(() =>
+    this.listDetail.split() ? LIST_PATHS[this.listDetail.beside()] : null,
+  );
   /** The tabs' name for screen readers: the place's (English). */
   protected readonly navLabel = computed(
     () => PLACES.find((p) => p.id === this.place())?.label ?? '',

@@ -30,6 +30,7 @@
       <mc-icon name="search" [size]="16" />
       <input
         type="search"
+        data-nav-entry
         [placeholder]="'Search sessions' | t"
         [attr.aria-label]="'Search sessions' | t"
         [ngModel]="query()"
@@ -167,6 +168,7 @@
       <div class="cards">
         @for (s of g.items; track cardKey(s)) {
           <mc-session-card
+            data-nav-item
             [session]="s"
             [selectable]="selecting() && !s.machine"
             [selected]="picked().has(s.id)"
@@ -189,6 +191,7 @@
         <div class="cards">
           @for (s of historyVisible(); track s.id) {
             <mc-session-card
+              data-nav-item
               [session]="s"
               [selectable]="selecting()"
               [selected]="picked().has(s.id)"

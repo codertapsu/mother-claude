@@ -10,6 +10,7 @@ import {
 } from '../../core/mock/fake-server.testing';
 import { buildAccounts, ownedCaps } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
+import { ListDetailService } from '../../core/list-detail';
 import { JobView, SessionDetail } from '../../core/models';
 import { DeleteDataSheetComponent } from '../../shared/delete-data-sheet.component';
 import { SessionContext } from './session-context';
@@ -185,5 +186,22 @@ describe('SessionHeaderComponent', () => {
     expect(navigate).not.toHaveBeenCalled();
     sheet.closed.emit([done]);
     expect(navigate).toHaveBeenCalledWith(['/']);
+  });
+
+  it('closes with ✕ beside its list on a wide screen, back to that list', async () => {
+    const ld = TestBed.inject(ListDetailService);
+    ld.showList('inbox', '/inbox');
+    ld.showDetail({ id: 's1', machine: null, agent: null }, false);
+    const el = await render();
+    // Narrower: back to Sessions, as before.
+    expect(el.querySelector('a.back')?.getAttribute('aria-label')).toBe('Back to sessions');
+    ld.wide.set(true);
+    fixture.detectChanges();
+    expect(el.querySelector('a.back')).toBeNull();
+    const close = el.querySelector<HTMLButtonElement>('button.back')!;
+    expect(close.getAttribute('aria-label')).toBe('Close');
+    const go = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    close.click();
+    expect(go).toHaveBeenCalledWith('/inbox');
   });
 });

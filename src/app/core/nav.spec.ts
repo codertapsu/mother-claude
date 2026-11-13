@@ -1,4 +1,4 @@
-import { routes } from '../app.routes';
+import { routePaths as pathsOf, routes } from '../app.routes';
 import { helpTopic } from '../pages/help/help-topics';
 import {
   CONNECTIONS,
@@ -20,7 +20,8 @@ import {
 } from './nav';
 
 describe('the map (core/nav.ts)', () => {
-  const routePaths = routes.map((r) => r.path ?? '');
+  // A layout's pages under it: `session/:id` is the work layout's.
+  const routePaths = pathsOf();
 
   it('holds every route: opened by an entry, reached only by link, or an old one', () => {
     const inMap = new Set(mapPaths());

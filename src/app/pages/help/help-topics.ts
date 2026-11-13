@@ -322,6 +322,19 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
+        heading: 'A session beside the list',
+        intro:
+          "On a wide screen, 1280 pixels or more, a session you open from **Sessions**, **Agents** or the **Inbox** shows beside the list instead of taking its place. Its address stays its own, so a bookmark, the browser's **Back** and a notification open it as before.",
+        points: [
+          'The open session is marked in the list. Open another and it takes its place beside the list, which stays where you left it.',
+          '**✕** at the top left of the session, or **Esc**, closes it and gives the list the whole width again.',
+          'A narrower window, or a phone, opens a session on its own page.',
+        ],
+        tips: [
+          'On a keyboard, **↓** and **↑** move through the list and **Enter** opens what you are on; from **Search sessions**, **↓** goes into the list.',
+        ],
+      },
+      {
         heading: 'Right now',
         intro:
           'The row at the top counts what is going on: sessions **working**, sessions that **will resume**, **agents running**, sessions that **need you**, and the cost so far today. Each part is a shortcut.',
@@ -391,7 +404,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'The top of the page',
         points: [
-          'The arrow at the top left goes back to **Sessions**. The line under the name says what Claude is doing, such as the tool it runs, and for how long.',
+          'The arrow at the top left goes back to **Sessions**; beside the list on a wide screen it is **✕**, which closes the session. The line under the name says what Claude is doing, such as the tool it runs, and for how long.',
           'The next row shows where the session runs and how it is reached (for example **VS Code · Via hooks**), then its model, permission mode and effort, its context use and cost.',
           "Tap a chip to change it. A chip that can't be changed explains why when you tap it.",
           '**⋮** opens the session menu: what you can do with the session.',
@@ -689,7 +702,7 @@ const TOPICS: HelpTopicSource[] = [
           'On a phone, what only the desktop app answers or fixes says so, and is not counted.',
         ],
         tips: [
-          'On a keyboard, J and K move between requests; A allows, D denies, F adds feedback.',
+          "On a keyboard, J and K (or ↓ and ↑) move between requests and Enter opens a request's session; A allows, D denies, F adds feedback.",
           '**Dismiss** puts a failure away on this device; failures leave by themselves after a day.',
         ],
         links: [{ label: 'Open Inbox', path: '/inbox' }],

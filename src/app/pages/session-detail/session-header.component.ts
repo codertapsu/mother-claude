@@ -13,6 +13,7 @@ import { Router, RouterLink } from '@angular/router';
 
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
+import { ListDetailService } from '../../core/list-detail';
 import { MachineContext } from '../../core/machine-context';
 import { accountLocation, anyTarget } from '../../core/move-data';
 import { StorageService } from '../../core/storage.service';
@@ -65,6 +66,9 @@ import { SessionContext } from './session-context';
  *   *Open in VS Code*, *Session info*, the resume command to copy;
  * - **Its process** — a background job's *Stop*, *Restart* and *Remove*.
  *
+ * Beside its list on a wide screen (docs/UI-REDESIGN.md §9) back is ✕,
+ * which closes it (as Esc does) and leaves the list on its own.
+ *
  * 48 px tall on phones. Another computer's session shows that computer's
  * chip, and its menu leaves out what only that computer does (its
  * accounts, moving, copying, deleting, removing, notifications here),
@@ -99,13 +103,25 @@ import { SessionContext } from './session-context';
   template: `
     @if (ctx.session(); as s) {
       <div class="bar">
-        <a
-          class="btn ghost icon-only back"
-          routerLink="/"
-          [attr.aria-label]="'Back to sessions' | t"
-        >
-          <mc-icon name="back" />
-        </a>
+        @if (beside()) {
+          <button
+            class="btn ghost icon-only back"
+            type="button"
+            [attr.aria-label]="'Close' | t"
+            [title]="'Close (Esc)' | t"
+            (click)="closeBeside()"
+          >
+            <mc-icon name="x" />
+          </button>
+        } @else {
+          <a
+            class="btn ghost icon-only back"
+            routerLink="/"
+            [attr.aria-label]="'Back to sessions' | t"
+          >
+            <mc-icon name="back" />
+          </a>
+        }
         <div class="titles">
           <div class="nameline">
             <h1 class="name">{{ name() }}</h1>
@@ -669,6 +685,9 @@ export class SessionHeaderComponent {
   private accounts = inject(AccountsService);
   private storage = inject(StorageService);
   private router = inject(Router);
+  private listDetail = inject(ListDetailService);
+  /** It shows beside its list (wide screens): ✕ closes it. */
+  protected readonly beside = this.listDetail.split;
   /** The delete dialog with this conversation (null: closed). */
   protected readonly deleteStart = signal<DeleteStart | null>(null);
 
@@ -950,7 +969,13 @@ export class SessionHeaderComponent {
   /** Deleted (and not undone): there is nothing left to show here. */
   protected deleteClosed(jobs: JobView[]): void {
     this.deleteStart.set(null);
-    if (deletedIds(jobs).has(this.ctx.id())) void this.router.navigate(['/']);
+    if (!deletedIds(jobs).has(this.ctx.id())) return;
+    if (this.beside()) void this.listDetail.close();
+    else void this.router.navigate(['/']);
+  }
+
+  protected closeBeside(): void {
+    void this.listDetail.close();
   }
 
   protected openMoveCopy(kind: 'session' | 'project'): void {

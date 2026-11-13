@@ -5,7 +5,7 @@
       @if (mctx(); as m) {
         <!-- Another computer's request: which computer, then its account. -->
         <span class="sline">
-          <a class="sess" [routerLink]="link()">{{ sessionLabel() }}</a>
+          <a class="sess" data-nav-open [routerLink]="link()">{{ sessionLabel() }}</a>
           <mc-chip class="mchip" icon="monitor">{{ m.name() }}</mc-chip>
           @if (session()?.account; as a) {
             <mc-account-chip class="acct" [account]="a" />
@@ -15,11 +15,11 @@
         <!-- The Claude account it runs under (sessions name one only while
              there are several). -->
         <span class="sline">
-          <a class="sess" [routerLink]="link()">{{ sessionLabel() }}</a>
+          <a class="sess" data-nav-open [routerLink]="link()">{{ sessionLabel() }}</a>
           <mc-account-chip class="acct" [account]="a" />
         </span>
       } @else {
-        <a class="sess" [routerLink]="link()">{{ sessionLabel() }}</a>
+        <a class="sess" data-nav-open [routerLink]="link()">{{ sessionLabel() }}</a>
       }
     }
     <strong class="title">{{ heading() }}</strong>

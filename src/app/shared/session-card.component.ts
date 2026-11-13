@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 
 import { computerNoun, tr } from '../core/i18n/i18n';
 import { TPipe } from '../core/i18n/t.pipe';
+import { ListDetailService } from '../core/list-detail';
 import { MachinesService } from '../core/machines.service';
 import { PendingRef, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
@@ -45,6 +46,10 @@ interface PackedPart {
  * its figure, so the settings add at most one row of chips. While the list
  * selects (Sessions › Select) a checkbox leads the top row.
  *
+ * On a wide screen the card of the session open beside the list is marked
+ * (`current`, docs/UI-REDESIGN.md §9), and its name is the link the list's
+ * keys move to (`data-nav-open`).
+ *
  * Another computer's session (`machine`) leads its chips with that
  * computer's name and opens its page there; while that computer is offline
  * the card is greyed, says since when, and offers no quick answers
@@ -73,6 +78,8 @@ interface PackedPart {
     '[attr.data-selected]': "selectable() && selected() ? '' : null",
     '[class.offline]': 'offline()',
     '[class.away]': '!!livesText()',
+    '[class.current]': 'current()',
+    '[attr.data-nav-current]': "current() ? '' : null",
   },
   template: `
     @let s = session();
@@ -88,7 +95,13 @@ interface PackedPart {
         </label>
       }
       <mc-status-pill [status]="s.status" [live]="s.live" [activity]="s.activity" />
-      <a class="name" [routerLink]="link()">{{ name() }}</a>
+      <a
+        class="name"
+        data-nav-open
+        [routerLink]="link()"
+        [attr.aria-current]="current() ? 'page' : null"
+        >{{ name() }}</a
+      >
       <mc-time class="when" [ms]="s.lastActivityAt" />
     </div>
 
@@ -241,6 +254,12 @@ interface PackedPart {
         border-color: var(--accent);
         background: color-mix(in srgb, var(--accent-soft) 45%, var(--panel));
       }
+      /* Open beside the list. */
+      :host(.current) {
+        border-color: var(--accent);
+        box-shadow: inset 3px 0 0 var(--accent);
+        background: color-mix(in srgb, var(--accent-soft) 30%, var(--panel));
+      }
       /* Another computer, offline: what shows is from when it was heard. */
       :host(.offline) {
         border-style: dashed;
@@ -346,6 +365,7 @@ interface PackedPart {
 export class SessionCardComponent {
   private clock = inject(NowService);
   private machines = inject(MachinesService);
+  private listDetail = inject(ListDetailService);
   protected readonly viewport = inject(ViewportService);
   readonly session = input.required<SessionSummary>();
   /** Show a checkbox (Sessions › Select). */
@@ -368,6 +388,10 @@ export class SessionCardComponent {
   });
   protected readonly link = computed(() =>
     sessionLink(this.session().id, this.machine()?.id ?? this.session().machine),
+  );
+  /** It is the session open beside the list (wide screens). */
+  protected readonly current = computed(() =>
+    this.listDetail.isOpen(this.session().id, this.machine()?.id ?? this.session().machine),
   );
   /** Its computer is offline: the card shows the last state heard. */
   protected readonly offline = computed(() => this.machine()?.online === false);

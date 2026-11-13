@@ -34,26 +34,23 @@ export const remoteRedirect: RedirectFunction = ({ queryParams, fragment }) => {
 /** Reachable without pairing. */
 const OPEN = new Set(['pair', 'onboarding', '**']);
 
-const pages: Routes = [
-  {
-    path: '',
-    loadComponent: () =>
-      import('./pages/sessions/sessions.component').then((m) => m.SessionsComponent),
-  },
-  {
-    path: 'inbox',
-    loadComponent: () => import('./pages/inbox/inbox.component').then((m) => m.InboxComponent),
-  },
-  {
-    path: 'agents',
-    loadComponent: () => import('./pages/agents/agents.component').then((m) => m.AgentsComponent),
-  },
+/** A list's route: the layout draws the list (`data.list`). */
+const listRoute = () =>
+  import('./pages/list-detail/list-route.component').then((m) => m.ListRouteComponent);
+
+/**
+ * The work's lists and the sessions they open, in one layout: from 1280 px
+ * a session opens beside its list (docs/UI-REDESIGN.md §9, stage 9). The
+ * paths are the same as ever: `#/session/<id>?pending=` from a push opens
+ * the session on its own route.
+ */
+const work: Routes = [
+  { path: '', pathMatch: 'full', loadComponent: listRoute, data: { list: 'sessions' } },
+  { path: 'inbox', loadComponent: listRoute, data: { list: 'inbox' } },
+  // Sessions › Agents.
+  { path: 'agents', loadComponent: listRoute, data: { list: 'agents' } },
   // Every project folder that holds conversations (docs/ACCOUNTS.md §14.4).
-  {
-    path: 'projects',
-    loadComponent: () =>
-      import('./pages/sessions/projects-page.component').then((m) => m.ProjectsPageComponent),
-  },
+  { path: 'projects', loadComponent: listRoute, data: { list: 'projects' } },
   {
     path: 'session/:id',
     loadComponent: () =>
@@ -78,6 +75,15 @@ const pages: Routes = [
     path: 'session/:id/agent/:agentId/on/:machine',
     loadComponent: () =>
       import('./pages/agent-view/remote-agent.component').then((m) => m.RemoteAgentComponent),
+  },
+];
+
+const pages: Routes = [
+  {
+    path: '',
+    loadComponent: () =>
+      import('./pages/list-detail/list-detail.component').then((m) => m.ListDetailComponent),
+    children: work,
   },
   {
     path: 'new',
@@ -232,7 +238,21 @@ const pages: Routes = [
   { path: '**', redirectTo: '' },
 ];
 
-// A redirect is guarded where it leads (Angular refuses a guard on one).
+// A redirect is guarded where it leads (Angular refuses a guard on one); a
+// layout, on each of its pages.
 export const routes: Routes = pages.map((r) =>
-  OPEN.has(r.path ?? '') || r.redirectTo !== undefined ? r : { ...r, canActivate: [pairedGuard] },
+  OPEN.has(r.path ?? '') || r.redirectTo !== undefined
+    ? r
+    : r.children
+      ? { ...r, canActivateChild: [pairedGuard] }
+      : { ...r, canActivate: [pairedGuard] },
 );
+
+/** Every page's path, a layout's pages under it (`session/:id`): what the
+ * map (core/nav.ts) is checked against. */
+export function routePaths(list: Routes = routes, base = ''): string[] {
+  return list.flatMap((r) => {
+    const path = [base, r.path ?? ''].filter(Boolean).join('/');
+    return r.children ? routePaths(r.children, path) : [path];
+  });
+}

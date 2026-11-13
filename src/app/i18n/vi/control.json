@@ -42,6 +42,7 @@
   "Stop": "Dừng",
   "Restart": "Khởi động lại",
   "Back to sessions": "Quay lại danh sách phiên",
+  "Close (Esc)": "Đóng (Esc)",
   "Connection: {state}": "Kết nối: {state}",
   "Session menu": "Menu phiên",
   "only in Mother Claude": "chỉ trong Mother Claude",

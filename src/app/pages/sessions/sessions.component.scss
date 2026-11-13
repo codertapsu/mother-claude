@@ -68,6 +68,10 @@
   .cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  /* Beside an open session (pages/list-detail): one column. */
+  :host-context(.ld-split) .cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .history {

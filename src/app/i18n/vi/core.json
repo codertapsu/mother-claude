@@ -535,7 +535,7 @@
   "This agent is no longer listed for the session.": "Tác tử này không còn trong danh sách của phiên.",
   "Nothing from {name} needs you": "Không có gì từ {name} cần bạn",
   "Nothing needs you": "Không có gì cần bạn",
-  "Tip: on a keyboard, J/K move between requests; A allows, D denies, F adds feedback.": "Mẹo: trên bàn phím, J/K chuyển giữa các yêu cầu; A cho phép, D từ chối, F thêm phản hồi.",
+  "Tip: on a keyboard, J/K or ↓/↑ move between requests and Enter opens one’s session; A allows, D denies, F adds feedback.": "Mẹo: trên bàn phím, J/K hoặc ↓/↑ chuyển giữa các yêu cầu, Enter mở phiên của yêu cầu; A cho phép, D từ chối, F thêm phản hồi.",
   "waiting": "đã chờ",
   "These can only be answered where the session runs. What would let you answer them here is under each one.": "Các yêu cầu này chỉ trả lời được ở nơi phiên đang chạy. Cách để trả lời được từ đây ghi bên dưới mỗi yêu cầu.",
   "HTTP API": "HTTP API",

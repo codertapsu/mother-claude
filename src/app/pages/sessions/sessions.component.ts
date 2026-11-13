@@ -110,6 +110,7 @@ export class SessionsComponent {
   private accounts = inject(AccountsService);
   private storage = inject(StorageService);
   private remote = inject(RemoteSessionsService);
+  private route = inject(ActivatedRoute);
 
   protected readonly loaded = this.realtime.sessionsLoaded;
   protected readonly connection = this.realtime.connection;
@@ -120,9 +121,7 @@ export class SessionsComponent {
   protected readonly machines = this.remote.list;
   /** The Machine filter: '' every computer, `here` this one, else a
    * computer's id. */
-  protected readonly machine = signal(
-    inject(ActivatedRoute).snapshot.queryParamMap.get('machine') ?? '',
-  );
+  protected readonly machine = signal(this.route.snapshot.queryParamMap.get('machine') ?? '');
   /** The pick in effect: every computer once its computer is gone. */
   protected readonly machineInEffect = computed(() => {
     const m = this.machine();
@@ -336,7 +335,16 @@ export class SessionsComponent {
       const key = JSON.stringify(filterQuery(this.historyFilters()));
       untracked(() => this.historyFiltersChanged(key));
     });
-    inject(DestroyRef).onDestroy(() => clearTimeout(this.historyTimer));
+    // The list stays on screen while a session opens beside it
+    // (pages/list-detail): a link to it naming a computer picks it again.
+    const sub = this.route.queryParamMap.subscribe((q) => {
+      const m = q.get('machine');
+      if (m !== null) this.machine.set(m);
+    });
+    inject(DestroyRef).onDestroy(() => {
+      clearTimeout(this.historyTimer);
+      sub.unsubscribe();
+    });
   }
 
   setFilter(f: Filter): void {
