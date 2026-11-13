@@ -67,6 +67,57 @@ export function remainderAfterSend(now: string, sent: string): string {
   if (!now.startsWith(sent)) return now;
   return now.slice(sent.length).trimStart();
 }
+
+/**
+ * The files a paste or a drop carries: a screenshot or a copied image, files
+ * copied in Finder or File Explorer. Some browsers fill only `items`.
+ */
+export function transferFiles(data: DataTransfer | null | undefined): File[] {
+  if (!data) return [];
+  const files = Array.from(data.files ?? []);
+  if (files.length) return files;
+  return Array.from(data.items ?? [])
+    .filter((i) => i.kind === 'file')
+    .map((i) => i.getAsFile())
+    .filter((f): f is File => !!f);
+}
+
+/**
+ * Whether a paste that carries files and text means the text: cells copied
+ * from a spreadsheet carry a picture of themselves too (the text is meant),
+ * while a file copied in Finder carries only its own name as text (the file
+ * is).
+ */
+export function pasteMeansText(text: string, files: readonly File[]): boolean {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return false;
+  const names = new Set(files.map((f) => f.name));
+  return !lines.every((l) => names.has(l) || names.has(l.split(/[\\/]/).pop() ?? ''));
+}
+
+/** The names a clipboard gives what it holds (`image.png`, or none). */
+const GENERIC_NAME = /^(image|blob)?(\.[a-z0-9]{1,5})?$/i;
+
+/**
+ * A pasted screenshot comes as `image.png` or with no name at all: give it
+ * one that says what it is and when — Claude reads the file by that name.
+ * A real file name is kept.
+ */
+export function pastedName(file: File, now = new Date()): string {
+  if (!GENERIC_NAME.test(file.name)) return file.name;
+  const image = file.type.startsWith('image/');
+  const sub = (file.type.split('/')[1] ?? '').split('+')[0].replace(/[^a-z0-9]/gi, '');
+  const ext = sub === 'jpeg' ? 'jpg' : sub === 'plain' ? 'txt' : sub || (image ? 'png' : 'bin');
+  const p = (n: number) => String(n).padStart(2, '0');
+  const day = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}`;
+  const time = `${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+  return `pasted-${image ? 'image' : 'file'}-${day}-${time}.${ext}`;
+}
+
+const carriesFiles = (e: DragEvent): boolean => !!e.dataTransfer?.types?.includes('Files');
 const RELAY_EXPLAINED_KEY = 'mc_relay_explained';
 /** Commands the header handles with its own pickers. */
 const PICKER_COMMANDS: Record<string, PickerKind> = {
@@ -119,7 +170,9 @@ function builtinCommands(): CommandInfo[] {
  *   header's pickers; /clear and /compact ask first); `@` completes paths.
  * - Attachments: photos are downscaled to ≤ 2048 px and sent inline where
  *   the session takes images; other files (or every file, for text-only
- *   channels) are uploaded and referenced as `@<path>`.
+ *   channels) are uploaded and referenced as `@<path>`. The buttons, a
+ *   paste (a screenshot, a copied image or file) and a drop on the box all
+ *   attach the same way; a paste that carries text pastes the text.
  * - Waiting messages are listed with ✕ while they can still be taken back,
  *   and Send now where the session takes it.
  * - A session that can't take messages explains why, with its fixes; another
@@ -132,9 +185,15 @@ function builtinCommands(): CommandInfo[] {
   imports: [RouterLink, CapLimitsComponent, IconComponent, SheetComponent, TPipe],
   templateUrl: './composer.component.html',
   styleUrl: './composer.component.scss',
+  host: {
+    '(dragover)': 'onDragOver($event)',
+    '(dragleave)': 'onDragLeave($event)',
+    '(drop)': 'onDrop($event)',
+  },
 })
 export class ComposerComponent {
   protected readonly ctx = inject(SessionContext);
+  private host = inject<ElementRef<HTMLElement>>(ElementRef);
   /** Another computer's session (none: this computer's). */
   private machine = inject(MachineContext, { optional: true });
   private moves = inject(MovesService);
@@ -154,6 +213,8 @@ export class ComposerComponent {
   protected readonly failed = signal(false);
   protected readonly explainer = signal(false);
   protected readonly confirm = signal<{ name: string; text: string } | null>(null);
+  /** Files are dragged over the box: whether it takes them. */
+  protected readonly dropping = signal<'yes' | 'no' | null>(null);
 
   protected readonly palette = signal<'slash' | 'files' | null>(null);
   protected readonly paletteItems = signal<PaletteItem[]>([]);
@@ -288,8 +349,17 @@ export class ComposerComponent {
       tr('Shift+Enter for a new line'),
       ...(slash ? [tr('/ for commands')] : []),
       tr('@ for files'),
+      ...(this.attach() !== 'none' ? [tr('Paste or drop files to attach')] : []),
     ].join(' · ');
   });
+  /** Why a pasted or dropped file can't go with a message here. */
+  protected readonly noAttachWhy = computed(() =>
+    this.mode() === 'resume'
+      ? tr(
+          'Send a message first to resume this session here: then you can attach images and files.',
+        )
+      : tr("This session can't take images or files from here."),
+  );
   protected readonly activeId = computed(() => (this.palette() ? `mc-pal-${this.active()}` : null));
 
   constructor() {
@@ -537,11 +607,66 @@ export class ComposerComponent {
     const input = e.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
     input.value = '';
+    await this.takeFiles(files);
+  }
+
+  /** A paste that carries files (a screenshot, a copied image or file)
+   * attaches them; one that carries text pastes the text, as always. */
+  protected onPaste(e: ClipboardEvent): void {
+    const data = e.clipboardData;
+    const files = transferFiles(data);
+    if (!files.length || pasteMeansText(data?.getData('text/plain') ?? '', files)) return;
+    e.preventDefault();
+    const now = new Date();
+    const named = files.map((f) => {
+      const name = pastedName(f, now);
+      return name === f.name
+        ? f
+        : new File([f], name, { type: f.type, lastModified: f.lastModified });
+    });
+    void this.dropIn(named, true);
+  }
+
+  protected onDragOver(e: DragEvent): void {
+    if (!carriesFiles(e) || this.mode() === 'blocked') return;
+    e.preventDefault();
+    const takes = this.attach() !== 'none';
+    if (e.dataTransfer) e.dataTransfer.dropEffect = takes ? 'copy' : 'none';
+    this.dropping.set(takes ? 'yes' : 'no');
+  }
+
+  protected onDragLeave(e: DragEvent): void {
+    const to = e.relatedTarget as Node | null;
+    if (!to || !this.host.nativeElement.contains(to)) this.dropping.set(null);
+  }
+
+  protected onDrop(e: DragEvent): void {
+    this.dropping.set(null);
+    if (!carriesFiles(e) || this.mode() === 'blocked') return;
+    e.preventDefault();
+    void this.dropIn(transferFiles(e.dataTransfer), false);
+  }
+
+  /** Pasted or dropped files: attached as the buttons attach them, or why
+   * not. */
+  private async dropIn(files: readonly File[], atCaret: boolean): Promise<void> {
+    if (!files.length) return;
+    if (this.attach() === 'none') {
+      this.notices.info(this.noAttachWhy());
+      return;
+    }
+    await this.takeFiles(files, atCaret);
+  }
+
+  /** Images inline where the session takes them; anything else uploaded and
+   * referenced as `@<path>` — where the caret is when `atCaret` (a paste),
+   * else at the end. */
+  private async takeFiles(files: readonly File[], atCaret = false): Promise<void> {
     for (const file of files) {
       if (this.attach() === 'inline' && file.type.startsWith('image/')) {
         await this.addImage(file);
       } else {
-        await this.upload(file);
+        await this.upload(file, atCaret);
       }
     }
   }
@@ -566,7 +691,7 @@ export class ComposerComponent {
     }
   }
 
-  private async upload(file: File): Promise<void> {
+  private async upload(file: File, atCaret = false): Promise<void> {
     if (file.size > 50 * 1024 * 1024) {
       this.notices.warn(tr('{name} is over 50 MB.', { name: file.name }));
       return;
@@ -580,14 +705,28 @@ export class ComposerComponent {
         data,
       });
       if (!res?.path) throw new Error(tr('The server did not say where it stored the file.'));
-      const cur = this.text();
-      const sep = cur && !/\s$/.test(cur) ? ' ' : '';
-      this.setText(`${cur}${sep}@${res.path} `);
+      this.insertRef(`@${res.path} `, atCaret);
     } catch (err) {
       this.notices.error(err, undefined, tr('Could not attach {name}', { name: file.name }));
     } finally {
       this.uploading.update((n) => n - 1);
     }
+  }
+
+  /** Put a file's reference into the text: at the caret while the box has
+   * the focus and `atCaret`, else at the end — spaced from its neighbours. */
+  private insertRef(ref: string, atCaret: boolean): void {
+    const cur = this.text();
+    const el = this.ta()?.nativeElement;
+    const here = atCaret && !!el && document.activeElement === el;
+    const start = here ? el.selectionStart : cur.length;
+    const end = here ? el.selectionEnd : cur.length;
+    const before = cur.slice(0, start);
+    const after = cur.slice(end);
+    const sep = before && !/\s$/.test(before) ? ' ' : '';
+    const put = `${before}${sep}${ref}`;
+    this.setText(put + (/^\s/.test(after) ? after.slice(1) : after));
+    if (here) el.setSelectionRange(put.length, put.length);
   }
 
   protected remove(a: Attachment): void {

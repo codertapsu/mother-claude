@@ -7,6 +7,7 @@
 }
 
 .box {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 0.35rem;
@@ -14,10 +15,49 @@
   border: 1px solid var(--border-strong);
   border-radius: 1.2rem;
   padding: 0.25rem;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .box:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+/* Files dragged over the box: it takes them (accent) or says why not. */
+.box.dropping {
+  border-style: dashed;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.box.refusing {
+  border-style: dashed;
+}
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0 1rem;
+  border-radius: inherit;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  pointer-events: none;
+  animation: mc-drop-in 0.15s ease-out;
+}
+.dropping .drop-hint {
+  color: var(--accent);
+  font-weight: 600;
+}
+@keyframes mc-drop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
 }
 textarea {
   flex: 1;
@@ -168,6 +208,21 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  animation: mc-thumb-in 0.18s ease-out;
+}
+@keyframes mc-thumb-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .box,
+  .drop-hint,
+  .thumb {
+    transition: none;
+    animation: none;
+  }
 }
 .thumb img {
   width: 100%;

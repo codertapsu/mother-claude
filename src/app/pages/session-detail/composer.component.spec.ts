@@ -5,8 +5,15 @@ import { provideRouter } from '@angular/router';
 import { FakeBackend, flush, useFakeServer } from '../../core/mock/fake-server.testing';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { ControlCaps, SessionDetail } from '../../core/models';
+import { NoticeService } from '../../core/notice.service';
 import { RealtimeService } from '../../core/realtime.service';
-import { ComposerComponent, remainderAfterSend } from './composer.component';
+import {
+  ComposerComponent,
+  pasteMeansText,
+  pastedName,
+  remainderAfterSend,
+  transferFiles,
+} from './composer.component';
 import { SessionContext } from './session-context';
 
 interface Reply {
@@ -185,5 +192,170 @@ describe('ComposerComponent', () => {
     type('/');
     await flush();
     expect(cmp.palette()).toBe('slash');
+  });
+
+  describe('pasting and dropping files', () => {
+    /** A 1×1 PNG, as a screenshot comes off the clipboard. */
+    const PNG =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const screenshot = () =>
+      new File([Uint8Array.from(atob(PNG), (c) => c.charCodeAt(0))], 'image.png', {
+        type: 'image/png',
+      });
+    const carrying = (files: File[], text = '') => {
+      const dt = new DataTransfer();
+      for (const f of files) dt.items.add(f);
+      if (text) dt.setData('text/plain', text);
+      return dt;
+    };
+    const paste = (files: File[], text = '') => {
+      const e = new ClipboardEvent('paste', {
+        clipboardData: carrying(files, text),
+        bubbles: true,
+        cancelable: true,
+      });
+      ta.dispatchEvent(e);
+      return e;
+    };
+    const takes = (attach: 'inline' | 'path' | 'none', live = true) => {
+      TestBed.inject(SessionContext).detail.set({
+        id: 's1',
+        live,
+        status: 'idle',
+        pending: [],
+        control: {
+          message: 'direct',
+          attach,
+          continueOwned: true,
+          slashCommands: true,
+          limits: [],
+        } as unknown as ControlCaps,
+      } as unknown as SessionDetail);
+      fixture.detectChanges();
+    };
+    /** Waits for the attachment work (decoding an image takes a few turns
+     * of the event loop). */
+    const until = async (done: () => boolean) => {
+      for (let i = 0; i < 100 && !done(); i++) {
+        await flush();
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    };
+    const attachments = () =>
+      (
+        fixture.componentInstance as unknown as { attachments: () => { name: string }[] }
+      ).attachments();
+    const toasts = () =>
+      TestBed.inject(NoticeService)
+        .toasts()
+        .map((t) => t.text);
+
+    it('attaches a pasted screenshot where the session takes images', async () => {
+      takes('inline');
+      const e = paste([screenshot()]);
+      expect(e.defaultPrevented).toBe(true);
+      await until(() => attachments().length > 0);
+      expect(attachments().length).toBe(1);
+      expect(attachments()[0].name).toMatch(/^pasted-image-\d{8}-\d{6}\.png$/);
+      expect(cmp.text()).toBe('');
+    });
+
+    it('uploads a pasted file and puts its path where the caret is', async () => {
+      takes('path');
+      backend.routes.set('/sessions/s1/uploads', () => ({
+        status: 200,
+        body: { path: '/data/uploads/s1/ab12-notes.txt' },
+      }));
+      type('see  please');
+      ta.focus();
+      ta.setSelectionRange(4, 4);
+      paste([new File(['hello'], 'notes.txt', { type: 'text/plain' })], 'notes.txt');
+      await until(() => cmp.text().includes('@'));
+      expect(backend.calls).toContain('POST /sessions/s1/uploads');
+      expect(cmp.text()).toBe('see @/data/uploads/s1/ab12-notes.txt please');
+    });
+
+    it('leaves a paste that carries text to the box', () => {
+      takes('inline');
+      // Cells copied from a spreadsheet carry a picture of themselves too.
+      const e = paste([screenshot()], 'Q1\t42\nQ2\t57');
+      expect(e.defaultPrevented).toBe(false);
+      expect(attachments().length).toBe(0);
+    });
+
+    it('says why a session that takes no files refuses a paste or a drop', async () => {
+      takes('none');
+      expect(paste([screenshot()]).defaultPrevented).toBe(true);
+      await until(() => toasts().length > 0);
+      expect(toasts()).toContain("This session can't take images or files from here.");
+
+      const host = fixture.nativeElement as HTMLElement;
+      const over = new DragEvent('dragover', {
+        dataTransfer: carrying([screenshot()]),
+        bubbles: true,
+        cancelable: true,
+      });
+      host.querySelector('.box')!.dispatchEvent(over);
+      fixture.detectChanges();
+      expect(host.querySelector('.drop-hint')?.textContent).toContain(
+        "This session can't take images or files from here.",
+      );
+    });
+
+    it('attaches a file dropped on the box', async () => {
+      takes('inline');
+      const host = fixture.nativeElement as HTMLElement;
+      const box = host.querySelector('.box')!;
+      const dt = carrying([screenshot()]);
+      box.dispatchEvent(
+        new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }),
+      );
+      fixture.detectChanges();
+      expect(box.classList).toContain('dropping');
+      expect(host.querySelector('.drop-hint')?.textContent).toContain('Drop to attach');
+      const drop = new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true });
+      box.dispatchEvent(drop);
+      expect(drop.defaultPrevented).toBe(true);
+      await until(() => attachments().length > 0);
+      fixture.detectChanges();
+      expect(box.classList).not.toContain('dropping');
+      expect(attachments().length).toBe(1);
+      // A dropped file keeps its own name.
+      expect(attachments()[0].name).toBe('image.png');
+    });
+  });
+});
+
+describe('composer paste helpers', () => {
+  const file = (name: string, type = 'image/png') => new File(['x'], name, { type });
+
+  it('names what a clipboard leaves nameless, and keeps a real name', () => {
+    const at = new Date(2026, 10, 13, 9, 5, 7);
+    expect(pastedName(file('image.png'), at)).toBe('pasted-image-20261113-090507.png');
+    expect(pastedName(file('', 'image/jpeg'), at)).toBe('pasted-image-20261113-090507.jpg');
+    expect(pastedName(file('blob', 'image/svg+xml'), at)).toBe('pasted-image-20261113-090507.svg');
+    expect(pastedName(file('', 'text/plain'), at)).toBe('pasted-file-20261113-090507.txt');
+    expect(pastedName(file('Screenshot 2026-11-13.png'), at)).toBe('Screenshot 2026-11-13.png');
+  });
+
+  it('tells a file copied in Finder from text that came with a picture', () => {
+    const notes = [file('notes.txt', 'text/plain')];
+    expect(pasteMeansText('notes.txt', notes)).toBe(false);
+    expect(pasteMeansText('/Users/me/notes.txt', notes)).toBe(false);
+    expect(pasteMeansText('', notes)).toBe(false);
+    expect(pasteMeansText('Q1\t42', [file('image.png')])).toBe(true);
+  });
+
+  it('reads the files of a transfer from its items when files is empty', () => {
+    const f = file('a.png');
+    const fake = {
+      files: [] as unknown as FileList,
+      items: [
+        { kind: 'string', getAsFile: () => null },
+        { kind: 'file', getAsFile: () => f },
+      ],
+    } as unknown as DataTransfer;
+    expect(transferFiles(fake)).toEqual([f]);
+    expect(transferFiles(null)).toEqual([]);
   });
 });
