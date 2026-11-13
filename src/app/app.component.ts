@@ -15,6 +15,7 @@ import { PairRequestsService, isStillPending } from './core/pair-requests.servic
 import { PushService } from './core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from './core/realtime.service';
 import { I18nService } from './core/i18n/i18n.service';
+import { JumpService, applePlatform, isJumpKey, jumpShortcut } from './core/jump';
 import { ListDetailService, listSection } from './core/list-detail';
 import { ProjectSettingsService } from './core/project-settings';
 import {
@@ -37,6 +38,7 @@ import { IconComponent, IconName } from './shared/icon.component';
 import { LimitationsComponent } from './shared/limitations.component';
 import { FolderChoiceSheetComponent } from './shared/folder-choice-sheet.component';
 import { PairApprovalDialogComponent } from './shared/pair-approval-dialog.component';
+import { JumpToComponent } from './pages/jump/jump-to.component';
 import { ProjectSettingsSheetComponent } from './pages/project-settings/project-settings-sheet.component';
 import { SheetComponent } from './shared/sheet.component';
 import { TimeAgoComponent } from './shared/time-ago.component';
@@ -48,7 +50,8 @@ const WELCOME_SEEN_KEY = 'mc_welcome_seen';
 /**
  * The app shell: a phone layout (< 768 px: top bar with the connection dot +
  * the bottom bar's tabs and More) and a desktop layout (left nav), both
- * drawn from the map (core/nav.ts). Also owns startup: config → pairing
+ * drawn from the map (core/nav.ts), with *Jump to…* (⌘K or Ctrl+K, the
+ * sidebar's button, the phone's search button). Also owns startup: config → pairing
  * state → realtime → push, the redirect to /pair when this device is not
  * (or no longer) paired, and the desktop-only onboarding/updater bits.
  */
@@ -58,6 +61,7 @@ const WELCOME_SEEN_KEY = 'mc_welcome_seen';
     RouterOutlet,
     RouterLink,
     IconComponent,
+    JumpToComponent,
     LimitationsComponent,
     FolderChoiceSheetComponent,
     PairApprovalDialogComponent,
@@ -69,6 +73,7 @@ const WELCOME_SEEN_KEY = 'mc_welcome_seen';
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
+  host: { '(document:keydown)': 'onKey($event)' },
 })
 export class AppComponent {
   private realtime = inject(RealtimeService);
@@ -95,6 +100,11 @@ export class AppComponent {
   /** A project's settings, opened from anywhere: the sheet loads (its own
    * chunk) the first time. */
   protected readonly projectSettings = inject(ProjectSettingsService);
+  /** *Jump to…*: loaded (its own chunk) the first time it opens. */
+  protected readonly jump = inject(JumpService);
+  private readonly apple = applePlatform();
+  /** The key that opens it, as the sidebar's button shows it. */
+  protected readonly jumpKey = jumpShortcut(this.apple);
 
   protected readonly ready = signal(false);
   protected readonly connection = this.realtime.connection;
@@ -301,5 +311,13 @@ export class AppComponent {
 
   protected reconnect(): void {
     this.realtime.reconnectNow();
+  }
+
+  /** ⌘K (Ctrl+K off Apple systems) opens *Jump to…* anywhere, and closes
+   * it again. */
+  protected onKey(e: KeyboardEvent): void {
+    if (!this.chrome() || e.defaultPrevented || !isJumpKey(e, this.apple)) return;
+    e.preventDefault();
+    this.jump.toggle();
   }
 }

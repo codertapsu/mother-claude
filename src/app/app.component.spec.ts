@@ -3,6 +3,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
 import { AppComponent } from './app.component';
+import { JumpService, applePlatform, jumpShortcut } from './core/jump';
+import { ListDetailService } from './core/list-detail';
 import { hostOsSignal } from './core/i18n/i18n';
 import { MachinesService } from './core/machines.service';
 import { isStillPending } from './core/pair-requests.service';
@@ -235,5 +237,46 @@ describe('AppComponent: the navigation, from the map', () => {
     expect(text(inbox().querySelector('.count-badge'))).toBe('1');
     expect(inbox().querySelector('.count-badge.dot')).toBeNull();
     expect(inbox().getAttribute('aria-label')).toBe('Inbox, 1 waiting, 1 to fix');
+  });
+
+  it('marks the Inbox while a session shows beside it (wide screens)', async () => {
+    await render('/session/s1');
+    const ld = TestBed.inject(ListDetailService);
+    ld.wide.set(true);
+    ld.showList('inbox', '/inbox');
+    ld.showDetail({ id: 's1', machine: null, agent: null }, false);
+    await settle();
+    expect(current(sideLinks())).toEqual(['Inbox']);
+    // Narrower, the session takes the page: it is one of Sessions'.
+    ld.wide.set(false);
+    await settle();
+    expect(current(sideLinks())).toEqual(['Sessions']);
+  });
+
+  it('opens Jump to… with its key, the sidebar’s button and the top bar’s', async () => {
+    await render();
+    const jump = TestBed.inject(JumpService);
+    const apple = applePlatform();
+    const key = new KeyboardEvent('keydown', {
+      key: 'k',
+      bubbles: true,
+      cancelable: true,
+      ...(apple ? { metaKey: true } : { ctrlKey: true }),
+    });
+    document.body.dispatchEvent(key);
+    expect(key.defaultPrevented).toBe(true);
+    expect(jump.opened()).toBe(true);
+    // The same key closes it.
+    document.body.dispatchEvent(new KeyboardEvent('keydown', key));
+    expect(jump.opened()).toBe(false);
+    const side = el().querySelector<HTMLButtonElement>('aside .jump-btn')!;
+    expect(text(side.querySelector('.label'))).toBe('Jump to…');
+    expect(text(side.querySelector('kbd'))).toBe(jumpShortcut(apple));
+    side.click();
+    expect(jump.opened()).toBe(true);
+    jump.close();
+    el().querySelector<HTMLButtonElement>('header.topbar [aria-label="Jump to…"]')!.click();
+    expect(jump.opened()).toBe(true);
+    jump.close();
   });
 });

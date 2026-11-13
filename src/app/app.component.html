@@ -8,6 +8,17 @@
         <span class="logo" aria-hidden="true"></span>
         <span>Mother Claude</span>
       </a>
+      <button
+        type="button"
+        class="jump-btn"
+        aria-haspopup="dialog"
+        [attr.aria-keyshortcuts]="jumpKey === '⌘K' ? 'Meta+K' : 'Control+K'"
+        (click)="jump.open()"
+      >
+        <mc-icon name="search" [size]="15" />
+        <span class="label">{{ 'Jump to…' | t }}</span>
+        <kbd>{{ jumpKey }}</kbd>
+      </button>
       <nav class="side-nav" [attr.aria-label]="'Primary' | t">
         @for (item of sidebar(); track item.id; let i = $index) {
           @if (i > 0 && item.group !== sidebar()[i - 1].group) {
@@ -89,6 +100,15 @@
       @if (mock()) {
         <span class="mock-tag">{{ 'mock' | t }}</span>
       }
+      <button
+        type="button"
+        class="btn ghost icon-only"
+        aria-haspopup="dialog"
+        [attr.aria-label]="'Jump to…' | t"
+        (click)="jump.open()"
+      >
+        <mc-icon name="search" />
+      </button>
       @if (updateAvailable()) {
         <a
           class="btn ghost icon-only"
@@ -214,4 +234,7 @@
 <mc-folder-choice />
 @defer (when projectSettings.wanted()) {
   <mc-project-settings-sheet />
+}
+@defer (when jump.wanted()) {
+  <mc-jump-to />
 }

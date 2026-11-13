@@ -284,6 +284,39 @@
   .sidebar .brand {
     padding: 0 0.5rem 0.25rem;
   }
+  /* Jump to…: a search field's look, its key at the end. */
+  .jump-btn {
+    appearance: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 36px;
+    margin: -0.35rem 0 -0.25rem;
+    padding: 0 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--panel-2);
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+  }
+  .jump-btn:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .jump-btn .label {
+    flex: 1;
+  }
+  .jump-btn kbd {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--faint);
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+    padding: 0.05rem 0.3rem;
+  }
   .side-nav {
     display: flex;
     flex-direction: column;

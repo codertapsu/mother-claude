@@ -54,5 +54,13 @@
   "{label}, {n} waiting, {m} to fix": "{label}, {n} đang chờ, {m} cần sửa",
   "{label}, {m} to fix": "{label}, {m} cần sửa",
   "{label}, 1 project": "{label}, 1 dự án",
-  "{label}, {n} projects": "{label}, {n} dự án"
+  "{label}, {n} projects": "{label}, {n} dự án",
+  "Jump to…": "Đi tới…",
+  "Sessions, projects, computers, pages, Help…": "Phiên, dự án, máy tính, trang, trợ giúp…",
+  "Nothing matches “{query}”.": "Không có kết quả cho “{query}”.",
+  "↑ ↓ to move · Enter to open · Esc to close": "↑ ↓ để di chuyển · Enter để mở · Esc để đóng",
+  "Help topic": "Chủ đề trợ giúp",
+  "Setting": "Cài đặt",
+  "Online · its sessions": "Trực tuyến · các phiên của máy",
+  "Offline · its sessions": "Ngoại tuyến · các phiên của máy"
 }

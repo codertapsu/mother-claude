@@ -29,7 +29,17 @@ const TOPICS: HelpTopicSource[] = [
     summary: 'Install the app, connect it to Claude Code and grant its permissions.',
     intro:
       'Mother Claude runs on the computer where you use Claude Code. It shows every Claude Code session there, lets you control them, and serves the same dashboard to your phone.',
-    keywords: ['install', 'download', 'setup', 'first launch', 'onboarding', 'welcome'],
+    keywords: [
+      'install',
+      'download',
+      'setup',
+      'first launch',
+      'onboarding',
+      'welcome',
+      'jump to',
+      'search',
+      'command palette',
+    ],
     sections: [
       {
         heading: 'What you need',
@@ -85,6 +95,21 @@ const TOPICS: HelpTopicSource[] = [
           'The dot at the bottom of the sidebar (at the top on a phone) shows the connection. **Live** means updates arrive as they happen.',
           'The button beside it switches the theme between dark, light and system. **Settings › Appearance** also has the language, the accent colour and the background.',
           'The first time, a short **Welcome to Mother Claude** note explains how the app works. Press **Got it** to close it.',
+        ],
+      },
+      {
+        heading: 'Jump to…',
+        intro:
+          '**Jump to…** finds anything by a few letters of its name: a session on any of your computers, a project, a computer, a page, a part of **Settings** or a Help topic.',
+        steps: [
+          'Press ⌘K on a Mac (Ctrl+K on Windows), or **Jump to…** at the top of the sidebar; on a phone, the search button at the top.',
+          "Type a few letters: of a session's name, its project, folder or branch; of a page's name (old names work too); of a Help topic.",
+          'Move with ↑ and ↓, and press Enter to open what is chosen. Esc closes it.',
+        ],
+        points: [
+          'What you opened lately comes first, and leads the list before you type.',
+          'A project opens its settings; another computer opens its sessions.',
+          'Accents can be left out: “sao luu” finds “sao lưu”.',
         ],
       },
       {

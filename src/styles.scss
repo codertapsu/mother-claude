@@ -421,6 +421,11 @@ code {
     clip: rect(0, 0, 0, 0);
   }
 }
+/* A section a link opens (`/settings#updates`, Jump to…): clear of the
+   phone's top bar. */
+h2[id] {
+  scroll-margin-top: calc(var(--topbar-h) + 0.75rem);
+}
 .lede {
   color: var(--muted);
   margin: -0.25rem 0 1rem;

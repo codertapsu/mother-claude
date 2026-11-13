@@ -27,6 +27,8 @@ const TOPICS: HelpTopicSource[] = [
       'chào mừng',
       'làm quen',
       'yêu cầu hệ thống',
+      'đi tới',
+      'tìm kiếm',
     ],
     sections: [
       {
@@ -85,6 +87,21 @@ const TOPICS: HelpTopicSource[] = [
           'Chấm ở cuối thanh bên (ở trên cùng trên điện thoại) cho biết trạng thái kết nối. **Trực tiếp** nghĩa là cập nhật đến ngay khi có.',
           'Nút bên cạnh đổi giao diện giữa tối, sáng và theo hệ thống. **Cài đặt › Hiển thị** còn có ngôn ngữ, màu nhấn và nền.',
           'Lần đầu, một ghi chú ngắn **Chào mừng đến với Mother Claude** giải thích cách ứng dụng hoạt động. Nhấn **Đã hiểu** để đóng nó.',
+        ],
+      },
+      {
+        heading: 'Đi tới…',
+        intro:
+          '**Đi tới…** tìm mọi thứ chỉ với vài chữ trong tên của nó: một phiên trên bất kỳ máy tính nào của bạn, một dự án, một máy tính, một trang, một phần của **Cài đặt** hoặc một chủ đề trợ giúp.',
+        steps: [
+          'Nhấn ⌘K trên máy Mac (Ctrl+K trên Windows), hoặc **Đi tới…** ở đầu thanh bên; trên điện thoại, nút tìm kiếm ở trên cùng.',
+          'Gõ vài chữ: trong tên của phiên, dự án, thư mục hay nhánh của nó; trong tên một trang (tên tiếng Anh và tên cũ cũng được); trong tên một chủ đề trợ giúp.',
+          'Di chuyển bằng ↑ và ↓, rồi nhấn Enter để mở mục đang chọn. Esc để đóng.',
+        ],
+        points: [
+          'Những gì bạn vừa mở hiện trước, và đứng đầu danh sách khi bạn chưa gõ gì.',
+          'Một dự án mở cài đặt của nó; một máy tính khác mở các phiên của nó.',
+          'Có thể gõ không dấu: “sao luu” tìm được “sao lưu”.',
         ],
       },
       {

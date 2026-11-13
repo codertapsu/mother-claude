@@ -50,7 +50,7 @@ const HINTS: Record<NavConnection['id'], string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, RouterLink, TPipe],
   template: `
-    <h2>{{ 'Connections' | t }}</h2>
+    <h2 id="connections">{{ 'Connections' | t }}</h2>
     <section class="card" [attr.aria-label]="'Connections' | t">
       <div class="list">
         @for (c of rows(); track c.id) {

@@ -9,7 +9,7 @@
   />
 
   <!-- ─────────────── Notifications ─────────────── -->
-  <h2>{{ 'Notifications' | t }}</h2>
+  <h2 id="notifications">{{ 'Notifications' | t }}</h2>
   <section class="card">
     <div class="list">
       <div class="list-row push">
@@ -104,7 +104,7 @@
   </section>
 
   <!-- ─────────────── Appearance ─────────────── -->
-  <h2>{{ 'Appearance' | t }}</h2>
+  <h2 id="appearance">{{ 'Appearance' | t }}</h2>
   <section class="card appearance">
     <div class="row lang-row">
       <span class="grow">{{ 'Language' | t }}</span>
@@ -205,7 +205,7 @@
   <mc-settings-connections />
 
   <!-- ─────────────── Connection ─────────────── -->
-  <h2>{{ 'Connection' | t }}</h2>
+  <h2 id="connection">{{ 'Connection' | t }}</h2>
   <section class="card">
     @if (cfg(); as c) {
       <dl class="kv">
@@ -262,7 +262,7 @@
   </section>
 
   @if (isDevice()) {
-    <h2>{{ 'Home Screen app' | t }}</h2>
+    <h2 id="home-screen">{{ 'Home Screen app' | t }}</h2>
     <section class="card">
       <p class="small">
         {{
@@ -294,7 +294,7 @@
   }
 
   @if (desktopApp()) {
-    <h2>{{ 'Startup' | t }}</h2>
+    <h2 id="startup">{{ 'Startup' | t }}</h2>
     <section class="card">
       <div class="list">
         <mc-startup-setting />
@@ -306,7 +306,7 @@
   }
 
   <!-- ─────────────── About ─────────────── -->
-  <h2>{{ 'About' | t }}</h2>
+  <h2 id="about">{{ 'About' | t }}</h2>
   <section class="card">
     <p class="about">
       <strong>Mother Claude</strong>
