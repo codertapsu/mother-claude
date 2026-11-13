@@ -19,7 +19,8 @@ import { IconComponent } from './icon.component';
  * layer (no stacking-context surprises) and focus return. A bottom sheet on
  * phones and a centred dialog on wider screens; `size="wide"` is a wider
  * dialog (a project's settings), `size="full"` fills the screen (long
- * plans, the terminal). Escape, a click on the backdrop and the
+ * plans, the terminal), `size="editor"` too, wider on a desktop (a canvas
+ * and its panel: the template editor). Escape, a click on the backdrop and the
  * close button all emit `closed`; the parent owns `open`. The parent gives
  * `title` in the language shown.
  */
@@ -32,7 +33,8 @@ import { IconComponent } from './icon.component';
       #dlg
       class="dlg"
       [class.wide]="size() === 'wide'"
-      [class.full]="size() === 'full'"
+      [class.full]="size() === 'full' || size() === 'editor'"
+      [class.editor]="size() === 'editor'"
       [attr.aria-label]="title()"
       (cancel)="onCancel($event)"
     >
@@ -134,6 +136,10 @@ import { IconComponent } from './icon.component';
           border-radius: var(--radius);
           padding-top: 0.6rem;
         }
+        .dlg.full.editor {
+          max-width: min(90rem, 96vw);
+          height: min(60rem, 92dvh);
+        }
       }
     `,
   ],
@@ -141,8 +147,8 @@ import { IconComponent } from './icon.component';
 export class SheetComponent {
   readonly open = input(false);
   readonly title = input('');
-  /** `sheet` (default), `wide` or `full` screen. */
-  readonly size = input<'sheet' | 'wide' | 'full'>('sheet');
+  /** `sheet` (default), `wide`, `full` screen or `editor`. */
+  readonly size = input<'sheet' | 'wide' | 'full' | 'editor'>('sheet');
   readonly closed = output<void>();
 
   private readonly dlg = viewChild.required<ElementRef<HTMLDialogElement>>('dlg');
