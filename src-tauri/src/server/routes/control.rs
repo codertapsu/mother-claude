@@ -790,7 +790,7 @@ pub async fn respawn(
     if owned::is_owned(&state, &id) {
         return Err(ApiError::unprocessable(
             "not_a_background_session",
-            "Respawn isn't supported for app-owned sessions — stop it and start a new one.",
+            "Restart isn't supported for app-owned sessions — stop it and start a new one.",
         ));
     }
     run_lifecycle(&state, "respawn", &id).await

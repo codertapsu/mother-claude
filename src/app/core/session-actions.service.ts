@@ -52,7 +52,7 @@ export class SessionActionsService {
     if (res.ok) {
       this.notices.success(
         res.id !== s.id
-          ? tr('Forked: you are driving the copy from here.')
+          ? tr('Continued here as a new session: you are driving the copy from here.')
           : tr('You can drive this session from here now.'),
       );
       await this.openSession(s.id, res.id);

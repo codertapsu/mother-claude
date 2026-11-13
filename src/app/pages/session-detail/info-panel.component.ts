@@ -9,7 +9,6 @@ import {
 } from '@angular/core';
 
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
-import { AccountsService } from '../../core/accounts.service';
 import { ApiService } from '../../core/api.service';
 import {
   deleteErrorText,
@@ -17,25 +16,22 @@ import {
   normalizeSessionFiles,
   revealLabel,
 } from '../../core/delete-data';
-import { computerNoun, tr } from '../../core/i18n/i18n';
+import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { MachineContext } from '../../core/machine-context';
-import { KeyName, LaunchOverrides, McpServerStatus } from '../../core/models';
-import { anyTarget } from '../../core/move-data';
+import { McpServerStatus } from '../../core/models';
 import { MovesService } from '../../core/moves.service';
 import { NowService } from '../../core/now.service';
 import { PlanUsageService } from '../../core/plan-usage.service';
-import { StorageService } from '../../core/storage.service';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { accountKindLabel } from '../../shared/accounts';
 import { CapLimitsComponent } from '../../shared/cap-limits.component';
-import { capKeys, capRename, capTerminal, capThinking } from '../../shared/caps';
+import { capThinking } from '../../shared/caps';
 import { ChannelBadgeComponent } from '../../shared/channel-badge.component';
 import { ContextMeterComponent } from '../../shared/context-meter.component';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { CostComponent } from '../../shared/cost.component';
 import { IconComponent } from '../../shared/icon.component';
-import { LaunchOptionsComponent } from '../../shared/launch-options.component';
 import { MoveCardComponent } from '../../shared/move-card.component';
 import { PlanUsageComponent } from '../../shared/plan-usage.component';
 import {
@@ -60,25 +56,16 @@ import {
 } from '../../shared/util';
 import { SessionContext } from './session-context';
 
-const KEYS: { key: KeyName; label: string; aria: string }[] = [
-  { key: 'Escape', label: 'Esc', aria: 'Escape' },
-  { key: 'Enter', label: '⏎', aria: 'Enter' },
-  { key: 'Up', label: '↑', aria: 'Up arrow' },
-  { key: 'Down', label: '↓', aria: 'Down arrow' },
-  { key: 'Tab', label: 'Tab', aria: 'Tab' },
-  { key: '1', label: '1', aria: '1' },
-  { key: '2', label: '2', aria: '2' },
-  { key: '3', label: '3', aria: '3' },
-];
-
 /**
- * Everything known about the session: ids, process, where it runs, model,
- * mode, effort, ultracode, thinking and fast mode (each with how it is
- * known), usage and cost, context, timestamps; the Claude plan's usage;
- * what can be done with it and why not (limits with their fixes); lifecycle
- * (stop / respawn / remove, remove confirmed); continue or fork as an owned
- * session; rename; the terminal view and keys for tmux; the resume command;
- * MCP servers of owned sessions.
+ * Everything known about the session — facts, not actions (docs/
+ * UI-REDESIGN.md §6.8): ids, process, where it runs, model, mode, effort,
+ * ultracode, thinking and fast mode (each with how it is known), usage and
+ * cost, context, timestamps, where its files are (each path copyable, its
+ * folder shown on the desktop); the Claude plan's usage; what can be done
+ * with it and why not (limits with their fixes); MCP servers of owned
+ * sessions; its moves between computers. What can be done with it is the
+ * header's ⋮ menu (continue, rename, move, delete, the terminal view,
+ * stop / restart / remove); keys go to the terminal from its view.
  */
 @Component({
   selector: 'mc-info-panel',
@@ -91,7 +78,6 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
     CopyButtonComponent,
     CostComponent,
     IconComponent,
-    LaunchOptionsComponent,
     MoveCardComponent,
     PlanUsageComponent,
     StatusPillComponent,
@@ -104,15 +90,7 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
         <h2 class="first">{{ 'Session' | t }}</h2>
         <dl class="kv">
           <dt>{{ 'Name' | t }}</dt>
-          <dd>
-            {{ s.title || s.name || '—' }}
-            <button class="btn ghost small" type="button" (click)="ctx.openPicker.set('rename')">
-              <mc-icon name="edit" [size]="13" /> {{ 'Rename' | t }}
-            </button>
-            @if (renameMode() === 'alias') {
-              <span class="muted small">{{ '(only in Mother Claude)' | t }}</span>
-            }
-          </dd>
+          <dd>{{ s.title || s.name || '—' }}</dd>
           <dt>{{ 'Status' | t }}</dt>
           <dd>
             <mc-status-pill [status]="s.status" [live]="s.live" [activity]="s.activity" />
@@ -125,16 +103,10 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
           <dt>{{ 'Project' | t }}</dt>
           <dd>{{ s.projectName }}</dd>
           <dt>{{ 'Folder' | t }}</dt>
-          @if (moveOffered()) {
-            <dd>
-              <span class="mono">{{ short(s.cwd) }}</span>
-              <button class="btn ghost small" type="button" (click)="ctx.moveCopy.set('project')">
-                <mc-icon name="move" [size]="13" /> {{ 'Move or copy…' | t }}
-              </button>
-            </dd>
-          } @else {
-            <dd class="mono">{{ short(s.cwd) }}</dd>
-          }
+          <dd>
+            <span class="mono break" [title]="s.cwd">{{ short(s.cwd) }}</span>
+            <mc-copy-button [text]="s.cwd" [label]="'Copy path' | t" [ariaLabel]="copyCwdLabel()" />
+          </dd>
           @if (files(); as f) {
             <dt>{{ 'Transcript' | t }}</dt>
             <dd class="path-dd">
@@ -376,99 +348,6 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
         <mc-cap-limits [session]="s" />
       </section>
 
-      <section class="card">
-        <h2 class="first">{{ 'Actions' | t }}</h2>
-        <div class="actions">
-          @if (terminal()) {
-            <button class="btn" type="button" (click)="ctx.terminalOpen.set(true)">
-              <mc-icon name="terminal" [size]="15" /> {{ 'Terminal view' | t }}
-            </button>
-          }
-          @if (vscodeUrl(); as url) {
-            <a class="btn" [href]="url"
-              ><mc-icon name="external" [size]="15" /> {{ 'Open in VS Code' | t }}</a
-            >
-          }
-          @if (s.control.lifecycle.stop) {
-            <button class="btn" type="button" (click)="ctx.lifecycle('stop')">
-              <mc-icon name="stop" [size]="14" /> {{ 'Stop' | t }}
-            </button>
-          }
-          @if (s.control.lifecycle.respawn) {
-            <button class="btn" type="button" (click)="ctx.lifecycle('respawn')">
-              <mc-icon name="refresh" [size]="14" /> {{ 'Respawn' | t }}
-            </button>
-          }
-          @if (rmOffered()) {
-            <button
-              class="btn danger"
-              type="button"
-              [disabled]="!ctx.canDangerous()"
-              (click)="remove()"
-            >
-              <mc-icon name="trash" [size]="14" />
-              {{ confirmRm() ? ('Tap again to remove' | t) : ('Remove' | t) }}
-            </button>
-          }
-        </div>
-        @if (rmOffered() && !ctx.canDangerous()) {
-          <p class="muted small">
-            {{
-              'Removing needs the {computer}, or a device allowed to take dangerous actions.'
-                | t: { computer: computer() }
-            }}
-          </p>
-        }
-        @if (keys() && s.live) {
-          <h3>{{ 'Send a key' | t }}</h3>
-          <div class="keys" role="group" [attr.aria-label]="'Send a key to the terminal' | t">
-            @for (k of keyList; track k.key) {
-              <button
-                class="btn small"
-                type="button"
-                [attr.aria-label]="'Send {key}' | t: { key: (k.aria | t) }"
-                [disabled]="!ctx.canAct()"
-                (click)="ctx.sendKey(k.key)"
-              >
-                {{ k.label }}
-              </button>
-            }
-          </div>
-          <p class="muted small">
-            {{ 'For a dialog open in the terminal; the terminal view shows the result.' | t }}
-          </p>
-        }
-
-        <h3>{{ 'Resume elsewhere' | t }}</h3>
-        <div class="copyrow">
-          <code class="grow">claude --resume {{ s.id }}</code>
-          <mc-copy-button [text]="'claude --resume ' + s.id" [label]="'Copy' | t" />
-        </div>
-        <div class="copyrow">
-          <code class="grow">cd {{ s.cwd }}</code>
-          <mc-copy-button [text]="'cd ' + quote(s.cwd)" [label]="'Copy' | t" />
-        </div>
-
-        @if (!s.owned && (s.control.fork || s.control.continueOwned)) {
-          <h3>{{ s.live ? ('Continue here (fork)' | t) : ('Continue here' | t) }}</h3>
-          <p class="muted small">
-            {{
-              s.live
-                ? ('It keeps running where it is; you drive a copy from here, with full control.'
-                  | t)
-                : ('Resume this conversation as a session Mother Claude controls fully.' | t)
-            }}
-          </p>
-          <details class="copts">
-            <summary>{{ 'Launch options (model · effort · mode)' | t }}</summary>
-            <mc-launch-options (changed)="overrides = $event" />
-          </details>
-          <button class="btn primary" type="button" (click)="ctx.continueHere(overrides)">
-            {{ s.live ? ('Continue here (fork)' | t) : ('Continue here' | t) }}
-          </button>
-        }
-      </section>
-
       @if (s.owned) {
         <section class="card">
           <h2 class="first">{{ 'MCP servers' | t }}</h2>
@@ -527,10 +406,6 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
       h2.first {
         margin-top: 0;
       }
-      h3 {
-        margin: 1rem 0 0.4rem;
-        font-size: 0.9rem;
-      }
       .kv dd {
         display: flex;
         align-items: center;
@@ -568,37 +443,10 @@ const KEYS: { key: KeyName; label: string; aria: string }[] = [
       .plan-lede {
         margin: -0.25rem 0 0.85rem;
       }
-      .actions,
-      .keys {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-      }
-      .keys .btn {
-        min-width: 2.75rem;
-      }
-      .copyrow {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-bottom: 0.35rem;
-      }
       .grow {
         flex: 1;
         min-width: 0;
         overflow-wrap: anywhere;
-      }
-      code.grow {
-        padding: 0.35rem 0.5rem;
-      }
-      .copts {
-        margin: 0.4rem 0 0.6rem;
-      }
-      .copts summary {
-        cursor: pointer;
-        font-size: 0.85rem;
-        color: var(--muted);
-        min-height: 32px;
       }
       .mcp {
         list-style: none;
@@ -634,25 +482,14 @@ export class InfoPanelComponent {
   protected readonly machine = inject(MachineContext, { optional: true });
   private api = inject(ApiService);
   private clock = inject(NowService);
-  private accounts = inject(AccountsService);
-  private storage = inject(StorageService);
   private moves = inject(MovesService);
   protected readonly plan = inject(PlanUsageService);
   /** Its moves between computers (docs/PLAN-MACHINES.md §5.8), the latest
    * few. */
   protected readonly sessionMoves = computed(() => this.moves.history(this.ctx.id()).slice(0, 5));
 
-  protected overrides: LaunchOverrides = {};
-  protected readonly keyList = KEYS;
-  protected readonly confirmRm = signal(false);
   protected readonly mcp = signal<McpServerStatus[] | null>(null);
   protected readonly mcpError = signal('');
-  private rmTimer?: ReturnType<typeof setTimeout>;
-
-  protected readonly renameMode = computed(() => {
-    const s = this.ctx.session();
-    return capRename(s?.control, s?.owned);
-  });
   /** Whose plan this session uses (the Default's when it names none). */
   protected readonly planAccount = computed(
     () => this.ctx.session()?.account?.id ?? DEFAULT_ACCOUNT,
@@ -662,40 +499,13 @@ export class InfoPanelComponent {
   /** "Show in Finder", "Show in File Explorer", "Show in folder" (the
    * desktop's own window: its user agent names its system). */
   protected readonly revealText = computed(() => tr(revealLabel(desktopOs(navigator.userAgent))));
-  /** The desktop's computer, in sentences. */
-  protected readonly computer = computerNoun;
   /** What the path copy buttons say to a screen reader. */
+  protected readonly copyCwdLabel = computed(() => tr("Copy the project folder's path"));
   protected readonly copyTranscriptLabel = computed(() => tr("Copy the transcript's path"));
   protected readonly copyFolderLabel = computed(() => tr("Copy the session folder's path"));
   protected readonly revealing = signal(false);
   protected readonly revealError = signal('');
-  /** The folder can be moved or copied (the header hosts the sheet): this
-   * computer's data only. */
-  protected readonly moveOffered = computed(
-    () =>
-      !!this.ctx.session() &&
-      !this.machine &&
-      anyTarget(this.accounts.list(), this.storage.list() ?? []),
-  );
-  /** Removing a background job: this computer's only. */
-  protected readonly rmOffered = computed(
-    () => !!this.ctx.session()?.control.lifecycle.rm && !this.machine,
-  );
   protected readonly kindLabel = accountKindLabel;
-  protected readonly terminal = computed(() => {
-    const s = this.ctx.session();
-    return capTerminal(s?.control, s);
-  });
-  protected readonly keys = computed(() => {
-    const s = this.ctx.session();
-    return capKeys(s?.control, s);
-  });
-  protected readonly vscodeUrl = computed(() => {
-    const s = this.ctx.session();
-    return s?.surface === 'vscode' && this.ctx.isDesktop() && !this.machine
-      ? `vscode://anthropic.claude-code/open?session=${encodeURIComponent(s.id)}`
-      : '';
-  });
 
   protected readonly effortHow = computed(() =>
     tr(effortSourceText(this.ctx.session()?.effortSource)),
@@ -770,21 +580,6 @@ export class InfoPanelComponent {
         if (owned && id && this.mcp() === null && !this.mcpError()) void this.loadMcp(id);
       });
     });
-  }
-
-  protected quote(path: string): string {
-    return /[^\w/.-]/.test(path) ? `'${path.replace(/'/g, `'\\''`)}'` : path;
-  }
-
-  protected remove(): void {
-    if (!this.confirmRm()) {
-      this.confirmRm.set(true);
-      clearTimeout(this.rmTimer);
-      this.rmTimer = setTimeout(() => this.confirmRm.set(false), 4000);
-      return;
-    }
-    this.confirmRm.set(false);
-    void this.ctx.lifecycle('rm');
   }
 
   private async loadMcp(id: string): Promise<void> {

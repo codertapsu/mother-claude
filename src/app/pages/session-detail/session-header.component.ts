@@ -21,7 +21,7 @@ import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from '../../core/realtime.service';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
-import { JobView, SessionPushPref, SessionSummary } from '../../core/models';
+import { JobView, LaunchOverrides, SessionPushPref, SessionSummary } from '../../core/models';
 import { AccountChipComponent } from '../../shared/account-chip.component';
 import { ActivityLineComponent } from '../../shared/activity-line.component';
 import { capRename, capTerminal } from '../../shared/caps';
@@ -30,6 +30,7 @@ import { ContinueOnSheetComponent, canContinue } from '../../shared/continue-on-
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
 import { KeepCopySheetComponent } from '../../shared/keep-copy-sheet.component';
+import { LaunchOptionsComponent } from '../../shared/launch-options.component';
 import {
   DeleteDataSheetComponent,
   DeleteStart,
@@ -51,17 +52,25 @@ import { SessionContext } from './session-context';
 /**
  * The session page's sticky top row: back, name, status, the Claude
  * account (while there are several) and what it is doing right now (with
- * elapsed time), the connection state when it isn't Live, and a ⋯ menu
- * (rename, continue/fork, continue on another account, continue on another
- * computer or bring it back here, keep a copy on another computer, moving
- * or copying it or its project to another account or a storage, deleting
- * it, terminal, notifications, resume command, stop/respawn/remove). 48 px
- * tall on phones. Another
- * computer's session shows that computer's chip, and its menu leaves out
- * what only that computer does (its accounts, moving, copying, deleting,
- * removing, notifications here), saying so in one line. The sheet that
- * moves a session to another computer lives here (docs/PLAN-MACHINES.md
- * §5.8): the *Lives on …* banner opens it too, and it outlives the banner.
+ * elapsed time), the connection state when it isn't Live, and a ⋮ menu in
+ * four headed groups (docs/UI-REDESIGN.md §6.8):
+ *
+ * - **Continue** — *Continue here* (as a new session while it runs where
+ *   it is; a sheet with the launch options), *Bring back to this …*,
+ *   *Switch account…*, *Continue on another account…*, *Continue on
+ *   another computer…*, *Keep a copy on…*;
+ * - **Organize** — *Rename…*, *Move or copy…* it or its project to
+ *   another account or a storage, *Delete…*;
+ * - **This session** — its notifications (a phone), *Terminal view*,
+ *   *Open in VS Code*, *Session info*, the resume command to copy;
+ * - **Its process** — a background job's *Stop*, *Restart* and *Remove*.
+ *
+ * 48 px tall on phones. Another computer's session shows that computer's
+ * chip, and its menu leaves out what only that computer does (its
+ * accounts, moving, copying, deleting, removing, notifications here),
+ * saying so in one line. The sheet that moves a session to another
+ * computer lives here (docs/PLAN-MACHINES.md §5.8): the *Lives on …*
+ * banner opens it too, and it outlives the banner.
  */
 @Component({
   selector: 'mc-session-header',
@@ -76,6 +85,7 @@ import { SessionContext } from './session-context';
     CopyButtonComponent,
     IconComponent,
     KeepCopySheetComponent,
+    LaunchOptionsComponent,
     DeleteDataSheetComponent,
     MoveDataSheetComponent,
     MoveSessionSheetComponent,
@@ -147,6 +157,49 @@ import { SessionContext } from './session-context';
 
       <mc-sheet [open]="menu()" [title]="name()" (closed)="menu.set(false)">
         <div class="menu">
+          <!-- Where it goes on: here, on another account or computer. -->
+          @if (continueGroup()) {
+            <h2 class="group">{{ 'Continue' | t }}</h2>
+            @if (continueHereOffered()) {
+              <button class="item" type="button" (click)="openContinueHere()">
+                <mc-icon name="play" [size]="18" />
+                <span>{{ continueHereLabel() }}</span>
+              </button>
+            }
+            @if (bringBackOffered()) {
+              <button class="item" type="button" (click)="openComputerMove('back')">
+                <mc-icon name="download" [size]="18" />
+                <span>{{ bringBackLabel() }}</span>
+              </button>
+            }
+            @if (switchOffered()) {
+              <button class="item" type="button" (click)="openSwitch()">
+                <mc-icon name="refresh" [size]="18" />
+                <span>{{ 'Switch account…' | t }}</span>
+              </button>
+            }
+            @if (continueOnOffered()) {
+              <button class="item" type="button" (click)="openContinueOn()">
+                <mc-icon name="user" [size]="18" />
+                <span>{{ 'Continue on another account…' | t }}</span>
+              </button>
+            }
+            @if (computerMoveOffered()) {
+              <button class="item" type="button" (click)="openComputerMove('away')">
+                <mc-icon name="monitor" [size]="18" />
+                <span>{{ 'Continue on another computer…' | t }}</span>
+              </button>
+            }
+            @if (keepCopyOffered()) {
+              <button class="item" type="button" (click)="openKeepCopy()">
+                <mc-icon name="copy" [size]="18" />
+                <span>{{ 'Keep a copy on…' | t }}</span>
+              </button>
+            }
+          }
+
+          <!-- Its name and its data. -->
+          <h2 class="group">{{ 'Organize' | t }}</h2>
           <button class="item" type="button" (click)="startRename()">
             <mc-icon name="edit" [size]="18" />
             <span>{{ 'Rename…' | t }}</span>
@@ -154,42 +207,6 @@ import { SessionContext } from './session-context';
               <span class="note">{{ 'only in Mother Claude' | t }}</span>
             }
           </button>
-          @if (!s.owned && (s.control.fork || s.control.continueOwned)) {
-            <button class="item" type="button" (click)="continueHere()">
-              <mc-icon name="play" [size]="18" />
-              <span>{{ s.live ? ('Continue here (fork)' | t) : ('Continue here' | t) }}</span>
-            </button>
-          }
-          @if (switchOffered()) {
-            <button class="item" type="button" (click)="openSwitch()">
-              <mc-icon name="refresh" [size]="18" />
-              <span>{{ 'Switch account…' | t }}</span>
-            </button>
-          }
-          @if (continueOnOffered()) {
-            <button class="item" type="button" (click)="openContinueOn()">
-              <mc-icon name="user" [size]="18" />
-              <span>{{ 'Continue on another account…' | t }}</span>
-            </button>
-          }
-          @if (bringBackOffered()) {
-            <button class="item" type="button" (click)="openComputerMove('back')">
-              <mc-icon name="download" [size]="18" />
-              <span>{{ bringBackLabel() }}</span>
-            </button>
-          }
-          @if (computerMoveOffered()) {
-            <button class="item" type="button" (click)="openComputerMove('away')">
-              <mc-icon name="monitor" [size]="18" />
-              <span>{{ 'Continue on another computer…' | t }}</span>
-            </button>
-          }
-          @if (keepCopyOffered()) {
-            <button class="item" type="button" (click)="openKeepCopy()">
-              <mc-icon name="copy" [size]="18" />
-              <span>{{ 'Keep a copy on…' | t }}</span>
-            </button>
-          }
           @if (moveOffered()) {
             <button class="item" type="button" (click)="openMoveCopy('session')">
               <mc-icon name="move" [size]="18" />
@@ -214,12 +231,9 @@ import { SessionContext } from './session-context';
               <span>{{ 'Delete…' | t }}</span>
             </button>
           }
-          @if (terminal()) {
-            <button class="item" type="button" (click)="openTerminal()">
-              <mc-icon name="terminal" [size]="18" />
-              <span>{{ 'Terminal view' | t }}</span>
-            </button>
-          }
+
+          <!-- Looking at it, and being told about it. -->
+          <h2 class="group">{{ 'This session' | t }}</h2>
           @if (pushAvailable()) {
             <div class="item static">
               <mc-icon [name]="pushPref() === 'mute' ? 'bellOff' : 'bell'" [size]="18" />
@@ -263,11 +277,12 @@ import { SessionContext } from './session-context';
               </button>
             }
           }
-          <div class="item static">
-            <mc-icon name="terminal" [size]="18" />
-            <span class="mono ellipsis">claude --resume {{ s.id.slice(0, 8) }}…</span>
-            <mc-copy-button [text]="'claude --resume ' + s.id" [label]="'Copy' | t" />
-          </div>
+          @if (terminal()) {
+            <button class="item" type="button" (click)="openTerminal()">
+              <mc-icon name="terminal" [size]="18" />
+              <span>{{ 'Terminal view' | t }}</span>
+            </button>
+          }
           @if (vscodeUrl(); as url) {
             <a class="item" [href]="url">
               <mc-icon name="external" [size]="18" />
@@ -278,7 +293,15 @@ import { SessionContext } from './session-context';
             <mc-icon name="info" [size]="18" />
             <span>{{ 'Session info' | t }}</span>
           </button>
+          <div class="item static">
+            <mc-icon name="terminal" [size]="18" />
+            <span class="mono ellipsis">claude --resume {{ s.id.slice(0, 8) }}…</span>
+            <mc-copy-button [text]="'claude --resume ' + s.id" [label]="'Copy' | t" />
+          </div>
+
+          <!-- The process that runs it: a background job's. -->
           @if (s.control.lifecycle.stop || s.control.lifecycle.respawn || rmOffered()) {
+            <h2 class="group">{{ 'Its process' | t }}</h2>
             <div class="lifecycle">
               @if (s.control.lifecycle.stop) {
                 <button class="btn" type="button" (click)="lifecycle('stop')">
@@ -287,7 +310,7 @@ import { SessionContext } from './session-context';
               }
               @if (s.control.lifecycle.respawn) {
                 <button class="btn" type="button" (click)="lifecycle('respawn')">
-                  <mc-icon name="refresh" [size]="14" /> {{ 'Respawn' | t }}
+                  <mc-icon name="refresh" [size]="14" /> {{ 'Restart' | t }}
                 </button>
               }
               @if (rmOffered()) {
@@ -302,8 +325,50 @@ import { SessionContext } from './session-context';
                 </button>
               }
             </div>
+            @if (rmOffered() && !ctx.canDangerous()) {
+              <p class="muted small why">
+                {{
+                  'Removing needs the {computer}, or a device allowed to take dangerous actions.'
+                    | t: { computer: computer() }
+                }}
+              </p>
+            }
           }
         </div>
+      </mc-sheet>
+
+      <!-- Continue here: as a new session while it runs where it is, with
+           launch options. -->
+      <mc-sheet
+        [open]="continuing()"
+        [title]="continueHereLabel()"
+        (closed)="continuing.set(false)"
+      >
+        <!-- Made when it opens: the launch options read the defaults. -->
+        @if (continuing()) {
+          <div class="continue">
+            <p class="muted">
+              {{
+                s.live
+                  ? ('It keeps running where it is; you drive a copy from here, with full control.'
+                    | t)
+                  : ('Resume this conversation as a session Mother Claude controls fully.' | t)
+              }}
+            </p>
+            <details class="copts">
+              <summary>{{ 'Launch options (model · effort · mode)' | t }}</summary>
+              <mc-launch-options (changed)="overrides = $event" />
+            </details>
+            <div class="row">
+              <button class="btn primary" type="button" (click)="continueHere()">
+                {{ continueHereLabel() }}
+              </button>
+              <button class="btn ghost" type="button" (click)="continuing.set(false)">
+                {{ 'Cancel' | t }}
+              </button>
+            </div>
+          </div>
+        }
       </mc-sheet>
 
       <mc-sheet [open]="renaming()" [title]="'Rename session' | t" (closed)="renaming.set(false)">
@@ -537,12 +602,38 @@ import { SessionContext } from './session-context';
         font-size: 0.75rem;
         color: var(--faint);
       }
+      /* A group's heading; the items under it are divided by lines. */
+      .group {
+        margin: 1.1rem 0 0.15rem;
+      }
+      .group:first-child {
+        margin-top: 0;
+      }
+      .group + .item {
+        border-top: 0;
+      }
       .lifecycle {
         display: flex;
         flex-wrap: wrap;
         gap: 0.5rem;
-        padding-top: 0.75rem;
-        border-top: 1px solid var(--border);
+        padding-top: 0.4rem;
+      }
+      .why {
+        margin: 0.5rem 0 0;
+      }
+      .continue {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .continue p {
+        margin: 0;
+      }
+      .copts summary {
+        cursor: pointer;
+        font-size: 0.85rem;
+        color: var(--muted);
+        min-height: 32px;
       }
       .rename {
         display: flex;
@@ -582,6 +673,10 @@ export class SessionHeaderComponent {
   protected readonly deleteStart = signal<DeleteStart | null>(null);
 
   protected readonly menu = signal(false);
+  /** The *Continue here* sheet is open. */
+  protected readonly continuing = signal(false);
+  /** Its launch options (model, effort, mode). */
+  protected overrides: LaunchOverrides = {};
   /** The "Continue on another account" choice is open. */
   protected readonly continueOn = signal(false);
   protected readonly renaming = signal(false);
@@ -620,6 +715,28 @@ export class SessionHeaderComponent {
       ? `vscode://anthropic.claude-code/open?session=${encodeURIComponent(s.id)}`
       : '';
   });
+  /** The desktop's computer, in sentences. */
+  protected readonly computer = computerNoun;
+  /** *Continue here*: a session Mother Claude doesn't run, with a
+   * conversation to go on from. */
+  protected readonly continueHereOffered = computed(() => {
+    const s = this.ctx.session();
+    return !!s && !s.owned && (s.control.fork || s.control.continueOwned);
+  });
+  /** While it runs where it is, it goes on here as a new session. */
+  protected readonly continueHereLabel = computed(() =>
+    this.ctx.session()?.live ? tr('Continue here, as a new session') : tr('Continue here'),
+  );
+  /** The menu's Continue group has something in it. */
+  protected readonly continueGroup = computed(
+    () =>
+      this.continueHereOffered() ||
+      this.bringBackOffered() ||
+      this.switchOffered() ||
+      this.continueOnOffered() ||
+      this.computerMoveOffered() ||
+      this.keepCopyOffered(),
+  );
   /** Removing a background job: this computer's only. */
   protected readonly rmOffered = computed(
     () => !!this.ctx.session()?.control.lifecycle.rm && !this.machine,
@@ -785,9 +902,16 @@ export class SessionHeaderComponent {
     if (await this.ctx.rename(name)) this.renaming.set(false);
   }
 
-  protected continueHere(): void {
+  protected openContinueHere(): void {
     this.menu.set(false);
-    void this.ctx.continueHere();
+    // The options start from the defaults again, as the sheet shows them.
+    this.overrides = {};
+    this.continuing.set(true);
+  }
+
+  protected continueHere(): void {
+    this.continuing.set(false);
+    void this.ctx.continueHere(this.overrides);
   }
 
   protected openContinueOn(): void {

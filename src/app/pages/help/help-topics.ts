@@ -130,7 +130,7 @@ const TOPICS: HelpTopicSource[] = [
           'Mother Claude can fully control a session only when it started it: such a session is **owned**. Sessions you start in a terminal, VS Code, JetBrains or Claude Desktop are started elsewhere. You can always watch them, and answer and message them through the Mother Claude plugin or tmux.',
         points: [
           'Owned sessions take messages, images, approvals, model, effort and mode changes, interrupts and slash commands, and their replies stream word by word.',
-          '**Continue here** turns any session into an owned one. A session still running elsewhere is forked into a copy; an ended one resumes in place.',
+          '**Continue here** turns any session into an owned one. A session still running elsewhere goes on here as a new session, a copy; an ended one resumes in place.',
           "Each session's badge says how far it can be controlled: **Full control**, **Via hooks**, **Via tmux**, **Experimental** or **Watch only**. Tap it to see what works and why.",
         ],
         links: [
@@ -395,7 +395,7 @@ const TOPICS: HelpTopicSource[] = [
           'The arrow at the top left goes back to **Sessions**. The line under the name says what Claude is doing, such as the tool it runs, and for how long.',
           'The next row shows where the session runs and how it is reached (for example **VS Code · Via hooks**), then its model, permission mode and effort, its context use and cost.',
           "Tap a chip to change it. A chip that can't be changed explains why when you tap it.",
-          '**⋯** opens the session menu.',
+          '**⋮** opens the session menu: what you can do with the session.',
         ],
       },
       {
@@ -451,7 +451,7 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'Session',
-            text: "Name, status, id, project and folder, the transcript's path, where it runs, its Claude account, branch and pull request.",
+            text: "Name, status, id, project and folder, the transcript's path, where it runs, its Claude account, branch and pull request. Every path has **Copy path**.",
           },
           {
             term: 'Model and usage',
@@ -465,59 +465,36 @@ const TOPICS: HelpTopicSource[] = [
             term: 'From here you can',
             text: 'What works for this session, and the button that fixes each limit.',
           },
-          {
-            term: 'Actions',
-            text: '**Terminal view**, **Open in VS Code**, **Stop**, **Respawn**, **Remove**, **Send a key**, the `claude --resume` command to copy, and **Continue here** with launch options.',
-          },
           { term: 'MCP servers', text: 'The MCP servers of a session Mother Claude runs.' },
         ],
         tips: [
-          "Next to the transcript's path, **Copy path** copies it; in the desktop app **Show in Finder** or **Show in File Explorer** opens its folder.",
+          "Info holds what is known about the session; what you can do with it is the session menu. In the desktop app, **Show in Finder** or **Show in File Explorer** beside the transcript's path opens its folder.",
         ],
       },
       {
         heading: 'The session menu',
-        intro: 'Press **⋯** at the top right. It offers what applies to this session:',
+        intro:
+          'Press **⋮** at the top right. It offers what applies to this session, in four groups:',
         terms: [
           {
-            term: 'Rename…',
-            text: 'Renames the session. For a VS Code session the new name shows only in Mother Claude.',
+            term: 'Continue',
+            text: "**Continue here** takes over a session Mother Claude doesn't run, with launch options; while it still runs elsewhere, **Continue here, as a new session** drives a copy from here. **Bring back to this Mac** (or **this PC**) brings back one another computer runs. **Switch account…** runs it under another Claude account, **Continue on another account…** for a session started elsewhere. **Continue on another computer…** moves it, with its code, to another of your computers; **Keep a copy on…** keeps a copy there after each turn.",
           },
           {
-            term: 'Continue here',
-            text: 'Takes the session over as one Mother Claude runs (**Continue here (fork)** while it still runs elsewhere).',
+            term: 'Organize',
+            text: '**Rename…** (for a VS Code session the new name shows only in Mother Claude), **Move or copy…** the conversation, or its whole project with **Move or copy this project…**, to another account or a storage, and **Delete…**, with seven days to undo.',
           },
           {
-            term: 'Switch account…',
-            text: 'Runs it under another Claude account (with several accounts). **Continue on another account…** does it for a session started elsewhere.',
+            term: 'This session',
+            text: 'On a phone, its **Notifications** (**Follow**, **Default** or **Mute**) and **Notify me when this turn finishes** while it works. **Terminal view**, what its terminal shows (tmux sessions and background jobs), with the keys that answer a dialog open there; **Open in VS Code**; **Session info**, the **Info** tab; and the `claude --resume …` command, which **Copy** puts on your clipboard.',
           },
           {
-            term: 'Continue on another computer…',
-            text: 'Moves the session, with its code, to another of your computers. On a session another computer runs, **Bring back to this Mac** (or **Bring back to this PC**) brings it here.',
+            term: 'Its process',
+            text: "A background job's **Stop**, **Restart** and **Remove**. **Remove** needs the desktop app, or a device allowed dangerous actions.",
           },
-          {
-            term: 'Move or copy…',
-            text: 'Moves or copies the conversation, or with **Move or copy this project…** its whole project, to another account or a storage.',
-          },
-          { term: 'Delete…', text: 'Deletes the conversation, with seven days to undo.' },
-          {
-            term: 'Terminal view',
-            text: 'What its terminal shows (tmux sessions and background jobs).',
-          },
-          {
-            term: 'Notifications',
-            text: 'On a phone: **Follow**, **Default** or **Mute** push notifications for this session, and **Notify me when this turn finishes** while it works.',
-          },
-          {
-            term: 'claude --resume …',
-            text: '**Copy** puts the command to resume it in a terminal on your clipboard.',
-          },
-          { term: 'Open in VS Code', text: 'For sessions that run there.' },
-          { term: 'Session info', text: 'Opens the **Info** tab.' },
-          {
-            term: 'Stop, Respawn, Remove',
-            text: 'For background jobs. **Remove** needs the desktop app, or a device allowed dangerous actions.',
-          },
+        ],
+        tips: [
+          'Another computer’s session leaves out what only that computer does (switching its account, moving, copying, deleting it), and the menu says so.',
         ],
       },
     ],
@@ -658,13 +635,14 @@ const TOPICS: HelpTopicSource[] = [
         intro: '**Continue here** turns a session into one Mother Claude runs, with full control.',
         steps: [
           'Open the session.',
-          'Press **⋯**.',
-          'Choose **Continue here**, or **Continue here (fork)** for a session still running elsewhere.',
+          'Press **⋮**.',
+          'Under **Continue**, choose **Continue here**, or **Continue here, as a new session** for a session still running elsewhere.',
+          'To choose the model, effort or mode, open **Launch options (model · effort · mode)**.',
+          'Press **Continue here** (or **Continue here, as a new session**).',
         ],
         points: [
-          'A session still running elsewhere is forked: you drive a copy with a new id, and the original keeps running where it is.',
+          'A session still running elsewhere goes on here as a new session: you drive a copy with a new id, and the original keeps running where it is.',
           'An ended session resumes in place. Typing a message into it does the same: its button says **Resume**.',
-          'To choose model, effort or mode first, use **Continue here** on the **Info** tab and open **Launch options (model · effort · mode)**.',
           'If the conversation started on another computer, you may be asked to choose its folder here first.',
         ],
         notes: [
@@ -974,7 +952,7 @@ const TOPICS: HelpTopicSource[] = [
         ],
         points: [
           '**Show details** adds the command or question to a notification.',
-          'For one session: open its **⋯** menu and choose **Follow** or **Mute**, or **Notify me when this turn finishes**.',
+          'For one session: open its **⋮** menu and choose **Follow** or **Mute**, or **Notify me when this turn finishes**.',
           'Nothing is pushed to a device that has the app open in front of you, and bursts from one session are combined.',
           'The desktop app needs no push: it shows everything live.',
         ],
@@ -1213,14 +1191,14 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           "Mother Claude types into the session's tmux pane, so messages, slash commands and Esc work as if you typed them.",
           'It refuses while a dialog is open, so it never answers one by accident. Answer it, or open **Terminal view**.',
-          'Without the plugin, approvals there are answered with keys from the terminal view (**Send a key** on the **Info** tab).',
+          'Without the plugin, approvals there are answered with keys, under **Terminal view** in the session menu.',
           '`/compact`, `/clear`, `/context`, `/usage`, `/cost`, `/status`, `/todos`, `/model`, `/effort`, `/rename` and `/btw` work from any device. Other commands, keys and a leading `!` need a device allowed dangerous actions.',
         ],
       },
       {
         heading: 'Background jobs',
         points: [
-          'Jobs started with `claude --bg` can be stopped, respawned and removed from their **⋯** menu or the **Info** tab.',
+          'Jobs started with `claude --bg` can be stopped, restarted and removed from their **⋮** menu, under **Its process**.',
           '**Terminal view** shows what the job prints.',
           'Typing into a job is experimental and needs a device allowed dangerous actions.',
         ],
@@ -1229,7 +1207,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Take a session over',
         intro: 'For full control of any session, use **Continue here**.',
         points: [
-          'A session still running elsewhere is forked into a copy you drive here; the original keeps running.',
+          'A session still running elsewhere goes on here as a new session, a copy you drive here; the original keeps running.',
           'An ended session resumes in place.',
         ],
         links: [{ label: 'See Continue here', path: '/help/messaging', fragment: 'continue-here' }],
@@ -1766,7 +1744,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Move it',
         steps: [
-          "Open the session's **⋯** menu and choose **Continue on another computer…**.",
+          "Open the session's **⋮** menu and choose **Continue on another computer…**.",
           'Under **Computer**, pick where it goes. Mother Claude asks that computer first and shows what it found: nothing is written anywhere yet.',
           'Check **What goes**, **Where it goes**, **Code travels**, **Code lands** and the **Checks**.',
           'Press **Continue on …**.',
@@ -1927,7 +1905,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Turn it on',
         steps: [
-          "Open the session's **⋯** menu and choose **Keep a copy on…**.",
+          "Open the session's **⋮** menu and choose **Keep a copy on…**.",
           'Tick the computers that keep a copy; each says how its copy stands.',
           'Press **Save**.',
         ],
@@ -2548,7 +2526,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Switch a session to another account',
         intro: 'For a session Mother Claude runs, the same conversation goes on, on the same page.',
         steps: [
-          "Open the session's **⋯** menu.",
+          "Open the session's **⋮** menu.",
           'Choose **Switch account…**.',
           'Pick the account.',
           'If Claude is working, choose **After this turn** or **Now** under **When**.',
@@ -2564,7 +2542,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Continue on another account',
         intro: 'You get a copy to drive under the other account; the original stays as it was.',
         steps: [
-          "Open the session's **⋯** menu.",
+          "Open the session's **⋮** menu.",
           'Choose **Continue on another account…**.',
           'Pick the **Account**.',
           'Press the **Continue on …** button, which names the account.',
@@ -2663,7 +2641,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Move or copy',
         intro:
-          "Start from **Move or copy data…** on an account's row on **Accounts**, from **Move or copy…** in a session's **⋯** menu, or from **Select** on the Sessions list.",
+          "Start from **Move or copy data…** on an account's row on **Accounts**, from **Move or copy…** in a session's **⋮** menu, or from **Select** on the Sessions list.",
         steps: [
           'Choose **From** and **To**.',
           'Under **What**, choose **Everything**, **Projects**, **Conversations** or **Customizations**, and tick what to take.',
@@ -2687,7 +2665,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Delete conversations or projects',
         steps: [
-          "Choose **Delete…** in a session's **⋯** menu, on a project's menu, or press **Select** and then **Delete N…**.",
+          "Choose **Delete…** in a session's **⋮** menu, on a project's menu, or press **Select** and then **Delete N…**.",
           'Check **What goes** and **Skipped**.',
           'Leave **Keep a copy for 7 days so this can be undone** ticked.',
           'Press the button that names the delete, such as **Delete 2 conversations**.',

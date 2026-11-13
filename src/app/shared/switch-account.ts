@@ -149,7 +149,7 @@ export function switchErrorText(e: unknown, accountName?: string): string {
           )
         );
       case 'not_supported':
-        return e.message || tr("A fork that hasn't run yet can't move to another folder.");
+        return e.message || tr("A new session that hasn't run yet can't move to another folder.");
       case 'switch_failed':
       case 'session_live':
       case 'invalid_when':

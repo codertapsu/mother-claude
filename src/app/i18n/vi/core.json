@@ -84,7 +84,7 @@
   "a session": "một phiên",
   "{what} in {name}: {title} (and {n} more)": "{what} trong {name}: {title} (và {n} yêu cầu khác)",
   "{what} in {name}: {title}": "{what} trong {name}: {title}",
-  "Forked: you are driving the copy from here.": "Đã tách nhánh: bạn đang điều khiển bản sao từ đây.",
+  "Continued here as a new session: you are driving the copy from here.": "Đã tiếp tục ở đây thành phiên mới: bạn đang điều khiển bản sao từ đây.",
   "You can drive this session from here now.": "Giờ bạn có thể điều khiển phiên này từ đây.",
   "Could not continue": "Không thể tiếp tục",
   "Already on its way.": "Yêu cầu đang được thực hiện.",

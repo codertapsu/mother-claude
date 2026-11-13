@@ -227,15 +227,15 @@ export class ChannelBadgeComponent {
       {
         label: tr('Continue here'),
         ok: c.fork || c.continueOwned,
-        value: c.fork || c.continueOwned ? (s?.live ? tr('as a fork') : yes(true)) : no,
+        value: c.fork || c.continueOwned ? (s?.live ? tr('as a new session') : yes(true)) : no,
       },
       {
-        label: tr('Stop / respawn / remove'),
+        label: tr('Stop / restart / remove'),
         ok: c.lifecycle.stop || c.lifecycle.respawn || c.lifecycle.rm,
         value:
           [
             c.lifecycle.stop && tr('stop||lifecycle'),
-            c.lifecycle.respawn && tr('respawn||lifecycle'),
+            c.lifecycle.respawn && tr('restart||lifecycle'),
             c.lifecycle.rm && tr('remove||lifecycle'),
           ]
             .filter(Boolean)

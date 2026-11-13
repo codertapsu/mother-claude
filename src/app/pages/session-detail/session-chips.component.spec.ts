@@ -233,7 +233,7 @@ describe('SessionChipsComponent', () => {
     // Where it is switched instead…
     expect(sheet()).toContain('Switch it in VS Code itself; it applies to that session only.');
     // …with the fix (continue here) under it.
-    expect(sheet()).toContain('Continue here (fork)');
+    expect(sheet()).toContain('Continue here, as a new session');
 
     closeWhy(fixture);
     button(el, 'Thinking adaptive')?.click();
@@ -271,7 +271,7 @@ describe('SessionChipsComponent', () => {
       'A restart turns ultracode off until it is switched on again in VS Code',
     );
     expect(sheet()).toContain('Switch it in VS Code itself; it applies to that session only.');
-    expect(sheet()).toContain('Continue here (fork)');
+    expect(sheet()).toContain('Continue here, as a new session');
     closeWhy(fixture);
 
     // A new conversation: known after its first message.

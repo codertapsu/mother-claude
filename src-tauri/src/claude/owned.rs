@@ -1550,7 +1550,7 @@ pub fn job_for_session(jobs_dir: &Path, session_id: &str) -> Option<String> {
 pub fn not_background() -> ApiError {
     ApiError::unprocessable(
         "not_a_background_session",
-        "Only background sessions (claude --bg) can be stopped, respawned or removed this \
+        "Only background sessions (claude --bg) can be stopped, restarted or removed this \
          way. Interactive VS Code or terminal sessions have no job id.",
     )
 }

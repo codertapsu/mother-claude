@@ -150,7 +150,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         intro:
           'Với phiên do Mother Claude chạy, cuộc trò chuyện vẫn tiếp diễn như cũ, ngay trên trang đó.',
         steps: [
-          'Mở menu **⋯** của phiên.',
+          'Mở menu **⋮** của phiên.',
           'Chọn **Đổi tài khoản…**.',
           'Chọn tài khoản.',
           'Nếu Claude đang làm việc, chọn **Sau lượt này** hoặc **Ngay** ở **Khi nào**.',
@@ -166,7 +166,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Tiếp tục trên tài khoản khác',
         intro: 'Bạn nhận một bản sao để điều khiển bằng tài khoản kia; bản gốc vẫn giữ nguyên.',
         steps: [
-          'Mở menu **⋯** của phiên.',
+          'Mở menu **⋮** của phiên.',
           'Chọn **Tiếp tục trên tài khoản khác…**.',
           'Chọn **Tài khoản**.',
           'Nhấn nút **Tiếp tục trên …** (nút có ghi tên tài khoản).',
@@ -265,7 +265,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Di chuyển hoặc sao chép',
         intro:
-          'Bắt đầu từ **Chuyển hoặc sao chép dữ liệu…** ở dòng của một tài khoản trên trang **Tài khoản**, từ **Di chuyển hoặc sao chép…** trong menu **⋯** của một phiên, hoặc từ **Chọn** trên danh sách Phiên.',
+          'Bắt đầu từ **Chuyển hoặc sao chép dữ liệu…** ở dòng của một tài khoản trên trang **Tài khoản**, từ **Di chuyển hoặc sao chép…** trong menu **⋮** của một phiên, hoặc từ **Chọn** trên danh sách Phiên.',
         steps: [
           'Chọn **Từ** và **Đến**.',
           'Ở **Nội dung**, chọn **Tất cả**, **Dự án**, **Cuộc trò chuyện** hoặc **Tùy chỉnh**, rồi đánh dấu những gì cần lấy.',
@@ -289,7 +289,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Xóa cuộc trò chuyện hoặc dự án',
         steps: [
-          'Chọn **Xóa…** trong menu **⋯** của một phiên, trong menu của một dự án, hoặc nhấn **Chọn** rồi **Xóa N…**.',
+          'Chọn **Xóa…** trong menu **⋮** của một phiên, trong menu của một dự án, hoặc nhấn **Chọn** rồi **Xóa N…**.',
           'Kiểm tra **Những gì được chuyển** và **Đã bỏ qua**.',
           'Giữ dấu chọn ở **Giữ bản sao trong 7 ngày để có thể hoàn tác**.',
           'Nhấn nút ghi rõ thao tác xóa, ví dụ **Xóa 2 cuộc trò chuyện**.',

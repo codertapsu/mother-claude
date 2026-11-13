@@ -286,7 +286,7 @@ function tmuxCaps(): ControlCaps {
       },
       {
         code: 'owned_only_settings',
-        text: 'Ultracode and thinking can only be switched in a session Mother Claude owns: continue it here (a fork) to change them.',
+        text: 'Ultracode and thinking can only be switched in a session Mother Claude runs: continue it here, as a new session, to change them.',
         action: 'fork',
       },
       {
@@ -711,7 +711,7 @@ export function buildFixtures(now: number): Fixtures {
       control: noneCaps({ lifecycle: { stop: true, respawn: true, rm: true }, terminal: true }, [
         {
           code: 'background',
-          text: 'Background session: stop, respawn and remove work from here; its log is in the terminal view.',
+          text: 'Background session: stop, restart and remove work from here; its log is in the terminal view.',
           action: 'open-terminal',
         },
         {

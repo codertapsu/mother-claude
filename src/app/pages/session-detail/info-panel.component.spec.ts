@@ -191,6 +191,36 @@ describe('InfoPanelComponent', () => {
     expect(row(render(session({})), 'Transcript')).toBe('');
   });
 
+  it('keeps facts only: what to do with a session is its menu', () => {
+    asDesktop();
+    const el = render(
+      session({
+        surface: 'vscode',
+        tmuxPane: 'main:@1.%2',
+        control: {
+          ...ownedCaps(),
+          channel: 'tmux',
+          terminal: true,
+          keys: true,
+          lifecycle: { stop: true, respawn: true, rm: true },
+        },
+      }),
+    );
+    const headings = [...el.querySelectorAll('h2')].map((h) => h.textContent?.trim());
+    expect(headings).not.toContain('Actions');
+    // No Terminal view, Open in VS Code, Stop, Restart, Remove, keys or
+    // Continue here: a button here copies a fact, or says what works.
+    const actions = [...el.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (b) => !b.closest('mc-copy-button, mc-channel-badge'),
+    );
+    expect(actions.map((b) => b.textContent?.trim())).toEqual([]);
+    expect(el.querySelector('a[href^="vscode:"]')).toBeNull();
+    expect(el.querySelector('mc-launch-options')).toBeNull();
+    // The project folder is a fact, its path copyable.
+    expect(row(el, 'Folder')).toContain('~/dev/api');
+    expect(el.querySelector('[aria-label="Copy the project folder\'s path"]')).not.toBeNull();
+  });
+
   it('reveals the transcript on the desktop, and says why when it cannot', async () => {
     asDesktop();
     let gone = false;

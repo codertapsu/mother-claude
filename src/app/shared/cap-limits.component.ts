@@ -73,7 +73,7 @@ import { IconComponent } from './icon.component';
                     [disabled]="busy()"
                     (click)="continueHere(s, true)"
                   >
-                    {{ 'Continue here (fork)' | t }}
+                    {{ 'Continue here, as a new session' | t }}
                   </button>
                 }
               }

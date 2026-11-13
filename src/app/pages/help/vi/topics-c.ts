@@ -537,7 +537,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Chuyển phiên',
         steps: [
-          'Mở menu **⋯** của phiên và chọn **Tiếp tục trên máy tính khác…**.',
+          'Mở menu **⋮** của phiên và chọn **Tiếp tục trên máy tính khác…**.',
           'Trong **Máy tính**, chọn nơi phiên sẽ đến. Mother Claude hỏi máy đó trước và hiện những gì nó tìm thấy: chưa có gì được ghi ở đâu cả.',
           'Xem lại **Những gì được chuyển**, **Nơi đến**, **Cách chuyển mã nguồn**, **Nơi đặt mã nguồn** và phần **Kiểm tra**.',
           'Nhấn **Tiếp tục trên …**.',
@@ -698,7 +698,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Bật tính năng',
         steps: [
-          'Mở menu **⋯** của phiên và chọn **Giữ bản sao trên…**.',
+          'Mở menu **⋮** của phiên và chọn **Giữ bản sao trên…**.',
           'Đánh dấu các máy tính sẽ giữ bản sao; mỗi máy cho biết bản sao của nó đang ở trạng thái nào.',
           'Nhấn **Lưu**.',
         ],

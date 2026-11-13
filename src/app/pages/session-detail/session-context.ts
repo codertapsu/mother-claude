@@ -388,13 +388,13 @@ export class SessionContext {
   async lifecycle(action: LifecycleAction): Promise<boolean> {
     const words: Record<LifecycleAction, string> = {
       stop: tr('Stop requested.'),
-      respawn: tr('Respawn requested.'),
+      respawn: tr('Restart requested.'),
       rm: tr('Removed.'),
     };
     // What failed, as the error's prefix: the button's name.
     const what: Record<LifecycleAction, string> = {
       stop: tr('Stop'),
-      respawn: tr('Respawn'),
+      respawn: tr('Restart'),
       rm: tr('Remove'),
     };
     const ok = await this.run(

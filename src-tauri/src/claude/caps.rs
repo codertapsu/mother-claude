@@ -315,7 +315,7 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
         } else if live {
             limit(
                 codes::CONTINUE_HERE,
-                "Or continue it here as an owned session (a fork) for full control.",
+                "Or continue it here, as a new session, for full control.",
                 Some(LimitAction::Fork),
             )
         } else {
@@ -404,8 +404,8 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
         ));
         caps.limits.push(limit(
             codes::OWNED_SETTINGS,
-            "Ultracode and thinking can only be switched in a session Mother Claude owns: \
-             continue it here (a fork) to change them.",
+            "Ultracode and thinking can only be switched in a session Mother Claude runs: \
+             continue it here, as a new session, to change them.",
             continuable.then_some(LimitAction::Fork),
         ));
         if !input.hooks_active {

@@ -62,6 +62,86 @@ describe('SessionHeaderComponent', () => {
       (b) => (b.textContent ?? '').replace(/\s+/g, ' ').trim() === label,
     );
 
+  const text = (e: Element | null | undefined) =>
+    (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  /** The menu as its groups: each heading with what is under it. */
+  const groups = (el: HTMLElement) => {
+    const out: [string, string[]][] = [];
+    for (const node of el.querySelectorAll('.menu > *')) {
+      if (node.matches('h2.group')) out.push([text(node), []]);
+      else if (node.matches('.item')) out.at(-1)?.[1].push(text(node.querySelector('span')));
+      else if (node.matches('.lifecycle')) {
+        out.at(-1)?.[1].push(...[...node.querySelectorAll('button')].map((b) => text(b)));
+      }
+    }
+    return out;
+  };
+  const openMenu = (el: HTMLElement) => {
+    el.querySelector<HTMLButtonElement>('[aria-label="Session menu"]')?.click();
+    fixture.detectChanges();
+  };
+
+  it('groups its menu: Continue, Organize, This session, Its process', async () => {
+    const ctx = TestBed.inject(SessionContext);
+    const el = await render();
+    ctx.detail.set({
+      ...detail,
+      live: true,
+      status: 'idle',
+      control: {
+        ...ownedCaps(),
+        channel: 'hooks',
+        terminal: true,
+        lifecycle: { stop: true, respawn: true, rm: true },
+      },
+    } as SessionDetail);
+    fixture.detectChanges();
+    openMenu(el);
+    expect(groups(el)).toEqual([
+      ['Continue', ['Continue here, as a new session']],
+      ['Organize', ['Rename…', 'Delete…']],
+      ['This session', ['Terminal view', 'Session info', 'claude --resume s1…']],
+      ['Its process', ['Stop', 'Restart', 'Remove']],
+    ]);
+    // An ended one is continued as it is; a session Mother Claude runs has
+    // nothing to continue and no process of a background job.
+    ctx.detail.set(detail);
+    fixture.detectChanges();
+    expect(groups(el)[0]).toEqual(['Continue', ['Continue here']]);
+    ctx.detail.set({
+      ...detail,
+      owned: true,
+      control: { ...ownedCaps(), lifecycle: { stop: false, respawn: false, rm: false } },
+    } as SessionDetail);
+    fixture.detectChanges();
+    expect(groups(el).map(([g]) => g)).toEqual(['Organize', 'This session']);
+  });
+
+  it('continues a session here as a new one, with launch options, from its menu', async () => {
+    backend.routes.set('/sessions/s1/continue', () => ({ status: 200, body: { id: 's2' } }));
+    const ctx = TestBed.inject(SessionContext);
+    const el = await render();
+    ctx.detail.set({ ...detail, live: true, status: 'working' } as SessionDetail);
+    fixture.detectChanges();
+    openMenu(el);
+    button(el, 'Continue here, as a new session')?.click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    // Nothing started yet: a sheet says what happens, with the options.
+    expect(backend.calls).not.toContain('POST /sessions/s1/continue');
+    const sheet = el.querySelector('.continue')!;
+    expect(text(sheet)).toContain('It keeps running where it is');
+    expect(sheet.querySelector('mc-launch-options')).not.toBeNull();
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const go = sheet.querySelector<HTMLButtonElement>('.btn.primary')!;
+    expect(text(go)).toBe('Continue here, as a new session');
+    go.click();
+    await flush();
+    expect(backend.calls).toContain('POST /sessions/s1/continue');
+    expect(backend.bodyOf('POST /sessions/s1/continue')).toEqual({ fork: true });
+  });
+
   it('deletes the conversation from its menu, and leaves the page once it is gone', async () => {
     backend.routes.set('/data/delete', () => ({
       status: 200,

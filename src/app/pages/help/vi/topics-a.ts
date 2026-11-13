@@ -129,7 +129,7 @@ const TOPICS: HelpTopicSource[] = [
           'Mother Claude chỉ điều khiển hoàn toàn được một phiên khi chính nó đã bắt đầu phiên đó: phiên như vậy **thuộc Mother Claude**. Phiên bạn bắt đầu trong terminal, VS Code, JetBrains hay Claude Desktop là phiên bắt đầu ở nơi khác. Bạn luôn xem được chúng, và có thể trả lời, nhắn tin cho chúng qua plugin Mother Claude hoặc tmux.',
         points: [
           'Phiên thuộc Mother Claude nhận tin nhắn, hình ảnh, quyết định duyệt, lệnh đổi mô hình, mức nỗ lực và chế độ, lệnh ngắt và lệnh gạch chéo; câu trả lời của Claude hiện ra từng chữ.',
-          '**Tiếp tục ở đây** biến bất kỳ phiên nào thành phiên thuộc Mother Claude. Phiên vẫn đang chạy ở nơi khác được rẽ nhánh thành một bản sao; phiên đã kết thúc thì tiếp tục ngay tại chỗ.',
+          '**Tiếp tục ở đây** biến bất kỳ phiên nào thành phiên thuộc Mother Claude. Phiên vẫn đang chạy ở nơi khác tiếp tục ở đây thành phiên mới, một bản sao; phiên đã kết thúc thì tiếp tục ngay tại chỗ.',
           'Huy hiệu của mỗi phiên cho biết bạn điều khiển được nó đến đâu: **Toàn quyền**, **Qua hooks**, **Qua tmux**, **Thử nghiệm** hoặc **Chỉ xem**. Chạm vào huy hiệu để xem những gì dùng được và vì sao.',
         ],
         links: [
@@ -404,7 +404,7 @@ const TOPICS: HelpTopicSource[] = [
           'Mũi tên ở góc trên bên trái đưa bạn về trang **Phiên**. Dòng dưới tên cho biết Claude đang làm gì, ví dụ công cụ nó đang chạy, và đã bao lâu.',
           'Hàng kế tiếp cho biết phiên chạy ở đâu và được kết nối thế nào (ví dụ **VS Code · Qua hook**), rồi đến mô hình, chế độ quyền và mức nỗ lực, mức dùng ngữ cảnh và chi phí.',
           'Chạm vào một nhãn để thay đổi nó. Nhãn nào không đổi được sẽ giải thích lý do khi bạn chạm vào.',
-          '**⋯** mở menu của phiên.',
+          '**⋮** mở menu của phiên: những việc bạn có thể làm với phiên.',
         ],
       },
       {
@@ -460,7 +460,7 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           {
             term: 'Phiên',
-            text: 'Tên, trạng thái, id, dự án và thư mục, đường dẫn bản ghi, nơi phiên chạy, tài khoản Claude, nhánh và pull request.',
+            text: 'Tên, trạng thái, id, dự án và thư mục, đường dẫn bản ghi, nơi phiên chạy, tài khoản Claude, nhánh và pull request. Đường dẫn nào cũng có **Sao chép đường dẫn**.',
           },
           {
             term: 'Mô hình và mức dùng',
@@ -474,59 +474,36 @@ const TOPICS: HelpTopicSource[] = [
             term: 'Từ đây bạn có thể',
             text: 'Những gì dùng được với phiên này, và nút khắc phục từng giới hạn.',
           },
-          {
-            term: 'Thao tác',
-            text: '**Xem terminal**, **Mở trong VS Code**, **Dừng**, **Khởi chạy lại**, **Gỡ bỏ**, **Gửi phím**, lệnh `claude --resume` để sao chép, và **Tiếp tục ở đây** với các tùy chọn khởi chạy.',
-          },
           { term: 'Máy chủ MCP', text: 'Các máy chủ MCP của một phiên do Mother Claude chạy.' },
         ],
         tips: [
-          'Cạnh đường dẫn bản ghi, **Sao chép đường dẫn** sẽ sao chép nó; trong ứng dụng máy tính, **Hiện trong Finder** hoặc **Hiện trong File Explorer** mở thư mục chứa nó.',
+          'Thông tin chứa những gì đã biết về phiên; những việc bạn có thể làm với phiên nằm trong menu của phiên. Trong ứng dụng máy tính, **Hiện trong Finder** hoặc **Hiện trong File Explorer** cạnh đường dẫn bản ghi mở thư mục chứa nó.',
         ],
       },
       {
         heading: 'Menu của phiên',
-        intro: 'Nhấn **⋯** ở góc trên bên phải. Menu có những mục áp dụng cho phiên này:',
+        intro:
+          'Nhấn **⋮** ở góc trên bên phải. Menu có những mục áp dụng cho phiên này, chia thành bốn nhóm:',
         terms: [
           {
-            term: 'Đổi tên…',
-            text: 'Đổi tên phiên. Với phiên VS Code, tên mới chỉ hiện trong Mother Claude.',
+            term: 'Tiếp tục',
+            text: '**Tiếp tục ở đây** tiếp quản một phiên mà Mother Claude không chạy, kèm các tùy chọn khởi chạy; khi phiên vẫn đang chạy ở nơi khác, **Tiếp tục ở đây, thành phiên mới** cho bạn điều khiển một bản sao từ đây. **Đưa về máy Mac này** (hoặc **máy PC này**) đưa về một phiên đang chạy trên máy khác. **Đổi tài khoản…** chạy phiên bằng một tài khoản Claude khác, **Tiếp tục trên tài khoản khác…** cho phiên bắt đầu ở nơi khác. **Tiếp tục trên máy tính khác…** chuyển phiên, cùng mã nguồn của nó, sang một máy tính khác của bạn; **Giữ bản sao trên…** giữ một bản sao ở đó sau mỗi lượt.',
           },
           {
-            term: 'Tiếp tục tại đây',
-            text: 'Tiếp quản phiên để Mother Claude chạy nó (**Tiếp tục ở đây (rẽ nhánh)** khi phiên vẫn đang chạy ở nơi khác).',
+            term: 'Sắp xếp',
+            text: '**Đổi tên…** (với phiên VS Code, tên mới chỉ hiện trong Mother Claude), **Di chuyển hoặc sao chép…** cuộc trò chuyện, hoặc cả dự án của nó với **Di chuyển hoặc sao chép dự án này…**, sang một tài khoản khác hay một kho lưu trữ, và **Xóa…**, có bảy ngày để hoàn tác.',
           },
           {
-            term: 'Đổi tài khoản…',
-            text: 'Chạy phiên bằng một tài khoản Claude khác (khi có nhiều tài khoản). **Tiếp tục trên tài khoản khác…** làm việc này cho phiên bắt đầu ở nơi khác.',
+            term: 'Phiên này',
+            text: 'Trên điện thoại, **Thông báo** của phiên (**Theo dõi**, **Mặc định** hoặc **Tắt tiếng**) và **Báo cho tôi khi lượt này xong** trong lúc phiên làm việc. **Xem terminal**, những gì terminal của phiên đang hiện (phiên tmux và tác vụ nền), kèm các phím để trả lời hộp thoại đang mở ở đó; **Mở trong VS Code**; **Thông tin phiên**, tức thẻ **Thông tin**; và lệnh `claude --resume …`, mà **Sao chép** đưa vào bộ nhớ tạm.',
           },
           {
-            term: 'Tiếp tục trên máy tính khác…',
-            text: 'Chuyển phiên, cùng mã nguồn của nó, sang một máy tính khác của bạn. Với phiên đang chạy trên máy khác, **Đưa về máy Mac này** (hoặc **Đưa về máy PC này**) đưa nó về đây.',
+            term: 'Tiến trình của phiên',
+            text: '**Dừng**, **Khởi động lại** và **Gỡ bỏ** của một tác vụ nền. **Gỡ bỏ** cần ứng dụng máy tính, hoặc một thiết bị được phép thực hiện thao tác nguy hiểm.',
           },
-          {
-            term: 'Di chuyển hoặc sao chép…',
-            text: 'Di chuyển hoặc sao chép cuộc trò chuyện, hoặc cả dự án của nó với **Di chuyển hoặc sao chép dự án này…**, sang một tài khoản khác hay một kho lưu trữ.',
-          },
-          { term: 'Xóa…', text: 'Xóa cuộc trò chuyện, có bảy ngày để hoàn tác.' },
-          {
-            term: 'Xem terminal',
-            text: 'Những gì terminal của phiên đang hiện (phiên tmux và tác vụ nền).',
-          },
-          {
-            term: 'Thông báo',
-            text: 'Trên điện thoại: **Theo dõi**, **Mặc định** hoặc **Tắt tiếng** thông báo đẩy cho phiên này, và **Báo cho tôi khi lượt này xong** trong lúc phiên làm việc.',
-          },
-          {
-            term: 'claude --resume …',
-            text: '**Sao chép** đưa lệnh để tiếp tục phiên trong terminal vào bộ nhớ tạm.',
-          },
-          { term: 'Mở trong VS Code', text: 'Cho các phiên chạy trong VS Code.' },
-          { term: 'Thông tin phiên', text: 'Mở thẻ **Thông tin**.' },
-          {
-            term: 'Dừng, Khởi chạy lại, Gỡ bỏ',
-            text: 'Cho tác vụ nền. **Gỡ bỏ** cần ứng dụng máy tính, hoặc một thiết bị được phép thực hiện thao tác nguy hiểm.',
-          },
+        ],
+        tips: [
+          'Với phiên của máy tính khác, menu bỏ qua những việc chỉ máy đó làm được (đổi tài khoản, di chuyển, sao chép, xóa phiên), và có ghi rõ điều đó.',
         ],
       },
     ],
@@ -669,13 +646,14 @@ const TOPICS: HelpTopicSource[] = [
           '**Tiếp tục ở đây** biến một phiên thành phiên do Mother Claude chạy, với toàn quyền điều khiển.',
         steps: [
           'Mở phiên.',
-          'Nhấn **⋯**.',
-          'Chọn **Tiếp tục ở đây**, hoặc **Tiếp tục ở đây (rẽ nhánh)** với phiên vẫn đang chạy ở nơi khác.',
+          'Nhấn **⋮**.',
+          'Trong nhóm **Tiếp tục**, chọn **Tiếp tục ở đây**, hoặc **Tiếp tục ở đây, thành phiên mới** với phiên vẫn đang chạy ở nơi khác.',
+          'Để chọn mô hình, mức nỗ lực hoặc chế độ, mở **Tùy chọn khởi chạy (mô hình · mức nỗ lực · chế độ)**.',
+          'Nhấn **Tiếp tục ở đây** (hoặc **Tiếp tục ở đây, thành phiên mới**).',
         ],
         points: [
-          'Phiên vẫn đang chạy ở nơi khác sẽ được rẽ nhánh: bạn điều khiển một bản sao với id mới, còn bản gốc vẫn tiếp tục chạy ở chỗ cũ.',
+          'Phiên vẫn đang chạy ở nơi khác sẽ tiếp tục ở đây thành phiên mới: bạn điều khiển một bản sao với id mới, còn bản gốc vẫn tiếp tục chạy ở chỗ cũ.',
           'Phiên đã kết thúc sẽ tiếp tục ngay tại chỗ. Gõ tin nhắn vào phiên đó cũng có tác dụng như vậy: nút gửi của nó ghi **Tiếp tục**.',
-          'Để chọn mô hình, mức nỗ lực hoặc chế độ trước, dùng **Tiếp tục ở đây** trong thẻ **Thông tin** và mở **Tùy chọn khởi chạy (mô hình · mức nỗ lực · chế độ)**.',
           'Nếu cuộc trò chuyện bắt đầu trên một máy tính khác, có thể bạn sẽ được yêu cầu chọn thư mục của nó trên máy này trước.',
         ],
         notes: [
@@ -982,7 +960,7 @@ const TOPICS: HelpTopicSource[] = [
         ],
         points: [
           '**Hiện chi tiết** thêm lệnh hoặc câu hỏi vào thông báo.',
-          'Cho riêng một phiên: mở menu **⋯** của phiên và chọn **Theo dõi** hoặc **Tắt tiếng**, hoặc **Báo cho tôi khi lượt này xong**.',
+          'Cho riêng một phiên: mở menu **⋮** của phiên và chọn **Theo dõi** hoặc **Tắt tiếng**, hoặc **Báo cho tôi khi lượt này xong**.',
           'Không có thông báo nào được đẩy tới thiết bị đang mở ứng dụng trước mặt bạn, và nhiều thông báo dồn dập từ một phiên sẽ được gộp lại.',
           'Ứng dụng máy tính không cần thông báo đẩy: nó hiện mọi thứ trực tiếp.',
         ],
@@ -1221,14 +1199,14 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Mother Claude gõ vào khung tmux của phiên, nên tin nhắn, lệnh gạch chéo và phím Esc hoạt động như thể bạn tự gõ.',
           'Nó không gõ khi đang có hộp thoại mở, nên không bao giờ vô tình trả lời hộp thoại đó. Hãy trả lời hộp thoại, hoặc mở **Xem terminal**.',
-          'Nếu chưa có plugin, yêu cầu duyệt ở đó được trả lời bằng phím từ màn hình terminal (**Gửi phím** trong thẻ **Thông tin**).',
+          'Nếu chưa có plugin, yêu cầu duyệt ở đó được trả lời bằng phím, trong **Xem terminal** ở menu của phiên.',
           '`/compact`, `/clear`, `/context`, `/usage`, `/cost`, `/status`, `/todos`, `/model`, `/effort`, `/rename` và `/btw` dùng được từ mọi thiết bị. Các lệnh khác, phím và dấu `!` ở đầu cần một thiết bị được phép thực hiện thao tác nguy hiểm.',
         ],
       },
       {
         heading: 'Tác vụ nền',
         points: [
-          'Tác vụ bắt đầu bằng `claude --bg` có thể được dừng, khởi chạy lại và gỡ bỏ từ menu **⋯** của nó hoặc từ thẻ **Thông tin**.',
+          'Tác vụ bắt đầu bằng `claude --bg` có thể được dừng, khởi động lại và gỡ bỏ từ menu **⋮** của nó, trong nhóm **Tiến trình của phiên**.',
           '**Xem terminal** hiện những gì tác vụ in ra.',
           'Gõ vào một tác vụ vẫn là tính năng thử nghiệm và cần một thiết bị được phép thực hiện thao tác nguy hiểm.',
         ],
@@ -1237,7 +1215,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Tiếp quản một phiên',
         intro: 'Để điều khiển hoàn toàn bất kỳ phiên nào, hãy dùng **Tiếp tục ở đây**.',
         points: [
-          'Phiên vẫn đang chạy ở nơi khác sẽ được rẽ nhánh thành một bản sao để bạn điều khiển tại đây; bản gốc vẫn tiếp tục chạy.',
+          'Phiên vẫn đang chạy ở nơi khác sẽ tiếp tục ở đây thành phiên mới, một bản sao do bạn điều khiển; bản gốc vẫn tiếp tục chạy.',
           'Phiên đã kết thúc sẽ tiếp tục ngay tại chỗ.',
         ],
         links: [
