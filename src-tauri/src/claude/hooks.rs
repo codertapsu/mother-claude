@@ -155,7 +155,7 @@ pub fn script_invocation(script: &Path) -> (PathBuf, Vec<std::ffi::OsString>) {
 /// [`script_invocation`] as a command (its own arguments still to add).
 pub fn script_command(script: &Path) -> std::process::Command {
     let (program, args) = script_invocation(script);
-    let mut cmd = std::process::Command::new(program);
+    let mut cmd = crate::proc::std_command(program);
     cmd.args(args);
     cmd
 }
@@ -663,7 +663,7 @@ pub async fn run_cli_with(
     args: &[String],
     account: &crate::claude::accounts::AccountEnv,
 ) -> Result<CliOutput, String> {
-    let mut cmd = tokio::process::Command::new(crate::claude::claude_bin());
+    let mut cmd = crate::proc::command(crate::claude::claude_bin());
     cmd.args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())

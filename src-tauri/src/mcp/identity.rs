@@ -280,10 +280,7 @@ mod tests {
         // What the server sees as the request's peer.
         let peer = client.local_addr().unwrap();
         let me = std::process::id();
-        let mut other = std::process::Command::new("sleep")
-            .arg("30")
-            .spawn()
-            .unwrap();
+        let mut other = crate::proc::std_command("sleep").arg("30").spawn().unwrap();
         let sleeper = other.id();
         std::fs::create_dir_all(dir.path().join("sessions")).unwrap();
         for (pid, sid) in [(me, SID), (sleeper, OTHER)] {

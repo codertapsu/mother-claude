@@ -116,7 +116,7 @@ pub fn open_settings_pane(pane_id: &str) -> Result<(), String> {
             "energy" => "x-apple.systempreferences:com.apple.Battery-Settings.extension",
             other => return Err(format!("unknown settings pane: {other}")),
         };
-        std::process::Command::new("open")
+        crate::proc::std_command("open")
             .arg(url)
             .spawn()
             .map(|_| ())
@@ -131,7 +131,7 @@ pub fn open_settings_pane(pane_id: &str) -> Result<(), String> {
             "ransomware" => "windowsdefender://ransomwareprotection",
             other => return Err(format!("unknown settings pane: {other}")),
         };
-        std::process::Command::new("explorer.exe")
+        crate::proc::std_command("explorer.exe")
             .arg(uri)
             .spawn()
             .map(|_| ())
@@ -148,7 +148,7 @@ pub fn open_settings_pane(pane_id: &str) -> Result<(), String> {
 pub fn reveal_in_finder() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open")
+        crate::proc::std_command("open")
             .arg("-R")
             .arg(app_bundle_or_exe())
             .spawn()

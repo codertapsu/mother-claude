@@ -65,7 +65,7 @@ fn acquire() -> Option<Hold> {
     #[cfg(target_os = "macos")]
     {
         let pid = std::process::id().to_string();
-        match std::process::Command::new("/usr/bin/caffeinate")
+        match crate::proc::std_command("/usr/bin/caffeinate")
             .args(["-i", "-w", &pid])
             .spawn()
         {

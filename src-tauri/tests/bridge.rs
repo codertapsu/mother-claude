@@ -14,6 +14,10 @@
 //!   cargo test --manifest-path src-tauri/Cargo.toml --test bridge -- --ignored --nocapture
 //!   ```
 
+// Tests start their programs directly; the app's own code goes through
+// `proc`, which keeps console windows from flashing up on Windows.
+#![allow(clippy::disallowed_methods)]
+
 use std::net::SocketAddr;
 
 use mother_claude_lib::bridge::control::BridgeDefaults;

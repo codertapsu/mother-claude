@@ -95,7 +95,7 @@ async fn status_with(binary: &str) -> AuthStatus {
 }
 
 async fn status_with_env(binary: &str, account: &AccountEnv) -> AuthStatus {
-    let mut command = tokio::process::Command::new(binary);
+    let mut command = crate::proc::command(binary);
     command
         .arg("auth")
         .arg("status")

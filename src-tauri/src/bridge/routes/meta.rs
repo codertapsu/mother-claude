@@ -157,7 +157,7 @@ pub async fn capabilities(State(state): State<AppState>, policy: MountPolicy) ->
 
 /// `GET /metadata` — versions of everything in the chain.
 pub async fn metadata(State(state): State<AppState>, mount: MountPolicy) -> Response {
-    let cli = tokio::process::Command::new(crate::claude::claude_bin())
+    let cli = crate::proc::command(crate::claude::claude_bin())
         .arg("--version")
         .output()
         .await

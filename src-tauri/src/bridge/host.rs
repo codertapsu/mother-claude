@@ -163,7 +163,7 @@ impl RuntimeHost {
             )
         })?;
 
-        let mut command = tokio::process::Command::new("node");
+        let mut command = crate::proc::command("node");
         command
             .arg(&entry)
             .stdin(Stdio::piped())

@@ -311,7 +311,7 @@ impl OpenError {
 /// Run a command without waiting for it (reaped in the background: `open`
 /// and `rundll32` return at once, Chrome hands over to a running one).
 fn spawn(cmd: &Command) -> std::io::Result<()> {
-    let mut child = std::process::Command::new(&cmd.program)
+    let mut child = crate::proc::std_command(&cmd.program)
         .args(&cmd.args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

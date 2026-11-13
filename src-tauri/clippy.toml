@@ -1,0 +1,6 @@
+# Every program Mother Claude starts is made by `crate::proc`: on Windows it
+# carries CREATE_NO_WINDOW, so no console window flashes up while it runs.
+disallowed-methods = [
+  { path = "std::process::Command::new", reason = "use crate::proc::std_command: it opens no console window on Windows" },
+  { path = "tokio::process::Command::new", reason = "use crate::proc::command: it opens no console window on Windows" },
+]

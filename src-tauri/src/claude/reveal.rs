@@ -98,7 +98,7 @@ pub fn command(platform: Platform, target: &Target) -> Command {
 /// Run a command without waiting for it (it is reaped in the background;
 /// Explorer's exit code means nothing, and `open` returns at once).
 fn spawn(cmd: &Command) -> std::io::Result<()> {
-    let mut c = std::process::Command::new(cmd.program);
+    let mut c = crate::proc::std_command(cmd.program);
     c.args(&cmd.args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

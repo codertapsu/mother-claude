@@ -302,9 +302,6 @@ pub struct Tree {
     group: Option<i32>,
 }
 
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
 impl Tree {
     /// Starts `cmd` in a process group of its own (unix) or a job object
     /// (Windows, no console window).
@@ -312,7 +309,7 @@ impl Tree {
         #[cfg(unix)]
         cmd.process_group(0);
         #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.creation_flags(crate::proc::CREATE_NO_WINDOW);
         cmd.kill_on_drop(true);
         let child = cmd.spawn()?;
         #[cfg(windows)]
@@ -434,7 +431,7 @@ pub async fn execute(
     mut cancel: tokio::sync::watch::Receiver<bool>,
     deadline: tokio::time::Instant,
 ) -> std::io::Result<Ending> {
-    let mut cmd = tokio::process::Command::new(&shell.program);
+    let mut cmd = crate::proc::command(&shell.program);
     cmd.args(shell.args(command))
         .current_dir(dir)
         .stdin(Stdio::null())
@@ -591,7 +588,7 @@ mod tests {
 
     #[test]
     fn the_environment_loses_tokens_and_gains_the_marker() {
-        let mut cmd = tokio::process::Command::new("x");
+        let mut cmd = crate::proc::command("x");
         cmd.env("CLAUDE_CODE_OAUTH_TOKEN", "secret")
             .env("ANTHROPIC_API_KEY", "secret")
             .env("MOTHER_CLAUDE_TOKEN", "secret")

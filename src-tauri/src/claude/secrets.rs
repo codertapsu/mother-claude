@@ -778,7 +778,7 @@ mod tests {
         let store = KeychainStore;
         let name = SecretName::AccountToken("acc_000000007e57".into());
         store.set(&name, &Secret::new("dummy-value")).unwrap();
-        let seen = std::process::Command::new("security")
+        let seen = crate::proc::std_command("security")
             .args(["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a"])
             .arg(name.key())
             .output()

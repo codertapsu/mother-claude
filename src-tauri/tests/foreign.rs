@@ -6,6 +6,10 @@
 //! Nothing here touches `~/.claude` or runs `claude`. The one end-to-end run
 //! against the real CLI is `#[ignore]`d (it spends tokens).
 
+// Tests start their programs directly; the app's own code goes through
+// `proc`, which keeps console windows from flashing up on Windows.
+#![allow(clippy::disallowed_methods)]
+
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Stdio;

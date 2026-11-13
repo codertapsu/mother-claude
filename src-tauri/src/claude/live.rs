@@ -751,7 +751,7 @@ pub fn pid_exists(pid: u32) -> bool {
 /// or printed nothing.
 #[cfg(unix)]
 fn ps_field(pid: u32, field: &str) -> Option<String> {
-    let out = std::process::Command::new("ps")
+    let out = crate::proc::std_command("ps")
         .args(["-o", &format!("{field}="), "-p", &pid.to_string()])
         .env("TZ", "UTC")
         .env("LC_ALL", "C")
@@ -1600,7 +1600,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn a_childs_token_is_read_from_its_environment() {
-        let mut child = std::process::Command::new("sleep")
+        let mut child = crate::proc::std_command("sleep")
             .arg("30")
             .env("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-child-dummy")
             .spawn()
@@ -1743,11 +1743,11 @@ mod tests {
         assert!(!pid_exists(u32::MAX));
         // One that exited is not, on Windows while its handle is still held.
         let mut child = if cfg!(windows) {
-            std::process::Command::new("cmd")
+            crate::proc::std_command("cmd")
                 .args(["/C", "exit 0"])
                 .spawn()
         } else {
-            std::process::Command::new("true").spawn()
+            crate::proc::std_command("true").spawn()
         }
         .unwrap();
         let pid = child.id();

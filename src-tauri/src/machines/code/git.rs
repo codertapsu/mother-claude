@@ -50,9 +50,6 @@ const PRE: &[&str] = &[
 /// F8: what git prints when it skipped a path it could not read.
 const UNREADABLE: &[&str] = &["Filename too long", "could not open directory"];
 
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
 /// How to run git; [`GitRunner::begin`] makes one operation's runner.
 #[derive(Clone, Debug)]
 pub struct GitRunner {
@@ -258,7 +255,7 @@ impl GitOp {
     }
 
     fn command(&self, cwd: &Path) -> Command {
-        let mut cmd = Command::new(&self.runner.program);
+        let mut cmd = crate::proc::std_command(&self.runner.program);
         cmd.current_dir(cwd);
         for k in SCRUBBED {
             cmd.env_remove(k);
@@ -297,11 +294,6 @@ impl GitOp {
                 "-c",
                 "protocol.file.allow=always",
             ]);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(CREATE_NO_WINDOW);
         }
         cmd
     }

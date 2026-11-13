@@ -5,6 +5,9 @@
 //!
 //! Nothing here touches `~/.claude` or runs `claude` or a real tmux.
 
+// Tests start their programs directly; the app's own code goes through
+// `proc`, which keeps console windows from flashing up on Windows.
+#![allow(clippy::disallowed_methods)]
 #![cfg(unix)]
 
 use std::net::SocketAddr;

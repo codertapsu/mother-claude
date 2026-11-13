@@ -414,7 +414,7 @@ mod tests {
             .to_string();
         let system_root = std::env::var("SystemRoot").unwrap();
         let run = |envs: &[(&str, &str)]| -> Value {
-            let mut cmd = std::process::Command::new(format!(r"{system_root}\System32\cmd.exe"));
+            let mut cmd = crate::proc::std_command(format!(r"{system_root}\System32\cmd.exe"));
             cmd.raw_arg(format!("/d /s /c \"{line}\""))
                 .env_clear()
                 .env("SystemRoot", &system_root)
@@ -468,7 +468,7 @@ mod tests {
         write_all(&paths, 6725, "mcm_AbC-_9").unwrap();
         let helper = paths.plugin.root.join("scripts/mc-mcp-headers");
         let run = |envs: &[(&str, &str)]| -> Value {
-            let mut cmd = std::process::Command::new(&helper);
+            let mut cmd = crate::proc::std_command(&helper);
             cmd.env_clear().env("PATH", "/usr/bin:/bin");
             for (k, v) in envs {
                 cmd.env(k, v);

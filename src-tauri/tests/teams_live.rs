@@ -10,6 +10,10 @@
 //! quiet. Run it with
 //! `cargo test --manifest-path src-tauri/Cargo.toml --test teams_live -- --ignored`.
 
+// Tests start their programs directly; the app's own code goes through
+// `proc`, which keeps console windows from flashing up on Windows.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::BTreeMap;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};

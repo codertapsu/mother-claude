@@ -620,15 +620,10 @@ async fn run_long(program: &str, args: &[&str]) -> Option<(bool, String)> {
 }
 
 async fn run_for(program: &str, args: &[&str], timeout: Duration) -> Option<(bool, String)> {
-    let mut cmd = tokio::process::Command::new(program);
+    let mut cmd = crate::proc::command(program);
     cmd.args(args)
         .kill_on_drop(true)
         .stdin(std::process::Stdio::null());
-    #[cfg(windows)]
-    {
-        // No console window flashing up from a GUI app.
-        cmd.creation_flags(0x0800_0000);
-    }
     let out = tokio::time::timeout(timeout, cmd.output())
         .await
         .ok()?

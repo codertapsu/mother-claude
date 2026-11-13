@@ -535,7 +535,7 @@ impl TmuxState {
 
 async fn run_tmux(bin: &Path, args: &[OsString], stdin: Option<&[u8]>) -> ApiResult<String> {
     use tokio::io::AsyncWriteExt;
-    let mut cmd = tokio::process::Command::new(bin);
+    let mut cmd = crate::proc::command(bin);
     cmd.args(args)
         .stdin(if stdin.is_some() {
             std::process::Stdio::piped()
@@ -599,7 +599,7 @@ fn socket_candidates() -> Vec<PathBuf> {
 async fn parent_of(pid: u32) -> Option<u32> {
     let out = tokio::time::timeout(
         Duration::from_secs(2),
-        tokio::process::Command::new("ps")
+        crate::proc::command("ps")
             .args(["-o", "ppid=", "-p", &pid.to_string()])
             .env("LC_ALL", "C")
             .stdin(std::process::Stdio::null())
@@ -791,7 +791,7 @@ fn not_foreground(why: &str) -> ApiError {
 async fn ps_out(args: &[&str]) -> Option<String> {
     let out = tokio::time::timeout(
         Duration::from_secs(2),
-        tokio::process::Command::new("ps")
+        crate::proc::command("ps")
             .args(args)
             .env("LC_ALL", "C")
             .stdin(std::process::Stdio::null())

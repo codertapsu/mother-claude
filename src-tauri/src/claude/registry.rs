@@ -757,7 +757,7 @@ pub fn read_state_jsons(home: &ClaudeHome) -> HashMap<String, StateJson> {
 /// Run `claude agents --json [--all]`. Never errors out the dashboard: on any
 /// failure (CLI missing, non-zero exit, bad JSON) it logs and returns empty.
 pub async fn query_agents(all: bool) -> Vec<AgentEntry> {
-    let mut cmd = tokio::process::Command::new(super::claude_bin());
+    let mut cmd = crate::proc::command(super::claude_bin());
     cmd.arg("agents").arg("--json");
     if all {
         cmd.arg("--all");

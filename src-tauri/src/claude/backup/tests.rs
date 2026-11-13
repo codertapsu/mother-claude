@@ -386,7 +386,7 @@ fn an_archive_entry_with_a_backslash_is_refused_on_every_system() {
 /// installed): the promise that a backup needs no Mother Claude to read.
 #[test]
 fn archives_open_with_the_age_command_line_tool() {
-    let Ok(out) = std::process::Command::new("age").arg("--version").output() else {
+    let Ok(out) = crate::proc::std_command("age").arg("--version").output() else {
         eprintln!("`age` is not installed; skipped");
         return;
     };
@@ -403,7 +403,7 @@ fn archives_open_with_the_age_command_line_tool() {
         format!("{}\n", keys.identity.to_string().expose_secret()),
     )
     .unwrap();
-    let list = std::process::Command::new("sh")
+    let list = crate::proc::std_command("sh")
         .arg("-c")
         .arg(format!(
             "age -d -i '{}' '{}' | tar tz",

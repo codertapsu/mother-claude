@@ -764,7 +764,7 @@ async fn tailscale_status() -> Option<Value> {
         ["serve", "status", "--json"],
         ["funnel", "status", "--json"],
     ] {
-        let mut cmd = tokio::process::Command::new(&bin);
+        let mut cmd = crate::proc::command(&bin);
         cmd.args(args)
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())

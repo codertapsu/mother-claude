@@ -20,6 +20,7 @@ pub mod orchestration;
 pub mod pending;
 pub mod permissions;
 pub mod persist;
+pub mod proc;
 pub mod server;
 pub mod state;
 mod tray;
@@ -116,7 +117,7 @@ fn login_shell_path() -> Option<String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let out = std::process::Command::new(&shell)
+        let out = crate::proc::std_command(&shell)
             .args(["-ilc", &format!("printf '{MARK}%s{MARK}' \"$PATH\"")])
             .stdin(std::process::Stdio::null())
             .output();

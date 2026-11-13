@@ -411,7 +411,7 @@ pub async fn effective_bypass(state: &AppState, session: &SessionSummary) -> boo
 async fn argv_says_bypass(pid: u32) -> bool {
     let out = tokio::time::timeout(
         Duration::from_secs(2),
-        tokio::process::Command::new("ps")
+        crate::proc::command("ps")
             .args(["-o", "args=", "-p", &pid.to_string()])
             .env("LC_ALL", "C")
             .stdin(std::process::Stdio::null())
@@ -768,7 +768,7 @@ async fn runs_print_mode(state: &AppState, pid: u32) -> bool {
     }
     let out = tokio::time::timeout(
         Duration::from_secs(2),
-        tokio::process::Command::new("ps")
+        crate::proc::command("ps")
             .args(["-ww", "-o", "args=", "-p", &pid.to_string()])
             .env("LC_ALL", "C")
             .stdin(std::process::Stdio::null())

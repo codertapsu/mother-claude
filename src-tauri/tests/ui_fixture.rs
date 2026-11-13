@@ -31,6 +31,10 @@
 //! Creating `<dataDir>/finish-build` appends the build's task-notification:
 //! nothing resumes that session any more, and it turns idle.
 
+// Tests start their programs directly; the app's own code goes through
+// `proc`, which keeps console windows from flashing up on Windows.
+#![allow(clippy::disallowed_methods)]
+
 use std::io::Write;
 use std::net::SocketAddr;
 use std::path::Path;

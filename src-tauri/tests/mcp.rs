@@ -4,6 +4,10 @@
 //! spawns `claude`, except the `#[ignore]`d live test at the end (Spike B),
 //! which runs the real CLI and spends tokens.
 
+// Tests start their programs directly; the app's own code goes through
+// `proc`, which keeps console windows from flashing up on Windows.
+#![allow(clippy::disallowed_methods)]
+
 use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;

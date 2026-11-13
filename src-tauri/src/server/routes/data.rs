@@ -834,7 +834,7 @@ pub async fn daemon(Authed(_ctx): Authed) -> impl IntoResponse {
 }
 
 async fn daemon_status() -> Value {
-    let out = tokio::process::Command::new(claude::claude_bin())
+    let out = crate::proc::command(claude::claude_bin())
         .arg("daemon")
         .arg("status")
         .stdin(std::process::Stdio::null())

@@ -774,7 +774,10 @@ through Machines (its folder must be trusted by Claude Code on that machine).
 - **Rust**: edition 2021, `rustfmt` clean, `clippy -D warnings` clean. `anyhow` at
   boundaries, `thiserror` for typed errors. Never `unwrap()` on I/O. Tolerant
   parsing for every `~/.claude` read — log and skip, never crash. `tracing` for
-  logs (never write logs into `~/.claude`).
+  logs (never write logs into `~/.claude`). Every program the app starts is
+  made by `crate::proc` (`command`, `std_command`): on Windows it carries
+  `CREATE_NO_WINDOW`, so no console window flashes up from the GUI app;
+  `clippy.toml` forbids `Command::new` elsewhere (tests may allow it).
 - **Angular**: latest, standalone components, signals for state, strict
   TypeScript, ESLint + Prettier clean. One API client used by desktop and mobile.
 - **Commits**: Conventional Commits, small and well-scoped. Keep every commit

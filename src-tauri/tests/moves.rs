@@ -7,6 +7,10 @@
 //! `~/.claude` or `~/.claude.json`: `CLAUDE_CONFIG_DIR` is set, so each test
 //! home's `.claude.json` is its own (a carried trust lands there).
 
+// Tests start their programs directly; the app's own code goes through
+// `proc`, which keeps console windows from flashing up on Windows.
+#![allow(clippy::disallowed_methods)]
+
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;

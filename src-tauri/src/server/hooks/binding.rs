@@ -80,7 +80,7 @@ pub fn parse_lsof_local_ports(out: &str) -> Vec<u16> {
 }
 
 async fn output(cmd: &str, args: &[String]) -> Option<String> {
-    let out = tokio::process::Command::new(cmd)
+    let out = crate::proc::command(cmd)
         .args(args)
         .env("LC_ALL", "C")
         .stdin(std::process::Stdio::null())

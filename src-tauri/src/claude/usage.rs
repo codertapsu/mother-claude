@@ -1624,7 +1624,7 @@ pub async fn helper_read_with(
     sessions: &Path,
 ) -> Result<Value, String> {
     prepare_dir(dir).map_err(|e| format!("Could not prepare the usage helper directory: {e}"))?;
-    let mut cmd = tokio::process::Command::new(bin);
+    let mut cmd = crate::proc::command(bin);
     cmd.args(HELPER_ARGS)
         .current_dir(dir)
         .stdin(Stdio::piped())

@@ -14,6 +14,10 @@
 //! WebSocket) and samples each live session's ultracode / effort / thinking
 //! at fixed times after launch; see its doc comment.
 
+// Tests start their programs directly; the app's own code goes through
+// `proc`, which keeps console windows from flashing up on Windows.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

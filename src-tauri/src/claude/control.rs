@@ -2548,7 +2548,7 @@ fn headless_command(
     opts: &SpawnOptions,
     permission_mode: &str,
 ) -> tokio::process::Command {
-    let mut c = tokio::process::Command::new(crate::claude::claude_bin());
+    let mut c = crate::proc::command(crate::claude::claude_bin());
     c.args(headless_args(id, opts, permission_mode));
     // The MAX_THINKING_TOKENS env is what the CLI reads at startup (0
     // disables, a positive budget enables; adaptive-capable models ignore
@@ -2585,7 +2585,7 @@ fn sidecar_command(
     sidecar_token: &str,
     server_url: &str,
 ) -> tokio::process::Command {
-    let mut c = tokio::process::Command::new("node");
+    let mut c = crate::proc::command("node");
     c.arg(entry)
         .env("MC_SESSION_ID", id)
         .env("MC_CWD", &opts.cwd)
@@ -2634,7 +2634,7 @@ async fn run_job_command(
     if !is_short_job_id(short_id) {
         anyhow::bail!("{short_id:?} is not a background job id");
     }
-    let mut cmd = tokio::process::Command::new(crate::claude::claude_bin());
+    let mut cmd = crate::proc::command(crate::claude::claude_bin());
     cmd.arg(action)
         .arg(short_id)
         .stdin(Stdio::null())
@@ -2738,7 +2738,7 @@ mod tests {
             ),
         ];
         for (kind, account) in cases {
-            let mut cmd = tokio::process::Command::new("true");
+            let mut cmd = crate::proc::command("true");
             cmd.env("CLAUDE_CODE_USE_BEDROCK", "1")
                 .env("CLAUDE_CODE_OAUTH_TOKEN", "inherited")
                 .env("CLAUDECODE", "1");
@@ -2782,7 +2782,7 @@ mod tests {
     fn lifecycle_commands_are_never_marked_owned() {
         // `claude stop|respawn|rm|logs` can cold-start a transient daemon; a
         // marker it inherited would silence every background session's hooks.
-        let mut cmd = tokio::process::Command::new("true");
+        let mut cmd = crate::proc::command("true");
         cmd.env(OWNED_ENV, "1").env("CLAUDE_CODE_USE_BEDROCK", "1");
         scrub_child_env(&mut cmd, &AccountEnv::Inherit);
         let envs = envs_of(&cmd);
