@@ -650,6 +650,7 @@ const TOPICS: HelpTopicSource[] = [
           'Add your message and press **Send**.',
         ],
         points: [
+          'You can also paste a screenshot, or an image or file you copied, into the message box (Ctrl+V; ⌘V on a Mac), or drop files on it.',
           'Sessions Mother Claude runs take images inline; photos are scaled down to at most 2048 pixels.',
           'Other files, and every file sent to a session started elsewhere, are uploaded and given to Claude as a file path.',
           'Press **✕** on a thumbnail to remove it before sending.',

@@ -653,6 +653,7 @@ const TOPICS: HelpTopicSource[] = [
           'Viết tin nhắn và nhấn **Gửi**.',
         ],
         points: [
+          'Bạn cũng có thể dán ảnh chụp màn hình, hoặc ảnh hay tệp đã sao chép, vào ô tin nhắn (Ctrl+V; ⌘V trên máy Mac), hoặc thả tệp vào đó.',
           'Phiên do Mother Claude chạy nhận ảnh ngay trong tin nhắn; ảnh được thu nhỏ còn tối đa 2048 pixel.',
           'Các tệp khác, và mọi tệp gửi tới phiên bắt đầu ở nơi khác, được tải lên rồi đưa cho Claude dưới dạng đường dẫn tệp.',
           'Nhấn **✕** trên ảnh thu nhỏ để bỏ nó trước khi gửi.',
