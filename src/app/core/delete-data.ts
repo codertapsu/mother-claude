@@ -413,7 +413,7 @@ export function deleteSkipReason(s: DeleteSkip, openInApi?: ReadonlySet<string>)
  * transcript is a dangerous action). English: shown with `tr()` (or `| t`)
  * where it is read. */
 export const DELETE_DANGEROUS_REASON =
-  'Deleting conversations needs dangerous actions for this device, granted on the computer in Remote › Devices.';
+  'Deleting conversations needs dangerous actions for this device, granted on the computer in Settings › Phone & devices.';
 
 /** A refusal of a delete or a reveal, in words. */
 export function deleteErrorText(e: unknown): string {

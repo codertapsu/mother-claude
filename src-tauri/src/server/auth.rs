@@ -517,10 +517,11 @@ impl<S: Send + Sync> FromRequestParts<S> for DesktopOnly {
 
 /// The desktop or a paired device, on any ingress (docs/ACCOUNTS.md §13.9):
 /// moving and copying data, backups, restores, pulls, undo, storages, backup
-/// settings, account defaults, copy consent, renaming an account. Never the
-/// local-script token or an anonymous caller (`desktop_only`, as these routes
-/// answered everyone but the desktop before). The audit layer records what a
-/// device does; the handler names it to the desktop with
+/// settings, account defaults, copy consent, renaming an account, and reading
+/// the device list (a device sees less: `routes::pairing::list_devices`).
+/// Never the local-script token or an anonymous caller (`desktop_only`, as
+/// these routes answered everyone but the desktop before). The audit layer
+/// records what a device does; the handler names it to the desktop with
 /// [`note_device_action`]. Whatever of it runs code or changes trust still
 /// needs [`require_dangerous`].
 #[derive(Debug, Clone)]
@@ -646,7 +647,7 @@ impl<S: Send + Sync> FromRequestParts<S> for DangerousOk {
 
 /// The refusal text for dangerous actions.
 pub const DANGEROUS_BLOCKED_TEXT: &str = "This action is restricted to the Mother Claude \
-     desktop app, or to a device you granted dangerous actions in Remote > Devices.";
+     desktop app, or to a device you granted dangerous actions in Settings › Phone & devices.";
 
 /// Require the dangerous right for a condition decided inside the handler (e.g.
 /// only when the body asks for bypassPermissions). Marks the request when it
@@ -658,7 +659,7 @@ pub fn require_dangerous(ctx: &ClientContext, what: &str) -> Result<(), ApiError
     } else {
         Err(ApiError::dangerous_blocked(format!(
             "{what} is restricted to the Mother Claude desktop app, or to a device you \
-             granted dangerous actions in Remote > Devices."
+             granted dangerous actions in Settings › Phone & devices."
         )))
     }
 }

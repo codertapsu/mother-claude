@@ -20,16 +20,18 @@ import { TPipe } from '../../core/i18n/t.pipe';
 import {
   DetectedTunnel,
   DeviceInfo,
-  ForeignControlStatus,
   PairCode,
   PairTarget,
+  PairedDeviceView,
   RemoteInfo,
 } from '../../core/models';
 import { NowService } from '../../core/now.service';
 import { RealtimeService } from '../../core/realtime.service';
 import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
+import { PageHeadComponent } from '../../shared/page-head.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
+import { capitalize } from '../../shared/util';
 
 const POLL_MS = 10_000;
 
@@ -52,15 +54,26 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 /**
- * Desktop: everything about reaching Mother Claude from other devices —
- * pairing QR codes (LAN or internet), internet access through a tunnel
- * (detection + copyable commands), paired devices, and the foreign-session
- * control plugin. A device that asks to pair waits in the Inbox, and the
- * shell's dialog asks for its number on any page.
+ * *Settings › Phone & devices* (docs/UI-REDESIGN.md §6.7): on the desktop,
+ * everything about reaching Mother Claude from other devices — pairing QR
+ * codes (LAN or internet), internet access through a tunnel (detection +
+ * copyable commands), the paired devices with what each may do. A device
+ * that asks to pair waits in the Inbox, and the shell's dialog asks for its
+ * number on any page. A phone sees itself and the devices paired, read
+ * only (no dead end). The plugin for sessions started elsewhere is a page
+ * of its own.
  */
 @Component({
   selector: 'mc-remote',
-  imports: [FormsModule, RouterLink, CopyButtonComponent, IconComponent, RelativeTimePipe, TPipe],
+  imports: [
+    FormsModule,
+    RouterLink,
+    CopyButtonComponent,
+    IconComponent,
+    PageHeadComponent,
+    RelativeTimePipe,
+    TPipe,
+  ],
   templateUrl: './remote.component.html',
   styleUrl: './remote.component.scss',
 })
@@ -77,7 +90,9 @@ export class RemoteComponent {
   protected readonly computer = computerNoun;
   protected readonly remote = signal<RemoteInfo | null>(null);
   protected readonly devices = signal<DeviceInfo[]>([]);
-  protected readonly foreign = signal<ForeignControlStatus | null>(null);
+  /** A phone's read of the devices paired (`GET /api/devices`). */
+  protected readonly phoneDevices = signal<PairedDeviceView[] | null>(null);
+  protected readonly me = this.auth.me;
   protected readonly error = signal('');
   protected readonly notice = signal('');
 
@@ -99,10 +114,6 @@ export class RemoteComponent {
   protected readonly renameText = signal('');
   protected readonly confirming = signal<string | null>(null);
   private confirmTimer?: ReturnType<typeof setTimeout>;
-
-  // Foreign control
-  protected readonly foreignBusy = signal(false);
-  protected readonly foreignError = signal('');
 
   protected readonly expiresIn = computed(() => {
     const c = this.code();
@@ -181,6 +192,46 @@ export class RemoteComponent {
       loaded = true;
       untracked(() => void this.loadAll());
     });
+    // A phone reads the list once it is known to be one.
+    let phoneLoaded = false;
+    effect(() => {
+      if (!this.me() || this.isDesktop() || phoneLoaded) return;
+      phoneLoaded = true;
+      untracked(() => void this.loadPhoneList());
+    });
+  }
+
+  // ───────────────────────────────────────────────────────── A phone's view
+
+  /** The devices paired as a phone reads them, this one first. */
+  protected readonly phoneList = computed(() =>
+    [...(this.phoneDevices() ?? [])].sort((a, b) => Number(b.current) - Number(a.current)),
+  );
+
+  /** The network this device reaches the desktop through. */
+  protected readonly meIngress = computed(() => {
+    const m = this.me();
+    const i = m?.effectiveIngress ?? m?.ingress;
+    return i ? (INGRESS_LABELS[i] ? capitalize(tr(INGRESS_LABELS[i])) : i) : '—';
+  });
+
+  /** What a device may do, in words: dangerous actions here and there. */
+  protected dangerText(d: PairedDeviceView): string {
+    if (d.allowDangerous && d.allowDangerousInternet) return tr('Dangerous actions allowed');
+    if (d.allowDangerous) return tr('Dangerous actions on the local network');
+    if (d.allowDangerousInternet) return tr('Dangerous actions over the internet');
+    return '';
+  }
+
+  private async loadPhoneList(): Promise<void> {
+    try {
+      const list = await this.api.listDevices();
+      // A phone's answer is the read-only view.
+      this.phoneDevices.set((list.devices ?? []) as unknown as PairedDeviceView[]);
+    } catch (e) {
+      this.phoneDevices.set([]);
+      this.error.set(tr('Devices: {error}', { error: errorMessage(e) }));
+    }
   }
 
   // ───────────────────────────────────────────────────────────── Pairing
@@ -307,46 +358,7 @@ export class RemoteComponent {
     });
   }
 
-  // ─────────────────────────────────────────────────────── Foreign control
-
-  protected async installForeign(): Promise<void> {
-    await this.foreignAction(
-      () => this.api.installForeignControl(),
-      tr('Foreign-session control installed. It takes effect for sessions started from now on.'),
-    );
-  }
-
-  protected async uninstallForeign(): Promise<void> {
-    if (!this.armed('uninstall')) {
-      this.arm('uninstall');
-      return;
-    }
-    this.confirming.set(null);
-    await this.foreignAction(
-      () => this.api.uninstallForeignControl(),
-      tr('Foreign-session control removed.'),
-    );
-  }
-
   // ────────────────────────────────────────────────────────────── Loading
-
-  private async foreignAction(
-    fn: () => Promise<ForeignControlStatus | null>,
-    ok: string,
-  ): Promise<void> {
-    this.foreignBusy.set(true);
-    this.foreignError.set('');
-    try {
-      const status = await fn();
-      if (status) this.foreign.set(status);
-      else await this.loadForeign();
-      this.notice.set(ok);
-    } catch (e) {
-      this.foreignError.set(errorMessage(e));
-    } finally {
-      this.foreignBusy.set(false);
-    }
-  }
 
   private async saveRemote(patch: Parameters<ApiService['updateRemote']>[0]): Promise<void> {
     this.savingRemote.set(true);
@@ -380,14 +392,14 @@ export class RemoteComponent {
 
   private async loadAll(): Promise<void> {
     if (!this.isDesktop()) return;
-    await Promise.all([this.loadRemote(), this.loadDevices(), this.loadForeign()]);
+    await Promise.all([this.loadRemote(), this.loadDevices()]);
   }
 
   private async loadRemote(): Promise<void> {
     try {
       this.applyRemote(await this.api.getRemote());
     } catch (e) {
-      this.error.set(tr('Remote settings: {error}', { error: errorMessage(e) }));
+      this.error.set(tr('Phone & devices: {error}', { error: errorMessage(e) }));
     }
   }
 
@@ -407,14 +419,6 @@ export class RemoteComponent {
       this.idleDays.set(list.idleDays ?? null);
     } catch (e) {
       this.error.set(tr('Devices: {error}', { error: errorMessage(e) }));
-    }
-  }
-
-  private async loadForeign(): Promise<void> {
-    try {
-      this.foreign.set(await this.api.getForeignControl());
-    } catch (e) {
-      this.foreignError.set(errorMessage(e));
     }
   }
 }

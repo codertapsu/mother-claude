@@ -19,8 +19,8 @@
       </p>
       <mc-cap-limits [session]="s" />
       @if (installMissing()) {
-        <a class="btn" routerLink="/remote" fragment="foreign"
-          ><mc-icon name="plug" [size]="15" /> {{ 'Install foreign-session control' | t }}</a
+        <a class="btn" routerLink="/settings/elsewhere"
+          ><mc-icon name="plug" [size]="15" /> {{ 'Set up Sessions started elsewhere' | t }}</a
         >
       }
       @if ((s.control.fork || s.control.continueOwned) && !continueOffered()) {

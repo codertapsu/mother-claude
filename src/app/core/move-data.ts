@@ -537,7 +537,7 @@ export function customizationLabel(item: string): string {
  * need it (a folder's trust, settings and MCP servers). English: shown with
  * `tr()` (or `| t`) where it is read. */
 export const DANGEROUS_REASON =
-  'Needs dangerous actions for this device, granted on the computer in Remote › Devices.';
+  'Needs dangerous actions for this device, granted on the computer in Settings › Phone & devices.';
 
 /** Why `what` can't go this way ('' when it can): with `from` left out
  * (`everywhere`) only conversations can. */

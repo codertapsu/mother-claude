@@ -124,11 +124,14 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Phiên bắt đầu ở nơi khác, theo tài khoản',
         points: [
           'Dòng của mỗi tài khoản trên trang **Tài khoản** cho biết Mother Claude có trả lời và nhắn tin được cho các phiên bạn bắt đầu dưới tài khoản đó trong terminal, VS Code hay JetBrains không: **Phiên bắt đầu ở nơi khác: đang bật** hoặc **Phiên bắt đầu ở nơi khác: đang tắt**.',
-          'Dòng của tài khoản Mặc định mở phần điều khiển phiên bên ngoài (trong ứng dụng máy tính).',
-          'Tài khoản thư mục giữ plugin trong thư mục riêng của nó: **Cài đặt** đặt plugin vào đó và **Gỡ cài đặt** gỡ nó ra (trong ứng dụng máy tính).',
+          'Trong ứng dụng máy tính, dòng đó mở **Cài đặt › Phiên bắt đầu ở nơi khác**, nơi cài và gỡ plugin cho mọi tài khoản.',
+          'Tài khoản thư mục giữ plugin trong thư mục riêng của nó, nên nó có một dòng riêng ở đó.',
           'Tài khoản token không có dòng này: các phiên của nó dùng plugin của tài khoản Mặc định.',
         ],
-        links: [{ label: 'Xem “Phiên bắt đầu ở nơi khác”', path: '/help/foreign-sessions' }],
+        links: [
+          { label: 'Mở Phiên bắt đầu ở nơi khác', path: '/settings/elsewhere' },
+          { label: 'Xem “Phiên bắt đầu ở nơi khác”', path: '/help/foreign-sessions' },
+        ],
       },
       {
         heading: 'Chọn tài khoản cho từng việc',
@@ -559,7 +562,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Từ điện thoại',
         points: [
           'Điện thoại đã ghép nối làm được mọi việc ở đây, trừ đặt hoặc đổi cụm mật khẩu. Điện thoại dùng các nút: kéo thả chỉ có trên ứng dụng máy tính.',
-          'Thao tác buộc và quyền tin cậy thư mục cần một thiết bị được phép làm thao tác nguy hiểm (**Từ xa › Thiết bị đã ghép nối** trong ứng dụng máy tính).',
+          'Thao tác buộc và quyền tin cậy thư mục cần một thiết bị được phép làm thao tác nguy hiểm (**Cài đặt › Điện thoại & thiết bị** trong ứng dụng máy tính).',
         ],
       },
     ],
@@ -616,7 +619,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         notes: [
           'Việc ghép nối làm trong ứng dụng máy tính, hoặc trên điện thoại được phép làm thao tác nguy hiểm.',
         ],
-        links: [{ label: 'Mở Trình duyệt', path: '/browser' }],
+        links: [{ label: 'Mở Trình duyệt', path: '/settings/browser' }],
       },
       {
         heading: 'Chọn những gì phiên được làm trên một trang',
@@ -635,8 +638,8 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Cấp công cụ trình duyệt cho phiên',
         points: [
-          'Phiên dùng trình duyệt qua các công cụ của Mother Claude, vốn được bật sẵn (**Dịch vụ › Công cụ cho Claude Code (MCP)**).',
-          'Phiên bắt đầu bên ngoài Mother Claude cần có thêm điều khiển phiên bên ngoài.',
+          'Phiên dùng trình duyệt qua các công cụ của Mother Claude, vốn được bật sẵn (**Cài đặt › Công cụ cho Claude Code**).',
+          'Phiên bắt đầu bên ngoài Mother Claude cần có thêm plugin Mother Claude (**Cài đặt › Phiên bắt đầu ở nơi khác**).',
           'Phiên đã chạy từ trước cần `/reload-plugins` hoặc khởi động lại. Cho đến lúc đó, bảng bên hiện **No browser tools** cho phiên ấy.',
         ],
         links: [{ label: 'Xem Công cụ Claude Code', path: '/help/claude-code-tools' }],
@@ -666,7 +669,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Yêu cầu duyệt',
         points: [
-          'Yêu cầu hiện trong Hộp thư, trên trang của phiên, ở **Trình duyệt › Đang chờ bạn** và trong bảng bên. Câu trả lời đầu tiên được tính; không trả lời trong 5 phút được coi là từ chối.',
+          'Yêu cầu hiện trong Hộp thư, trên trang của phiên, ở **Đang chờ bạn** trên **Cài đặt › Trình duyệt**, và trong bảng bên. Câu trả lời đầu tiên được tính; không trả lời trong 5 phút được coi là từ chối.',
           'Luôn hỏi khi: vào trang nhạy cảm, điền biểu mẫu có ô mật khẩu, thẻ thanh toán hoặc mã dùng một lần, chạy script, tải tệp lên, đọc hoặc thay đổi giá trị cookie và dữ liệu lưu trữ, vượt giới hạn mỗi phút, và mọi thao tác trong một phút sau khi bị dừng (Stop).',
           '**Luôn cho phép…** trên một yêu cầu duyệt sẽ lưu một quyền cho phép lâu dài. Các quyền này được liệt kê ở **Luôn cho phép**, nơi **Gỡ bỏ** sẽ rút lại một quyền.',
         ],
@@ -676,7 +679,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         steps: ['Trong bảng bên, nhấn **Stop** trên phiên đó.'],
         points: [
           'Lệnh đang chạy của phiên sẽ thất bại, các yêu cầu duyệt của nó bị rút lại, và thao tác trình duyệt của nó bị từ chối trong 60 giây. Đóng nhóm thẻ của phiên cũng có tác dụng như vậy.',
-          'Muốn gỡ sớm hơn, nhấn **Resume** trong bảng bên, hoặc **Tiếp tục** ở **Trình duyệt › Phiên đang dùng trình duyệt** (nơi đó cũng có **Dừng**).',
+          'Muốn gỡ sớm hơn, nhấn **Resume** trong bảng bên, hoặc **Tiếp tục** ở **Phiên đang dùng trình duyệt** trên **Cài đặt › Trình duyệt** (nơi đó cũng có **Dừng**).',
           'Trong một phút đó, các phiên khác thao tác trong trình duyệt ấy cần được cho phép.',
         ],
       },
@@ -700,7 +703,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Những việc không bao giờ làm',
         points: [
           'Phiên không bao giờ nhập vào ô mật khẩu, thẻ thanh toán, mã dùng một lần hay các ô bí mật khác: phiên sẽ nhờ bạn tự nhập.',
-          'Tệp tải lên chỉ lấy từ thư mục dự án của phiên hoặc thư mục bạn đã thêm ở **Trình duyệt › Cài đặt**, không bao giờ từ các thư mục của Claude Code, `~/.ssh` hay những tệp thường chứa bí mật.',
+          'Tệp tải lên chỉ lấy từ thư mục dự án của phiên hoặc thư mục bạn đã thêm ở **Thư mục các phiên được tải tệp lên từ đó** trên **Cài đặt › Trình duyệt**, không bao giờ từ các thư mục của Claude Code, `~/.ssh` hay những tệp thường chứa bí mật.',
           '**Hoạt động** ghi lại công cụ, trang, đường dẫn, kết quả và thời gian, không bao giờ ghi nội dung đã nhập hay đã đọc.',
         ],
       },
@@ -819,7 +822,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Dùng phiên bắt đầu ở nơi khác làm một vai trò',
         steps: ['Trên một vai trò đang không chạy, mở **Giao cho phiên…**.', 'Chọn phiên.'],
         points: [
-          'Việc này cần điều khiển phiên bên ngoài, và phiên phải chạy trong dự án. Mother Claude báo cho phiên về các tác vụ của nó nhưng không bao giờ khởi chạy hay dừng nó.',
+          'Việc này cần plugin Mother Claude (**Cài đặt › Phiên bắt đầu ở nơi khác**), và phiên phải chạy trong dự án. Mother Claude báo cho phiên về các tác vụ của nó nhưng không bao giờ khởi chạy hay dừng nó.',
           '**Nhả vai trò** để trả lại vai trò; các tác vụ của nó quay về bảng.',
         ],
       },
@@ -970,17 +973,18 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Mặc định chúng được bật. Phiên bắt đầu từ lúc đó trở đi sẽ có chúng; phiên đang chạy thì có sau `/reload-plugins` hoặc khi khởi động lại.',
           'Khi tắt: phiên không có công cụ, và lệnh gọi từ các phiên đang chạy bị từ chối.',
         ],
-        links: [{ label: 'Mở Dịch vụ', path: '/services' }],
+        links: [{ label: 'Mở Công cụ cho Claude Code', path: '/settings/tools' }],
       },
       {
         heading: 'Phiên nào có công cụ',
         points: [
           'Phiên do Mother Claude khởi chạy tự có công cụ.',
-          'Phiên trong terminal, VS Code và JetBrains có công cụ qua plugin Mother Claude: hãy cài điều khiển phiên bên ngoài.',
+          'Phiên trong terminal, VS Code và JetBrains có công cụ qua plugin Mother Claude: hãy cài plugin đó trong **Cài đặt › Phiên bắt đầu ở nơi khác**.',
           'Cuộc trò chuyện bắt đầu qua HTTP API hiện chưa có công cụ.',
-          'Bảng này hiện **Phiên đã kết nối (15 phút qua)**, việc **Phiên do Mother Claude khởi chạy** có công cụ hay không, plugin, và **Lệnh gọi gần đây**.',
+          'Trang này hiện số **Công cụ**, **Phiên đã kết nối (15 phút qua)**, việc **Phiên do Mother Claude khởi chạy** có công cụ hay không, plugin, và **Lệnh gọi gần đây**.',
+          'Khi plugin chưa được cài, hoặc cũ hơn ứng dụng này, một dòng sẽ báo điều đó, kèm liên kết tới **Phiên bắt đầu ở nơi khác**.',
         ],
-        links: [{ label: 'Mở Điều khiển phiên bên ngoài', path: '/remote', fragment: 'foreign' }],
+        links: [{ label: 'Mở Phiên bắt đầu ở nơi khác', path: '/settings/elsewhere' }],
       },
       {
         heading: 'Yêu cầu duyệt',
@@ -990,7 +994,9 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
       },
       {
-        heading: 'Trang Dịch vụ',
+        heading: 'Những gì Claude Code chạy ngoài các phiên',
+        intro:
+          'Ngoài các phiên, Claude Code còn chạy một dịch vụ nền, các máy chủ MCP và công việc nền. **Máy tính › Máy Mac này › Chi tiết** (**Máy PC này** trên Windows) hiện những thứ đó, và liên kết ở cuối **Cài đặt › Công cụ cho Claude Code** dẫn tới đó.',
         terms: [
           {
             term: 'Dịch vụ nền của Claude Code',
@@ -999,9 +1005,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           { term: 'Máy chủ MCP', text: 'Các máy chủ MCP đã cấu hình cho Claude Code, theo tên.' },
           { term: 'Công việc nền', text: 'Các công việc chạy bằng `claude --bg`.' },
         ],
-        points: [
-          '**Làm mới** sẽ đọc lại tất cả. Trên **Máy tính**, **Chi tiết** trong thẻ **Máy Mac này** (hoặc **Máy PC này**) hiện cùng những thông tin đó.',
-        ],
+        points: ['**Kiểm tra lại** sẽ đọc lại tất cả.'],
       },
     ],
   },
@@ -1030,7 +1034,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Để áp dụng thay đổi về sau, nhấn **Khởi động lại với cài đặt này**. **Đổi cuộc trò chuyện** chỉ đổi cuộc trò chuyện.',
           '**Dừng** sẽ đóng cổng; các cuộc trò chuyện đang chạy vẫn tiếp tục.',
         ],
-        links: [{ label: 'Mở API', path: '/api' }],
+        links: [{ label: 'Mở HTTP API', path: '/settings/api' }],
       },
       {
         heading: 'Dùng thử',
@@ -1045,7 +1049,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         points: [
           'Chương trình chạy trên máy tính này không cần token.',
           'Yêu cầu đến qua đường hầm cần token, và khi có đường hầm trỏ vào cổng API thì mọi yêu cầu đều cần.',
-          'Dòng **Xác thực** trên màn hình API cho biết lúc này cần gì.',
+          'Dòng **Xác thực** trên **Cài đặt › HTTP API** cho biết lúc này cần gì.',
         ],
       },
       {
@@ -1131,7 +1135,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           },
           {
             term: 'Chưa có URL công khai',
-            text: 'Không tìm thấy đường hầm nào. Hãy chạy một trong các lệnh trên trang Từ xa, hoặc nhập địa chỉ của đường hầm ở **Hoặc tự nhập**.',
+            text: 'Không tìm thấy đường hầm nào. Hãy chạy một trong các lệnh trong **Khởi chạy đường hầm** trên **Cài đặt › Điện thoại & thiết bị**, hoặc nhập địa chỉ của đường hầm ở **Hoặc tự nhập**.',
           },
           {
             term: 'Mother Claude không lắng nghe trên mạng cục bộ của bạn.',
@@ -1151,7 +1155,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
             text: 'Phiên (bắt đầu ở nơi khác) chưa tới lệnh gọi công cụ hay cuối lượt, hoặc không có gì đánh thức được nó. Bạn có thể rút tin nhắn khỏi hàng đợi nếu đổi ý. Nếu sau 30 phút vẫn chưa được đọc, tin nhắn bị bỏ và bạn sẽ nhận thông báo.',
           },
           {
-            term: 'Phiên bắt đầu trước khi cài điều khiển phiên bên ngoài',
+            term: 'Phiên bắt đầu trước khi cài plugin Mother Claude',
             text: 'Gõ `/reload-plugins` trong phiên đó, hoặc khởi động lại nó.',
           },
           {
@@ -1186,15 +1190,19 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
       },
       {
-        heading: 'Điều khiển phiên bên ngoài',
+        heading: 'Phiên bắt đầu ở nơi khác',
         terms: [
           {
-            term: '“Cài đặt điều khiển phiên bên ngoài” bị mờ',
+            term: 'Turn on Sessions started elsewhere on the … to approve and message this session from here.',
+            text: 'Tài khoản của phiên chưa có plugin Mother Claude. Trong ứng dụng máy tính, nhấn **Cài đặt** ở dòng của tài khoản đó trong **Cài đặt › Phiên bắt đầu ở nơi khác**, rồi gõ `/reload-plugins` trong phiên.',
+          },
+          {
+            term: '“Cài đặt” bị mờ',
             text: 'Không tìm thấy lệnh `claude`. Hãy cài Claude Code, hoặc mở ứng dụng từ một shell mà `claude` chạy được.',
           },
           {
             term: 'Phiên trong terminal không có công cụ Mother Claude',
-            text: 'Hãy cài điều khiển phiên bên ngoài cho tài khoản đó (với tài khoản thư mục, nhấn **Cài đặt** ở dòng của nó trên trang **Tài khoản**), rồi gõ `/reload-plugins`.',
+            text: 'Hãy cài plugin Mother Claude cho tài khoản của phiên đó (**Cài đặt** ở dòng của tài khoản trong **Cài đặt › Phiên bắt đầu ở nơi khác**), rồi gõ `/reload-plugins`.',
           },
         ],
       },
@@ -1215,11 +1223,11 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           },
           {
             term: 'Phiên trong terminal của tài khoản token lại hiện là Mặc định',
-            text: 'Hãy cài điều khiển phiên bên ngoài: phiên của tài khoản token dùng plugin của tài khoản Mặc định. Trên trang **Tài khoản**, dòng **Phiên bắt đầu ở nơi khác** của tài khoản Mặc định sẽ mở phần đó. Tài khoản của phiên sẽ hiện sau lệnh gọi công cụ đầu tiên của nó.',
+            text: 'Hãy cài plugin Mother Claude ở dòng của tài khoản Mặc định (dòng đầu tiên) trong **Cài đặt › Phiên bắt đầu ở nơi khác**: phiên của tài khoản token dùng plugin của tài khoản Mặc định. Tài khoản của phiên sẽ hiện sau lệnh gọi công cụ đầu tiên của nó.',
           },
           {
             term: 'Không gỡ bỏ được tài khoản',
-            text: 'Các phiên do Mother Claude khởi chạy hoặc API vẫn đang dùng nó. Hãy dừng chúng, hoặc khởi động API bằng tài khoản khác.',
+            text: 'Các phiên do Mother Claude khởi chạy hoặc API vẫn đang dùng nó. Hãy dừng chúng, hoặc khởi động API bằng tài khoản khác: **Mở Cài đặt › HTTP API** đưa bạn tới đó.',
           },
         ],
       },
@@ -1276,7 +1284,10 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'HTTP API và công cụ',
         terms: [
-          { term: '`bridge_not_started`', text: 'Mở **API** và nhấn **Khởi động API**.' },
+          {
+            term: '`bridge_not_started`',
+            text: 'Mở **Cài đặt › HTTP API** và nhấn **Khởi động API**.',
+          },
           {
             term: 'Not logged in · Please run /login',
             text: 'Claude Code chưa đăng nhập. Hãy đăng nhập lại bằng `claude auth login` trong terminal.',
@@ -1291,7 +1302,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           },
           {
             term: '`mcp_disabled`',
-            text: 'Bật lại **Cấp công cụ của Mother Claude cho các phiên** ở **Dịch vụ**.',
+            text: 'Bật lại **Cấp công cụ của Mother Claude cho các phiên** trong **Cài đặt › Công cụ cho Claude Code**.',
           },
         ],
       },

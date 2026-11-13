@@ -169,34 +169,21 @@ describe('AccountsComponent', () => {
     expect(body.byProject['D:\\dev\\payments']).toBe(MOCK_ACCOUNT_WORK);
   });
 
-  it("installs and removes the hooks plugin in a directory account's own directory", async () => {
+  it("says in one line whether sessions started elsewhere report to each account's directory", async () => {
     asDesktop();
     serveAccounts(backend, buildAccounts(Date.now(), true));
-    backend.routes.set(`/accounts/${MOCK_ACCOUNT_WORK}/hooks/install`, () => {
-      const view = buildAccounts(Date.now(), true);
-      view.accounts = view.accounts.map((a) =>
-        a.id === MOCK_ACCOUNT_WORK ? { ...a, hooksPlugin: 'installed' } : a,
-      );
-      serveAccounts(backend, view);
-      return { status: 200, body: view.accounts[1] };
-    });
     const el = await render();
     const rows = [...el.querySelectorAll('.acct')];
-    // One line each: the Default's plugin is foreign control's (a link to
-    // it); a token account has none of its own.
+    // One line each, to the one table in Settings › Sessions started
+    // elsewhere; a token account uses the Default's directory.
     const line = (row: Element) => row.querySelector('.elsewhere');
     expect(text(line(rows[0]))).toBe('Sessions started elsewhere: on ›');
-    expect(line(rows[0])?.querySelector('a')?.getAttribute('href')).toBe('/remote#foreign');
+    expect(text(line(rows[1]))).toBe('Sessions started elsewhere: off ›');
+    for (const row of [rows[0], rows[1]]) {
+      expect(line(row)?.querySelector('a')?.getAttribute('href')).toBe('/settings/elsewhere');
+    }
     expect(line(rows[2])).toBeNull();
-    expect(text(line(rows[1]))).toBe('Sessions started elsewhere: off Install');
-    const install = line(rows[1])!.querySelector('.btn') as HTMLButtonElement;
-    install.click();
-    await flush();
-    fixture.detectChanges();
-    expect(backend.calls).toContain(`POST /accounts/${MOCK_ACCOUNT_WORK}/hooks/install`);
-    const after = el.querySelectorAll('.acct')[1];
-    expect(text(line(after))).toBe('Sessions started elsewhere: on Uninstall');
-    expect(text(el.querySelector('.notice.ok'))).toContain('/reload-plugins');
+    expect(rows[1].querySelector('.elsewhere button')).toBeNull();
   });
 
   it('lets the desktop allow copies between two accounts ahead of time', async () => {

@@ -12,7 +12,8 @@ export const appConfig: ApplicationConfig = {
     provideRouter(
       routes,
       withHashLocation(),
-      // `/remote#foreign` (from "Install foreign-session control") scrolls there.
+      // A link to a part of a page (`/computers#copies`, `/settings#updates`)
+      // scrolls there.
       withInMemoryScrolling({ anchorScrolling: 'enabled' }),
     ),
   ],

@@ -136,7 +136,10 @@ export class NoticeService {
     const d = describeError(e);
     const text = prefix ? `${prefix}: ${d.text}` : d.text;
     const action = d.bridge
-      ? { label: tr('Open API page'), run: () => void this.router.navigate(['/api']) }
+      ? {
+          label: tr('Open Settings › HTTP API'),
+          run: () => void this.router.navigate(['/settings/api']),
+        }
       : retry && d.retry
         ? { label: tr('Retry'), run: retry }
         : undefined;

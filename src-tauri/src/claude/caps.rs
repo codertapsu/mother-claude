@@ -351,8 +351,8 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
     let not_loaded = || {
         limit(
             codes::HOOKS_NOT_LOADED,
-            "Started before foreign control was installed: run /reload-plugins in it, or \
-             restart it.",
+            "Started before the Mother Claude plugin was installed: run /reload-plugins in \
+             it, or restart it.",
             Some(LimitAction::ReloadPlugins),
         )
     };
@@ -360,7 +360,7 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
         limit(
             codes::INSTALL,
             &format!(
-                "Install foreign-session control on the {} to approve and message this \
+                "Turn on Sessions started elsewhere on the {} to approve and message this \
                  session from here.",
                 crate::claude::paths::machine_noun()
             ),
@@ -737,7 +737,7 @@ mod tests {
         assert!(c
             .notes
             .iter()
-            .any(|n| n.contains("Install foreign-session control")));
+            .any(|n| n.contains("Turn on Sessions started elsewhere")));
         assert!(c.continue_owned && c.fork);
     }
 

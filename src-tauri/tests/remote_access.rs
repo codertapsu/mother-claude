@@ -313,9 +313,11 @@ async fn internet_pairing_needs_typed_desktop_approval_and_hands_the_token_out_o
     assert_eq!(me["allowDangerous"], false);
     assert_eq!(me["clientIp"], "203.0.113.10");
     assert_eq!(me["platform"], "android");
-    // …and never gets desktop routes.
+    // …and never gets desktop routes (it reads the device list only as
+    // `a_paired_device_reads_the_device_list_without_the_desktops_details`
+    // shows).
     let r = phone
-        .get(format!("{tunnel}/api/devices"))
+        .get(format!("{tunnel}/api/remote"))
         .bearer_auth(&token)
         .send()
         .await
@@ -803,6 +805,175 @@ async fn a_device_can_unpair_itself() {
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+}
+
+/// Sorted keys of a JSON object.
+fn keys(v: &Value) -> Vec<String> {
+    let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+    k.sort();
+    k
+}
+
+#[tokio::test]
+async fn a_paired_device_reads_the_device_list_without_the_desktops_details() {
+    let (local, tunnel, st) = boot().await;
+    // A phone paired through the tunnel, live on a WebSocket, that did
+    // something the desktop's list records.
+    let (me, token) = pair_device(&local, &tunnel, &st, "203.0.113.90").await;
+    let phone = via_tunnel("203.0.113.90");
+    let r = phone
+        .post(format!("{tunnel}/api/pair/codes"))
+        .bearer_auth(&token)
+        .json(&json!({ "target": "self" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_success());
+    let mut ws = ws_via_tunnel(&tunnel, "203.0.113.90").await;
+    ws.send(Message::Text(
+        json!({ "t": "auth", "token": token }).to_string().into(),
+    ))
+    .await
+    .unwrap();
+    assert_eq!(next_frame(&mut ws).await.unwrap()["t"], "hello");
+    assert_eq!(next_frame(&mut ws).await.unwrap()["t"], "sessions");
+    assert_eq!(next_frame(&mut ws).await.unwrap()["t"], "planUsage");
+    // Another device, paired on the LAN with a user agent; one revoked; and a
+    // pairing request waiting for the desktop.
+    let (other, _) = st.devices.issue(
+        "Kitchen iPad",
+        "ios",
+        Some("Mozilla/5.0 (iPad) Secret/1.0"),
+        Ingress::Lan,
+        "192.168.1.61".parse().unwrap(),
+    );
+    let (gone, _) = st.devices.issue(
+        "Old phone",
+        "android",
+        None,
+        Ingress::Lan,
+        "192.168.1.62".parse().unwrap(),
+    );
+    assert!(mother_claude_lib::server::devices::revoke(
+        &st, &gone.id, "revoked"
+    ));
+    let code = internet_code(&local, &st).await;
+    let r = via_tunnel("198.51.100.93")
+        .post(format!("{tunnel}/api/pair/exchange"))
+        .json(&json!({ "code": code, "deviceName": "Waiting phone", "platform": "android" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::ACCEPTED);
+
+    // The phone: the devices still paired, itself marked, read only.
+    let r = phone
+        .get(format!("{tunnel}/api/devices"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let seen = json_of(r).await;
+    assert_eq!(keys(&seen), ["devices", "self"], "no pending: {seen}");
+    assert_eq!(seen["self"], me.as_str());
+    let rows = seen["devices"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "never the revoked one: {seen}");
+    for row in rows {
+        assert_eq!(
+            keys(row),
+            [
+                "allowDangerous",
+                "allowDangerousInternet",
+                "createdAt",
+                "current",
+                "id",
+                "lastSeenAt",
+                "name",
+                "online",
+                "platform",
+            ],
+            "{row}"
+        );
+    }
+    let row = |id: &str| rows.iter().find(|r| r["id"] == id).unwrap();
+    assert_eq!(row(&me)["current"], true);
+    assert_eq!(row(&me)["online"], true);
+    assert_eq!(row(&me)["name"], "Test phone");
+    assert_eq!(row(&me)["platform"], "ios");
+    assert_eq!(row(&other.id)["current"], false);
+    assert_eq!(row(&other.id)["online"], false);
+    assert_eq!(row(&other.id)["name"], "Kitchen iPad");
+    // Nothing of where or how they connect, nor of who asks to pair.
+    let text = seen.to_string();
+    for hidden in [
+        "203.0.113.90",
+        "192.168.1.61",
+        "Secret/1.0",
+        "Waiting phone",
+        "198.51.100.93",
+    ] {
+        assert!(!text.contains(hidden), "{hidden}: {text}");
+    }
+
+    // The local-script token and anonymous callers get nothing.
+    let r = desk()
+        .get(format!("{local}/api/devices"))
+        .bearer_auth(&st.auth.script_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    assert_eq!(json_of(r).await["error"]["code"], "desktop_only");
+    let r = phone
+        .get(format!("{tunnel}/api/devices"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+
+    // The desktop's answer is the full one, as before.
+    let full = json_of(
+        desk()
+            .get(format!("{local}/api/devices"))
+            .bearer_auth(&st.auth.token)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(keys(&full), ["devices", "idleDays", "pending"]);
+    // (The phone's own pairing stays listed, approved, while it may poll.)
+    let waiting = full["pending"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["status"] == "pending")
+        .unwrap_or_else(|| panic!("the waiting request: {full}"));
+    assert_eq!(waiting["deviceName"], "Waiting phone");
+    assert_eq!(waiting["clientIp"], "198.51.100.93");
+    let all = full["devices"].as_array().unwrap();
+    assert_eq!(all.len(), 3, "the revoked one too: {full}");
+    let entry = |id: &str| all.iter().find(|d| d["id"] == id).unwrap();
+    let mine = entry(&me);
+    assert_eq!(mine["lastIp"], "203.0.113.90");
+    assert_eq!(mine["ingress"], "tunnel");
+    assert_eq!(mine["pairedVia"], "tunnel");
+    assert_eq!(mine["tokenCount"], 1);
+    assert_eq!(mine["sockets"], 1);
+    assert!(mine["expiresAt"].is_i64());
+    assert!(mine["recent"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|a| a["action"] == "POST /api/pair/codes"));
+    assert!(mine.get("current").is_none() && mine.get("online").is_none());
+    assert_eq!(
+        entry(&other.id)["userAgent"],
+        "Mozilla/5.0 (iPad) Secret/1.0"
+    );
+    assert_eq!(entry(&gone.id)["revoked"], true);
+    assert_eq!(entry(&gone.id)["revokeReason"], "revoked");
 }
 
 #[tokio::test]

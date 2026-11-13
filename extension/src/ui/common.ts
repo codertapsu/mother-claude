@@ -174,7 +174,7 @@ export function pairingForm(defaultName: string, onDone: () => void): HTMLFormEl
     h(
       'p',
       { id: `${codeId}-help`, class: 'help' },
-      'In Mother Claude on this computer: Browser › Pair a browser.',
+      'In Mother Claude on this computer: Settings › Browser › Pair a browser.',
     ),
     h('label', { for: nameId }, 'Name of this browser'),
     name,

@@ -1,19 +1,70 @@
 <div class="page">
-  <div class="page-head">
-    <h1>{{ 'Remote' | t }}</h1>
-  </div>
-  <p class="lede">
-    {{
-      'Pair phones and other devices, reach Mother Claude from anywhere, and control sessions that were started elsewhere.'
+  <a class="btn ghost small back" routerLink="/settings">
+    <mc-icon name="back" [size]="15" /> {{ 'Settings' | t }}
+  </a>
+  <mc-page-head
+    [heading]="'Phone & devices' | t"
+    [named]="true"
+    [lede]="
+      'Pair your phone and other devices, and reach Mother Claude from anywhere: on your local network, or over the internet through a tunnel.'
         | t
-    }}
-  </p>
+    "
+    help="phone"
+  />
 
   @if (!isDesktop()) {
-    <div class="card">
-      <p>{{ 'Remote access and devices are managed from the desktop app.' | t }}</p>
-      <a class="btn" routerLink="/settings">{{ 'Open settings' | t }}</a>
-    </div>
+    <!-- A phone: itself first, then the devices paired, read only. -->
+    @if (error()) {
+      <p class="notice error" role="alert">{{ error() }}</p>
+    }
+    <h2>{{ 'This device' | t }}</h2>
+    <section class="card this-device" [attr.aria-label]="'This device' | t">
+      <dl class="kv">
+        <dt>{{ 'Name' | t }}</dt>
+        <dd>{{ me()?.name || ('Paired device' | t) }}</dd>
+        <dt>{{ 'Network' | t }}</dt>
+        <dd>{{ meIngress() }}</dd>
+        <dt>{{ 'Dangerous actions' | t }}</dt>
+        <dd>
+          {{
+            me()?.allowDangerous
+              ? ('Allowed for this device on this network' | t)
+              : ('Only from the {computer}' | t: { computer: computer() })
+          }}
+        </dd>
+      </dl>
+      <p class="muted small">
+        {{
+          'Pairing, internet access and what each device may do are changed on the {computer}. To unpair this device, open Settings.'
+            | t: { computer: computer() }
+        }}
+      </p>
+    </section>
+    <h2>{{ 'Paired devices' | t }}</h2>
+    <section class="card list" [attr.aria-label]="'Paired devices' | t">
+      @for (d of phoneList(); track d.id) {
+        <div class="list-row device-ro" [class.current]="d.current">
+          <mc-icon name="phone" [size]="16" />
+          <span class="grow">
+            <strong>{{ d.name }}</strong>
+            @if (d.current) {
+              <span class="badge accent">{{ 'This device' | t }}</span>
+            }
+            <span class="muted small"
+              >{{ d.platform }}
+              @if (d.online) {
+                · {{ 'online' | t }}
+              } @else if (d.lastSeenAt) {
+                · {{ 'seen {time}' | t: { time: (d.lastSeenAt | relTime) } }}
+              }
+            </span>
+          </span>
+          <span class="muted small">{{ dangerText(d) }}</span>
+        </div>
+      } @empty {
+        <p class="muted small">{{ 'Loading…' | t }}</p>
+      }
+    </section>
   } @else {
     @if (error()) {
       <p class="notice error" role="alert">{{ error() }}</p>
@@ -24,8 +75,8 @@
 
     <div class="grid">
       <!-- ─────────────── Pair a device ─────────────── -->
-      <section class="card pair" [attr.aria-label]="'Pair a device' | t">
-        <h2 class="first"><mc-icon name="qr" [size]="15" /> {{ 'Pair a device' | t }}</h2>
+      <section class="card pair" [attr.aria-label]="'Pair a phone' | t">
+        <h2 class="first"><mc-icon name="qr" [size]="15" /> {{ 'Pair a phone' | t }}</h2>
         <div class="segmented" role="group" [attr.aria-label]="'Where is the device' | t">
           <button type="button" [attr.aria-pressed]="target() === 'lan'" (click)="setTarget('lan')">
             <mc-icon name="wifi" [size]="15" /> {{ 'Same Wi-Fi' | t }}
@@ -202,7 +253,7 @@
                 @if (serverOf(t); as srv) {
                   <a
                     class="small api-server"
-                    routerLink="/api"
+                    routerLink="/settings/api"
                     [queryParams]="{ server: srv.id }"
                     >{{ 'API server {name}' | t: { name: srv.name } }}</a
                   >
@@ -315,7 +366,7 @@
           @for (srv of exposedServers(); track srv.id) {
             <p class="notice error small" role="alert">
               {{ 'A tunnel points at the API server' | t }}
-              <a routerLink="/api" [queryParams]="{ server: srv.id }">{{ srv.name }}</a
+              <a routerLink="/settings/api" [queryParams]="{ server: srv.id }">{{ srv.name }}</a
               >{{ srv.port ? ' ' + ('(port {port})' | t: { port: srv.port }) : ''
               }}{{
                 ': its tokenless access is switched off until that tunnel stops. Stop it unless you meant to publish that API.'
@@ -354,7 +405,7 @@
                         }
                 }}
               }
-              <a routerLink="/api">{{ 'API settings' | t }}</a>
+              <a routerLink="/settings/api">{{ 'API settings' | t }}</a>
             </p>
           }
         } @else {
@@ -468,107 +519,6 @@
           {{ 'Devices unused for {days} days are unpaired automatically.' | t: { days: days } }}
         }
       </p>
-    </section>
-
-    <!-- ─────────────── Foreign-session control ─────────────── -->
-    <section id="foreign" class="card foreign" [attr.aria-label]="'Foreign-session control' | t">
-      <h2 class="first"><mc-icon name="plug" [size]="15" /> {{ 'Foreign-session control' | t }}</h2>
-      <p>
-        {{ 'Sessions you start in a terminal, VS Code or JetBrains are' | t }}
-        <em>{{ 'foreign' | t }}</em
-        >{{ ': by default you can watch them here but not answer them. The Mother Claude' | t }}
-        <strong>{{ 'hooks plugin' | t }}</strong>
-        {{
-          'lets you approve permissions, answer questions, send messages (delivered at the next tool call or when the session goes idle) and interrupt at the next tool call — from this computer or your phone. The desk UI keeps working; whoever answers first wins.'
-            | t
-        }}
-      </p>
-      <p class="muted small">
-        {{ 'Installed as a user-scope Claude Code plugin with' | t }}
-        <code>claude plugin install</code> {{ '— your' | t }} <code>settings.json</code>
-        {{
-          'hooks are never touched. Uninstall removes it the same way. Sessions started before installing pick it up after a restart.'
-            | t
-        }}
-      </p>
-      @if (foreign(); as f) {
-        <dl class="kv">
-          <dt>{{ 'Status' | t }}</dt>
-          <dd>
-            @if (f.installed) {
-              <span class="badge ok"
-                ><mc-icon name="check" [size]="12" /> {{ 'installed' | t }}</span
-              >
-              @if (f.pluginVersion) {
-                <span class="muted small"> v{{ f.pluginVersion }}</span>
-              }
-            } @else {
-              <span class="badge">{{ 'not installed' | t }}</span>
-            }
-          </dd>
-          <dt>Claude CLI</dt>
-          <dd>{{ f.cliAvailable ? ('found' | t) : ('not found on PATH' | t) }}</dd>
-          <dt>{{ 'Sessions reporting' | t }}</dt>
-          <dd>{{ f.sessionsWithHooks }}</dd>
-          <dt>{{ 'Last hook event' | t }}</dt>
-          <dd>{{ f.lastEventAt ? (f.lastEventAt | relTime) : ('none yet' | t) }}</dd>
-          @if (f.sessionsNeedingReload) {
-            <dt>{{ 'Need a reload' | t }}</dt>
-            <dd>
-              {{
-                f.sessionsNeedingReload === 1
-                  ? ('{n} running session was started before the install: run' | t: { n: 1 })
-                  : ('{n} running sessions were started before the install: run'
-                    | t: { n: f.sessionsNeedingReload })
-              }}
-              <code>/reload-plugins</code> {{ 'in them, or restart them.' | t }}
-            </dd>
-          }
-        </dl>
-        @if (f.lastError) {
-          <p class="error-text small">{{ f.lastError }}</p>
-        }
-        @if (f.notes.length) {
-          <ul class="notes">
-            @for (n of f.notes; track $index) {
-              <li>{{ n }}</li>
-            }
-          </ul>
-        }
-        <div class="row actions">
-          @if (!f.installed) {
-            <button
-              class="btn primary"
-              type="button"
-              [disabled]="foreignBusy() || !f.cliAvailable"
-              (click)="installForeign()"
-            >
-              <mc-icon name="plug" [size]="15" />
-              {{ foreignBusy() ? ('Installing…' | t) : ('Install foreign-session control' | t) }}
-            </button>
-          } @else {
-            <button
-              class="btn danger"
-              type="button"
-              [disabled]="foreignBusy()"
-              (click)="uninstallForeign()"
-            >
-              {{
-                foreignBusy()
-                  ? ('Removing…' | t)
-                  : armed('uninstall')
-                    ? ('Tap again to uninstall' | t)
-                    : ('Uninstall' | t)
-              }}
-            </button>
-          }
-        </div>
-      } @else if (!foreignError()) {
-        <p class="muted">{{ 'Loading…' | t }}</p>
-      }
-      @if (foreignError()) {
-        <p class="error-text small">{{ foreignError() }}</p>
-      }
     </section>
   }
 </div>

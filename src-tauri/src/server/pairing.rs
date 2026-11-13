@@ -357,8 +357,8 @@ pub fn create_code(state: &AppState, ctx: &ClientContext, req: CodeRequest) -> A
                 (None, _) => state.remote.public_url().ok_or_else(|| {
                     ApiError::conflict(
                         "no_public_url",
-                        "No public URL yet: start a tunnel (see Remote access) or enter the \
-                         public URL by hand.",
+                        "No public URL yet: start a tunnel (see Settings › Phone & devices) or \
+                         enter the public URL by hand.",
                     )
                 })?,
             };
@@ -547,7 +547,7 @@ pub fn exchange(
                  approved; create a new code."
             } else {
                 "A pairing code that was already used was presented again by another device. \
-                 Check Remote > Devices."
+                 Check Settings › Phone & devices."
             };
             crate::server::ws::publish_desktop_notice(state, NoticeLevel::Warning, text);
             crate::server::ws::publish_devices(state);

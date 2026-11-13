@@ -33,13 +33,13 @@ import { IconComponent } from './icon.component';
             @switch (l.action) {
               @case ('install-foreign-control') {
                 @if (isDesktop()) {
-                  <a class="btn small" routerLink="/remote" fragment="foreign" (click)="done.emit()"
+                  <a class="btn small" routerLink="/settings/elsewhere" (click)="done.emit()"
                     ><mc-icon name="plug" [size]="14" />
-                    {{ 'Install foreign-session control' | t }}</a
+                    {{ 'Set up Sessions started elsewhere' | t }}</a
                   >
                 } @else {
                   <span class="muted small">{{
-                    'On the {computer}: Remote › Foreign sessions › Install.'
+                    'On the {computer}: Settings › Sessions started elsewhere › Install.'
                       | t: { computer: computer() }
                   }}</span>
                 }

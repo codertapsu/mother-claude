@@ -48,50 +48,11 @@
             <mc-identity-warning [account]="r.a" (started)="managing.set(r.a.id)" />
             <span class="muted small">{{ liveText(r.live) }}</span>
             @if (r.hooks) {
-              <!-- The Mother Claude plugin, in one line: the Default's is on
-                   the Remote page, a directory account's in its own
-                   directory. -->
+              <!-- The Mother Claude plugin, in one line: Settings › Sessions
+                   started elsewhere holds it for every directory. -->
               <span class="small elsewhere">
-                @if (r.ownPlugin) {
-                  <span class="muted">{{ r.hooks }}</span>
-                  @if (isDesktop()) {
-                    @if (r.a.hooksPlugin !== 'installed') {
-                      <button
-                        class="btn small ghost"
-                        type="button"
-                        [disabled]="!!hooksBusy()"
-                        [attr.aria-label]="
-                          'Install the hooks plugin for {name}' | t: { name: r.a.name }
-                        "
-                        (click)="setHooks(r.a, true)"
-                      >
-                        {{
-                          hooksBusy() === r.a.id + ':install'
-                            ? ('Installing…' | t)
-                            : ('Install' | t)
-                        }}
-                      </button>
-                    }
-                    @if (r.a.hooksPlugin && r.a.hooksPlugin !== 'missing') {
-                      <button
-                        class="btn small ghost"
-                        type="button"
-                        [disabled]="!!hooksBusy()"
-                        [attr.aria-label]="
-                          'Uninstall the hooks plugin of {name}' | t: { name: r.a.name }
-                        "
-                        (click)="setHooks(r.a, false)"
-                      >
-                        {{
-                          hooksBusy() === r.a.id + ':uninstall'
-                            ? ('Uninstalling…' | t)
-                            : ('Uninstall' | t)
-                        }}
-                      </button>
-                    }
-                  }
-                } @else if (isDesktop()) {
-                  <a routerLink="/remote" fragment="foreign">{{ r.hooks }} ›</a>
+                @if (isDesktop()) {
+                  <a routerLink="/settings/elsewhere">{{ r.hooks }} ›</a>
                 } @else {
                   <span class="muted">{{ r.hooks }}</span>
                 }

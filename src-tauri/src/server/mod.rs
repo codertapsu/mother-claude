@@ -212,7 +212,9 @@ async fn announce(state: &AppState) {
     println!("  Local:  http://127.0.0.1:{port}");
     if state.config.is_non_loopback() {
         for ip in tls::local_ips() {
-            println!("  LAN:    https://{ip}:{port}  (pair from Remote in the app)");
+            println!(
+                "  LAN:    https://{ip}:{port}  (pair from Settings › Phone & devices in the app)"
+            );
         }
         println!("  TLS fingerprint (SHA-256): {fingerprint}");
     }
@@ -232,7 +234,7 @@ async fn announce(state: &AppState) {
             if running {
                 "running".to_string()
             } else {
-                "not started — start it on the API screen".to_string()
+                "not started — start it in Settings › HTTP API".to_string()
             }
         );
         // The other API servers (docs/ACCOUNTS.md §13.5), each on its own port.

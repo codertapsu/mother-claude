@@ -487,7 +487,8 @@ fn hello(
                     id,
                     "unauthenticated",
                     "This browser is not paired with Mother Claude (or its token is not valid \
-                     here). Pair it again: Mother Claude › Browser › Pair a browser.",
+                     here). Pair it again: Mother Claude › Settings › Browser › Pair a \
+                     browser.",
                 ),
             );
             return Flow::Close;

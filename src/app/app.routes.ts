@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { CanActivateFn, Router, Routes } from '@angular/router';
+import { CanActivateFn, RedirectFunction, Router, Routes } from '@angular/router';
 
 import { AuthService } from './core/auth.service';
 
@@ -17,6 +17,18 @@ export const pairedGuard: CanActivateFn = () => {
     ['/pair'],
     auth.reason() === 'revoked' ? { queryParams: { reason: 'revoked' } } : {},
   );
+};
+
+/**
+ * `/remote` was two places: its `#foreign` card is Sessions started
+ * elsewhere, the rest Phone & devices — the query and any other fragment
+ * kept (docs/UI-REDESIGN.md §10.3).
+ */
+export const remoteRedirect: RedirectFunction = ({ queryParams, fragment }) => {
+  const router = inject(Router);
+  return fragment === 'foreign'
+    ? router.createUrlTree(['/settings/elsewhere'], { queryParams })
+    : router.createUrlTree(['/settings/devices'], { queryParams, fragment: fragment ?? undefined });
 };
 
 /** Reachable without pairing. */
@@ -96,10 +108,6 @@ const pages: Routes = [
   // Machines was renamed Computers: `/machines/setup` → `/computers/setup`,
   // the query and the fragment kept (a relative prefix redirect).
   { path: 'machines', redirectTo: 'computers' },
-  {
-    path: 'remote',
-    loadComponent: () => import('./pages/remote/remote.component').then((m) => m.RemoteComponent),
-  },
   // Phone entry: #/pair?c=CODE from a QR code, or a typed code.
   {
     path: 'pair',
@@ -109,6 +117,33 @@ const pages: Routes = [
     path: 'settings',
     loadComponent: () =>
       import('./pages/settings/settings.component').then((m) => m.SettingsComponent),
+  },
+  // Settings' connections (docs/UI-REDESIGN.md §6.7), each a page of its
+  // own: phones and internet access, the plugin for sessions started
+  // elsewhere, the browser extension (docs/BROWSER.md), the HTTP API
+  // (`?server=`), Claude Code tools (docs/MCP.md).
+  {
+    path: 'settings/devices',
+    loadComponent: () => import('./pages/remote/remote.component').then((m) => m.RemoteComponent),
+  },
+  {
+    path: 'settings/elsewhere',
+    loadComponent: () =>
+      import('./pages/settings/elsewhere-page.component').then((m) => m.ElsewherePageComponent),
+  },
+  {
+    path: 'settings/browser',
+    loadComponent: () =>
+      import('./pages/browser/browser.component').then((m) => m.BrowserComponent),
+  },
+  {
+    path: 'settings/api',
+    loadComponent: () => import('./pages/bridge/bridge.component').then((m) => m.BridgeComponent),
+  },
+  {
+    path: 'settings/tools',
+    loadComponent: () =>
+      import('./pages/settings/tools-page.component').then((m) => m.ToolsPageComponent),
   },
   // Accounts: the Claude accounts. A paired phone renames them, sets the
   // defaults and copy permissions and moves data; adding, signing in and
@@ -142,21 +177,12 @@ const pages: Routes = [
     path: 'more',
     loadComponent: () => import('./pages/more/more.component').then((m) => m.MoreComponent),
   },
-  {
-    path: 'api',
-    loadComponent: () => import('./pages/bridge/bridge.component').then((m) => m.BridgeComponent),
-  },
-  // The browser extension: pairing, site modes, approvals (docs/BROWSER.md).
-  {
-    path: 'browser',
-    loadComponent: () =>
-      import('./pages/browser/browser.component').then((m) => m.BrowserComponent),
-  },
-  {
-    path: 'services',
-    loadComponent: () =>
-      import('./pages/services/services.component').then((m) => m.ServicesComponent),
-  },
+  // Remote, Browser, API and Services are Settings' connections now: the
+  // query (`/api?server=`) and the fragment kept. Remote was two places.
+  { path: 'remote', redirectTo: remoteRedirect },
+  { path: 'browser', redirectTo: 'settings/browser' },
+  { path: 'api', redirectTo: 'settings/api' },
+  { path: 'services', redirectTo: 'settings/tools' },
   // Capacity: role sessions, budgets, routing and costs (docs/ROUTING.md).
   {
     path: 'capacity',

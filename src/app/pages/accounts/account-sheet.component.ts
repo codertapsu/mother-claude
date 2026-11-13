@@ -171,10 +171,10 @@ import { tokenStoreText } from './token-store';
           @if (usedByApi()) {
             <p class="small">
               <a
-                routerLink="/api"
+                routerLink="/settings/api"
                 [queryParams]="apiServer() ? { server: apiServer() } : null"
                 (click)="closed.emit()"
-                >{{ 'Open the API page' | t }}</a
+                >{{ 'Open Settings › HTTP API' | t }}</a
               >
             </p>
           }

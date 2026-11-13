@@ -110,8 +110,8 @@ describe('AppComponent: the navigation, from the map', () => {
       ['/teams/tm_0123456789ab', 'Teams'],
       ['/computers/setup', 'Computers'],
       ['/accounts/backups', 'Accounts'],
-      ['/remote', 'Settings'],
-      ['/services', 'Settings'],
+      ['/settings/devices', 'Settings'],
+      ['/settings/tools', 'Settings'],
     ]) {
       await go(url);
       expect(current(sideLinks()), url).toEqual([place]);
@@ -135,7 +135,7 @@ describe('AppComponent: the navigation, from the map', () => {
       '/computers/options',
       '/accounts/usage',
       '/settings',
-      '/api',
+      '/settings/api',
       '/help',
       '/more',
     ]) {
@@ -154,8 +154,8 @@ describe('AppComponent: the navigation, from the map', () => {
     expect(title()).toBe('Computers');
     await go('/accounts/changes');
     expect(title()).toBe('Accounts');
-    await go('/remote');
-    expect(title()).toBe('Remote');
+    await go('/settings/devices');
+    expect(title()).toBe('Settings');
   });
 
   it("counts what waits on the Inbox, and shows Computers' health dot", async () => {

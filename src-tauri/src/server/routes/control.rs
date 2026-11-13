@@ -92,8 +92,9 @@ pub async fn route_for(state: &AppState, id: &str) -> ApiResult<Route> {
 pub fn no_channel(s: &SessionSummary) -> ApiError {
     ApiError::conflict(
         "no_channel",
-        "Mother Claude cannot reach this session. Install foreign-session control on the \
-         desktop, or continue it here as an owned session.",
+        "Mother Claude cannot reach this session. Turn on Sessions started elsewhere on the \
+         desktop (Settings › Sessions started elsewhere), or continue it here as an owned \
+         session.",
     )
     .with("notes", json!(s.control.notes))
     .with("limits", json!(s.control.limits))

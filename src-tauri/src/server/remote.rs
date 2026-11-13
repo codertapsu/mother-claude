@@ -1076,7 +1076,7 @@ pub fn warnings(
                 "A tunnel ({}) points at the Claude API port {}, and the API is open to \
                  tunnels: anyone who finds the URL can start conversations and approve Claude's \
                  ordinary tool calls on this {noun} without a token. Dangerous actions stay off for \
-                 them. Stop the tunnel, or turn off Open to tunnels on the API screen and \
+                 them. Stop the tunnel, or turn off Open to tunnels in Settings › HTTP API and \
                  restart the API.",
                 t.url,
                 a.port.unwrap_or_default()

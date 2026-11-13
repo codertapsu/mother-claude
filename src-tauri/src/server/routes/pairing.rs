@@ -13,9 +13,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::Body;
-use crate::server::auth::{self, Authed, DesktopOnly};
+use crate::server::auth::{self, Authed, DesktopOnly, ManageData};
 use crate::server::context::ClientContext;
-use crate::server::devices::{self, audit::AuditEntry};
+use crate::server::devices::{self, audit::AuditEntry, DeviceSummary};
 use crate::server::error::{ApiError, ApiResult};
 use crate::server::pairing::{self as pair, CodeRequest, ExchangeRequest};
 use crate::state::AppState;
@@ -77,26 +77,46 @@ pub async fn pending_status(
     Ok((StatusCode::OK, no_store(), Json(v)).into_response())
 }
 
-/// `GET /api/devices` (desktop) → `{devices, pending}` (never a token, a hash,
-/// a fingerprint or a poll secret).
+/// `GET /api/devices` (desktop or a paired device). The desktop, which manages
+/// them, gets `{devices, pending, idleDays}`: every device in full (never a
+/// token, a hash, a fingerprint or a poll secret). A paired device gets
+/// `{devices, self}`: the devices still paired, as [`DeviceSummary`] (its own
+/// row `current`), and its own id — enough for a phone's *Settings › Phone &
+/// devices* to list them read only and show itself first, without a dead end
+/// (docs/UI-REDESIGN.md §6.7). Where and how each device connects, what it
+/// did, its tokens and the pairing requests (`pending`: only the desktop
+/// approves them, and they carry the asker's address) stay the desktop's.
+/// Nobody else: `ManageData` refuses the local-script token.
 pub async fn list_devices(
-    DesktopOnly(_ctx): DesktopOnly,
+    ManageData(ctx): ManageData,
     State(state): State<AppState>,
-) -> Json<Value> {
-    let devices: Vec<_> = state
-        .devices
-        .list()
-        .into_iter()
-        .map(|mut d| {
-            d.sockets = state.hub.device_sockets(&d.id);
-            d
-        })
-        .collect();
-    Json(json!({
+) -> ApiResult<Json<Value>> {
+    let listed = state.devices.list().into_iter().map(|mut d| {
+        d.sockets = state.hub.device_sockets(&d.id);
+        d
+    });
+    if let Some(me) = ctx.device_id() {
+        let devices: Vec<DeviceSummary> = listed
+            .filter(|d| !d.revoked)
+            .map(|d| DeviceSummary::of(d, me))
+            .collect();
+        return Ok(Json(json!({ "devices": devices, "self": me })));
+    }
+    // Fail closed should `ManageData` ever let anyone else in: the full
+    // list is the desktop's alone.
+    if !ctx.is_desktop() {
+        return Err(ApiError::forbidden(
+            "desktop_only",
+            "The device list is only available on the Mother Claude desktop app or a paired \
+             device.",
+        ));
+    }
+    let devices: Vec<_> = listed.collect();
+    Ok(Json(json!({
         "devices": devices,
         "pending": state.pairing.pending_views(),
         "idleDays": state.devices.idle_days(),
-    }))
+    })))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -198,7 +218,8 @@ pub async fn unpair_self(
 ) -> ApiResult<Json<Value>> {
     let Some(id) = ctx.device_id().map(str::to_string) else {
         return Err(ApiError::bad_request(
-            "Only a paired device can unpair itself; manage devices in Remote access.",
+            "Only a paired device can unpair itself; manage devices in Settings › Phone & \
+             devices.",
         ));
     };
     devices::revoke(&state, &id, "unpaired");

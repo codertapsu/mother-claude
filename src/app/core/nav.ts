@@ -162,35 +162,35 @@ export const PLACES: readonly NavPlace[] = [
     icon: 'settings',
     group: 'care',
     help: 'settings',
-    // Its connections' pages, and the first run's macOS permissions.
-    sections: ['settings', 'remote', 'browser', 'api', 'services', 'onboarding'],
+    // Its connections' pages (`/settings/…`), and the first run's macOS
+    // permissions.
+    sections: ['settings', 'onboarding'],
   },
 ];
 
 /** Settings' *Connections*, in their order (docs/UI-REDESIGN.md §6.7). */
 export const CONNECTIONS: readonly NavConnection[] = [
+  // A phone reads it: itself, and the devices paired (read only).
   {
     id: 'devices',
-    path: '/remote',
+    path: '/settings/devices',
     label: 'Phone & devices',
     icon: 'phone',
-    desktopOnly: true,
     help: 'phone',
   },
   {
     id: 'elsewhere',
-    path: '/remote',
-    fragment: 'foreign',
+    path: '/settings/elsewhere',
     label: 'Sessions started elsewhere',
     icon: 'plug',
     desktopOnly: true,
     help: 'foreign-sessions',
   },
-  { id: 'browser', path: '/browser', label: 'Browser', icon: 'globe', help: 'browser' },
-  { id: 'api', path: '/api', label: 'HTTP API', icon: 'code', help: 'api' },
+  { id: 'browser', path: '/settings/browser', label: 'Browser', icon: 'globe', help: 'browser' },
+  { id: 'api', path: '/settings/api', label: 'HTTP API', icon: 'code', help: 'api' },
   {
     id: 'tools',
-    path: '/services',
+    path: '/settings/tools',
     label: 'Claude Code tools',
     icon: 'activity',
     help: 'claude-code-tools',
@@ -223,10 +223,6 @@ export const PAGE_TITLES: Readonly<Record<string, string>> = {
   session: 'Session',
   new: 'New session',
   onboarding: 'Welcome',
-  remote: 'Remote',
-  browser: 'Browser',
-  api: 'API',
-  services: 'Services',
 };
 
 /**
@@ -254,7 +250,15 @@ export const LINK_ONLY: readonly string[] = [
  * §10.1, §10.3), with the rest of the path, the query and the fragment —
  * links from before the redesign keep working. Redirects stay for good.
  */
-export const REDIRECTED: readonly string[] = ['good-to-know', 'machines', 'backup'];
+export const REDIRECTED: readonly string[] = [
+  'good-to-know',
+  'machines',
+  'backup',
+  'remote',
+  'browser',
+  'api',
+  'services',
+];
 
 /** The first segment of a URL's path (`/teams/tm_1?x#y` → `teams`). */
 export function sectionOf(url: string): string {

@@ -42,7 +42,7 @@ const HINTS: Record<NavConnection['id'], string> = {
  * Mother Claude — phones and devices, sessions started elsewhere, the
  * browser extension, the HTTP API, Claude Code tools — each a row with its
  * state that opens its page (core/nav.ts `CONNECTIONS`). The desktop sees
- * all five; a phone the three it may open. States are read once the page
+ * all five; a phone the four it may open. States are read once the page
  * opens, and again when the server says they changed.
  */
 @Component({
@@ -125,9 +125,9 @@ export class ConnectionsComponent {
       this.realtime.browser$.subscribe(
         () => void this.load(() => this.api.getBrowser(), this.browser),
       ),
-      this.realtime.devices$.subscribe(() => {
-        if (this.auth.isDesktop()) void this.load(() => this.api.listDevices(), this.devices);
-      }),
+      this.realtime.devices$.subscribe(
+        () => void this.load(() => this.api.listDevices(), this.devices),
+      ),
       this.realtime.refetch$.subscribe(() => {
         void this.loadShared();
         if (this.auth.isDesktop()) void this.loadDesktop();
@@ -244,9 +244,11 @@ export class ConnectionsComponent {
     return tr('On');
   }
 
-  /** What every client may read. */
+  /** What every client may read (a phone reads the devices paired, read
+   * only). */
   private async loadShared(): Promise<void> {
     await Promise.all([
+      this.load(() => this.api.listDevices(), this.devices),
       this.load(() => this.api.getBrowser(), this.browser),
       this.load(() => this.api.getBridge(), this.bridge),
       this.load(() => this.api.getMcpTools(false), this.tools),
@@ -256,7 +258,6 @@ export class ConnectionsComponent {
   /** What only the desktop reads. */
   private async loadDesktop(): Promise<void> {
     await Promise.all([
-      this.load(() => this.api.listDevices(), this.devices),
       this.load(() => this.api.getRemote(), this.remote),
       this.load(() => this.api.getForeignControl(), this.foreign),
     ]);

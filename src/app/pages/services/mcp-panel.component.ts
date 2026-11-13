@@ -85,9 +85,7 @@ const POLL_MS = 5000;
             <mc-icon name="plug" [size]="14" />
             <span
               >{{ h }}
-              <a routerLink="/remote" fragment="foreign">{{
-                'Foreign-session control' | t
-              }}</a></span
+              <a routerLink="/settings/elsewhere">{{ 'Sessions started elsewhere' | t }}</a></span
             >
           </p>
         }

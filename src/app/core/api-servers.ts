@@ -472,7 +472,7 @@ export function serverAddresses(s: ServerStatus, ctx: AddressContext): ServerAdd
         label: tr('On your network'),
         url: null,
         pattern: `https://${tr("<the {computer}'s address>", { computer })}:${ctx.dashboardPort || 6725}${s.prefix}/v1`,
-        hint: `${overTls} ${tr("The {computer}'s Remote page shows its address.", { computer })}`,
+        hint: `${overTls} ${tr("The {computer}'s Settings › Phone & devices shows its address.", { computer })}`,
       };
   const tunnels: ServerAddress[] = [];
   if (s.tunnelUrl) {

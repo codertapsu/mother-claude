@@ -1937,7 +1937,7 @@ class FixtureBackend implements MockBackend {
             error: {
               code: 'use_default_install',
               message:
-                "The Default account's plugin is managed with foreign control's own install.",
+                "The Default account's plugin is managed with its own install (Sessions started elsewhere).",
             },
           },
           422,

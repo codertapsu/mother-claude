@@ -1,5 +1,8 @@
 <div class="page narrow">
-  <div class="page-head">
+  <a class="btn ghost small back" routerLink="/settings">
+    <mc-icon name="back" [size]="15" /> {{ 'Settings' | t }}
+  </a>
+  <div class="page-head named">
     <h1>{{ 'Browser' | t }}</h1>
     <span class="spacer"></span>
     <button class="btn small" type="button" [disabled]="loading()" (click)="load()">
@@ -153,7 +156,10 @@
         </button>
       } @else {
         <p class="muted small">
-          {{ 'Pair a browser on the Mother Claude desktop app (Browser › Pair a browser).' | t }}
+          {{
+            'Pair a browser on the Mother Claude desktop app (Settings › Browser › Pair a browser).'
+              | t
+          }}
         </p>
       }
     </div>

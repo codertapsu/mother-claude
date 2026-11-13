@@ -75,12 +75,9 @@ interface Row {
   wait: string;
   /** Its email when the sign-in line doesn't say it ('' otherwise). */
   email: string;
-  /** Its hooks plugin in a few words ('' for a token account: it uses the
-   * Default's). */
+  /** Sessions started elsewhere — its directory's Mother Claude plugin — in
+   * a line ('' for a token account: it uses the Default's). */
   hooks: string;
-  /** A directory account other than the Default: its plugin is its own to
-   * install (the Default's is foreign control's, on the Remote page). */
-  ownPlugin: boolean;
 }
 
 /** A pair of accounts whose copies the desktop may allow. */
@@ -106,8 +103,9 @@ interface ProjectRow {
  * the copy consents — allowed ahead of time, or revoked — and *Move or copy
  * data…* on each account, from the desktop or a paired phone (§13.9). On
  * the desktop only: adding, signing in (a browser login or a token),
- * re-checking and removing them, and the hooks plugin in a directory
- * account's own directory (the Default's is foreign control's).
+ * re-checking and removing them; each one's plugin for sessions started
+ * elsewhere in a line, to the table in Settings › Sessions started
+ * elsewhere.
  */
 @Component({
   selector: 'mc-accounts',
@@ -187,7 +185,6 @@ export class AccountsComponent {
         hasUsage: !!compact,
         action: needs(a),
         hooks: elsewhereText(a),
-        ownPlugin: a.kind === 'directory' && !a.isDefault,
       };
     });
   });
@@ -235,8 +232,6 @@ export class AccountsComponent {
   });
   /** The pair the form would allow: the first until another is picked. */
   protected readonly newPair = linkedSignal(() => this.consentPairs()[0]?.key ?? '');
-  /** `<account id>:install|uninstall` while the hooks plugin changes. */
-  protected readonly hooksBusy = signal<string | null>(null);
   protected readonly notice = signal('');
   /** Somewhere to move an account's data: another account, or a storage. */
   protected readonly moveOffered = computed(() =>
@@ -403,29 +398,6 @@ export class AccountsComponent {
       this.error.set(describeError(e).text);
     } finally {
       this.saving.set(false);
-    }
-  }
-
-  /** Desktop: the hooks plugin in a directory account's own directory. */
-  protected async setHooks(a: AccountView, install: boolean): Promise<void> {
-    if (this.hooksBusy()) return;
-    this.hooksBusy.set(`${a.id}:${install ? 'install' : 'uninstall'}`);
-    this.error.set('');
-    this.notice.set('');
-    try {
-      await this.accounts.setHooksPlugin(a.id, install);
-      this.notice.set(
-        install
-          ? tr(
-              "The hooks plugin is in {name}'s directory now. Its sessions started before need /reload-plugins.",
-              { name: a.name },
-            )
-          : tr("The hooks plugin is no longer in {name}'s directory.", { name: a.name }),
-      );
-    } catch (e) {
-      this.error.set(`${a.name}: ${describeError(e).text}`);
-    } finally {
-      this.hooksBusy.set(null);
     }
   }
 

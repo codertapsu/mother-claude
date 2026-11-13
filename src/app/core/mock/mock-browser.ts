@@ -398,6 +398,6 @@ function dangerous(what: string): Response {
   return fail(
     403,
     'dangerous_blocked',
-    `${what} is restricted to the Mother Claude desktop app, or to a device you granted dangerous actions in Remote > Devices.`,
+    `${what} is restricted to the Mother Claude desktop app, or to a device you granted dangerous actions in Settings › Phone & devices.`,
   );
 }

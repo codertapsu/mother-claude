@@ -1282,8 +1282,8 @@ fn watch_undelivered(state: &AppState, session_id: &str, message_id: &str) {
                 &state,
                 NoticeLevel::Warning,
                 "Your message is waiting: this session has no wake listener yet (it has not \
-                 finished a turn since foreign control loaded). It goes out at its next tool \
-                 call or turn end, or continue the session here.",
+                 finished a turn since the Mother Claude plugin loaded). It goes out at its next \
+                 tool call or turn end, or continue the session here.",
                 Some(&session),
             );
         }

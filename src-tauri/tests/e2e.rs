@@ -468,12 +468,26 @@ async fn a_phone_pairs_watches_answers_and_is_locked_out_after_revocation() {
         .unwrap();
     assert_eq!(r.status(), StatusCode::FORBIDDEN);
     let r = phone()
+        .patch(format!("{tunnel}/api/devices/{device_id}"))
+        .bearer_auth(&token)
+        .json(&json!({ "allowDangerousInternet": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    // It reads the device list, without the desktop's details.
+    let r = phone()
         .get(format!("{tunnel}/api/devices"))
         .bearer_auth(&token)
         .send()
         .await
         .unwrap();
-    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    assert_eq!(r.status(), StatusCode::OK);
+    let list = json_of(r).await;
+    assert_eq!(list["self"], device_id.as_str());
+    assert!(list.get("pending").is_none(), "{list}");
+    assert_eq!(list["devices"][0]["current"], true);
+    assert!(list["devices"][0].get("lastIp").is_none(), "{list}");
     // The desktop token is refused from anything that isn't this machine.
     let r = phone()
         .get(format!("{local}/api/sessions"))

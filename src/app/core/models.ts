@@ -816,7 +816,7 @@ export interface AccountView {
   /** A token account's token is in this Mac's secret store. */
   tokenStored: boolean;
   /** The hooks plugin in this account's directory, as last seen (the
-   * Default's mirrors foreign control; a token account shares it). */
+   * Default's is Sessions started elsewhere's; a token account shares it). */
   hooksPlugin?: HooksPluginState | string;
   /** Live sessions (only in `GET /accounts` answers). */
   live?: number;
@@ -1442,7 +1442,7 @@ export interface PairPendingStatus {
   message?: string;
 }
 
-/** One recent action of a device (Remote › Devices). */
+/** One recent action of a device (Settings › Phone & devices). */
 export interface DeviceAction {
   at: number;
   /** e.g. `POST /api/sessions/{id}/respond`. */
@@ -1507,6 +1507,25 @@ export interface PendingPair {
   expiresAt?: number;
 }
 
+/** A paired device as another paired device reads the list (`GET
+ * /api/devices` from a phone): who, since when, online or when last seen,
+ * what it may do — never its address, user agent or actions, and no
+ * pairing waiting (the desktop's). */
+export interface PairedDeviceView {
+  id: string;
+  name: string;
+  platform: string;
+  createdAt: number;
+  lastSeenAt?: number;
+  allowDangerous: boolean;
+  allowDangerousInternet: boolean;
+  online: boolean;
+  /** The device asking. */
+  current: boolean;
+}
+
+/** `GET /api/devices`: the desktop's whole list. A paired device gets
+ * {@link PairedDeviceView}s instead, and no `pending`. */
 export interface DevicesList {
   devices: DeviceInfo[];
   pending: PendingPair[];

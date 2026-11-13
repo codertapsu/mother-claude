@@ -93,7 +93,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Start a session with **New session** on the **Sessions** page: sessions started there can be fully controlled.',
           'Pair your phone on the desktop app, under **Settings › Phone & devices**.',
-          'To answer sessions you started in a terminal or VS Code, install foreign-session control under **Settings › Sessions started elsewhere**.',
+          'To answer sessions you started in a terminal or VS Code, install the Mother Claude plugin under **Settings › Sessions started elsewhere**.',
         ],
         links: [
           { label: 'Open New session', path: '/new' },
@@ -153,7 +153,7 @@ const TOPICS: HelpTopicSource[] = [
           'Some actions are **dangerous**: they let Claude run without approval, or change settings beyond one request.',
         points: [
           'Examples: switching a session to **Bypass permissions**, saving "always allow" rules to settings files, approving a tool call marked dangerous, removing or deleting sessions, and sending raw keys to a terminal.',
-          'The desktop app can always do them. A phone can only after you allow it on the desktop app under **Remote › Paired devices**, separately for your home network and for the internet.',
+          'The desktop app can always do them. A phone can only after you allow it on the desktop app under **Settings › Phone & devices**, separately for your home network and for the internet.',
         ],
         links: [{ label: 'See Internet access and devices', path: '/help/internet' }],
       },
@@ -182,7 +182,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Connections',
-            text: 'What else works with Mother Claude, each with how it stands and its page: **Phone & devices**, **Sessions started elsewhere** (both in the desktop app), **Browser**, **HTTP API** and **Claude Code tools**.',
+            text: 'What else works with Mother Claude: **Phone & devices**, **Sessions started elsewhere** (in the desktop app), **Browser**, **HTTP API** and **Claude Code tools**. Each row says how it stands and opens a page of its own, where **Settings** at the top goes back.',
           },
           {
             term: 'Connection',
@@ -268,7 +268,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           '**Connection** shows the server this device uses, how it connects, whether it may take dangerous actions, and the state of live updates.',
           '**Reconnect** connects again right away.',
-          'In the desktop app, **Pair a phone** opens pairing. On a phone, **Unpair this device** removes it.',
+          'In the desktop app, **Pair a phone** opens **Phone & devices**. On a phone, **Unpair this device** removes it.',
         ],
         links: [{ label: 'See Use it from your phone', path: '/help/phone' }],
       },
@@ -799,15 +799,15 @@ const TOPICS: HelpTopicSource[] = [
           "Mother Claude marks some requests **dangerous**: for example writes to Claude Code's settings, `.mcp.json`, shell startup files or git hooks. The card says why.",
         points: [
           'The desktop app can approve them.',
-          'A phone needs **Allow dangerous actions** for the network it is on, set in the desktop app under **Remote › Paired devices**.',
+          'A phone needs **Allow dangerous actions** for the network it is on, set in the desktop app under **Settings › Phone & devices**.',
           'Any device can deny them.',
         ],
       },
       {
         heading: 'Sessions started elsewhere',
         points: [
-          'With foreign-session control installed, a permission request from a terminal or VS Code session shows here while the session shows its own dialog. Whoever answers first wins; the other prompt goes away.',
-          'Without it, those requests show under **Waiting where it runs**.',
+          'With the Mother Claude plugin installed (**Settings › Sessions started elsewhere**), a permission request from a terminal or VS Code session shows here while the session shows its own dialog. Whoever answers first wins; the other prompt goes away.',
+          'Without it, those requests show under **Waiting where it runs**, and while nothing waits the **Inbox** says where to install it.',
           'A session in **Bypass permissions** asks almost nothing, so few requests reach you.',
         ],
         links: [{ label: 'See Sessions started elsewhere', path: '/help/foreign-sessions' }],
@@ -894,13 +894,15 @@ const TOPICS: HelpTopicSource[] = [
       'certificate',
       'push',
       'notifications',
+      'devices',
+      'remote',
     ],
     sections: [
       {
         heading: 'Pair a phone on the same Wi-Fi',
         steps: [
           'In the desktop app, open **Settings › Phone & devices**.',
-          'Under **Pair a device**, choose **Same Wi-Fi**.',
+          'Under **Pair a phone**, choose **Same Wi-Fi**.',
           'Press **Show pairing code**. A QR code and a 12-character code appear.',
           "Scan the QR code with the phone's camera.",
           'The phone opens your sessions, paired.',
@@ -912,7 +914,7 @@ const TOPICS: HelpTopicSource[] = [
         notes: [
           'A **Same Wi-Fi** code works only on your own network. Pair only on a network you control.',
         ],
-        links: [{ label: 'Open Phone & devices', path: '/remote' }],
+        links: [{ label: 'Open Phone & devices', path: '/settings/devices' }],
       },
       {
         heading: "Trust your computer's certificate",
@@ -967,10 +969,25 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'What a phone can do',
         points: [
-          'The tabs at the bottom are **Sessions** (with **Agents** as a tab), **Inbox**, **Teams** (with **Capacity**) and **More**: **Computers**, **Accounts** (with **Usage**, **Backups** and **Recent changes**), **Settings** and **Help**.',
+          'The tabs at the bottom are **Sessions** (with **Agents** as a tab), **Inbox**, **Teams** (with **Capacity**) and **More**: **Computers**, **Accounts** (with **Usage**, **Backups** and **Recent changes**), **Settings** (with **Phone & devices**, **Browser**, **HTTP API** and **Claude Code tools** under **Connections**) and **Help**.',
           'Watch every session, answer approvals, questions and plans, send messages and images, start sessions and continue them.',
-          'Pairing devices, changing remote access and installing the plugin happen only in the desktop app.',
+          'Pairing devices, internet access, what each device may do and installing the plugin are changed only in the desktop app.',
           'Dangerous actions need a grant for this device in the desktop app (**Settings › Phone & devices**, under **Paired devices**).',
+        ],
+      },
+      {
+        heading: 'Phone & devices on a phone',
+        intro:
+          'On a phone, **Settings › Phone & devices** shows this phone and every device paired with your computer, read only.',
+        terms: [
+          {
+            term: 'This device',
+            text: 'Its **Name**, the **Network** it reaches your computer through, and whether it may take **Dangerous actions** there.',
+          },
+          {
+            term: 'Paired devices',
+            text: 'Every paired device, this one first: online, or when it was last seen, and the dangerous actions it may take.',
+          },
         ],
       },
       {
@@ -1021,17 +1038,17 @@ const TOPICS: HelpTopicSource[] = [
         tips: [
           'Mother Claude finds the address of ngrok, Cloudflare quick tunnels and Tailscale by itself. For any other tunnel, type its `https://` address under **Or enter it yourself**.',
         ],
-        links: [{ label: 'Open Remote', path: '/remote' }],
+        links: [{ label: 'Open Phone & devices', path: '/settings/devices' }],
       },
       {
         heading: 'Pair a phone through the internet',
         where: 'desktop',
         steps: [
-          'Under **Pair a device**, choose **Internet**.',
+          'Under **Pair a phone**, choose **Internet**.',
           'Press **Show pairing code**.',
           'Scan it with the phone (on mobile data, for example). The phone shows 4 digits.',
-          'In the desktop app, press **Approve…** on the **Waiting for your approval** card.',
-          'Type the 4 digits the phone shows.',
+          'In the desktop app, **Approve a new device?** opens by itself; or press **Approve…** on its card in the **Inbox**.',
+          'Type the 4 digits the phone shows in **Number shown on the device**, and press **Approve**.',
         ],
         points: [
           'Nobody gets in through the internet without you typing those digits on your computer. Three wrong tries deny the request.',
@@ -1050,14 +1067,14 @@ const TOPICS: HelpTopicSource[] = [
         steps: ['Under **Internet access**, turn off **Allow access through a tunnel**.'],
         points: [
           'That stops the tunnel port and cuts every connection that came through it.',
-          'Point tunnels at port 6726, as the commands on the Remote page do. A tunnel pointed at 6725 instead keeps working after you switch this off.',
+          'Point tunnels at port 6726, as the commands under **Start a tunnel** do. A tunnel pointed at 6725 instead keeps working after you switch this off.',
         ],
       },
       {
         heading: 'Manage paired devices',
         where: 'desktop',
         intro:
-          '**Remote › Paired devices** lists every device with its platform, how and when it last connected, and its open connections.',
+          '**Paired devices**, on **Settings › Phone & devices**, lists every device with its platform, how and when it last connected, and its open connections.',
         terms: [
           { term: 'The pencil', text: 'Renames the device.' },
           {
@@ -1080,11 +1097,12 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
-        heading: 'Warnings on the Remote page',
+        id: 'warnings-on-the-remote-page',
+        heading: 'Warnings under Internet access',
         terms: [
           {
             term: "ngrok's inspector is recording",
-            text: 'Restart ngrok with `--inspect=false`, the way the Remote page shows it.',
+            text: 'Restart ngrok with `--inspect=false`, as the ngrok command under **Start a tunnel** does.',
           },
           {
             term: "The quick tunnel's address changes",
@@ -1108,11 +1126,13 @@ const TOPICS: HelpTopicSource[] = [
     summary:
       'Answer and message terminal, VS Code and JetBrains sessions with the plugin, or tmux.',
     intro:
-      'Mother Claude shows every Claude Code session on your computer, whatever started it, and you can watch them right away. To answer and message the ones you started in a terminal, VS Code, JetBrains or Claude Desktop, install foreign-session control.',
+      'Mother Claude shows every Claude Code session on your computer, whatever started it, and you can watch them right away. To answer and message the ones you started in a terminal, VS Code, JetBrains or Claude Desktop, install the Mother Claude plugin under **Settings › Sessions started elsewhere**.',
     keywords: [
       'foreign',
+      'foreign-session control',
       'plugin',
       'hooks',
+      'hooks plugin',
       'vs code',
       'jetbrains',
       'terminal',
@@ -1122,23 +1142,48 @@ const TOPICS: HelpTopicSource[] = [
     ],
     sections: [
       {
-        heading: 'Install foreign-session control',
+        id: 'install-foreign-session-control',
+        heading: 'Install the Mother Claude plugin',
         where: 'desktop',
         steps: [
           'Open **Settings › Sessions started elsewhere**.',
-          'Under **Foreign-session control**, press **Install foreign-session control**.',
-          'Wait until **Status** says **installed**.',
+          "On your Claude account's row, press **Install** (a token account uses the first row, the Default's).",
+          'Wait until **Plugin** says **On**.',
           'In each session that was already running, type `/reload-plugins` (or restart it).',
         ],
         points: [
           "It installs the Mother Claude plugin with Claude Code's own `claude plugin install`. Your `settings.json` and your own hooks are never touched.",
-          'New sessions report in by themselves. The Remote page counts **Sessions reporting**, and under **Need a reload** the ones started before the install.',
+          'New sessions report in by themselves: **Sessions reporting** counts them. Below the table, a line counts the running sessions started before the install, which still need `/reload-plugins`.',
           'With Mother Claude closed, your sessions behave exactly as before.',
         ],
-        notes: [
-          "The button is greyed out when Claude Code's `claude` command is not found. Install Claude Code, or start the app from a shell where `claude` works.",
+        tips: [
+          'From a session you can only watch, **Set up Sessions started elsewhere** (under its message box, or beside what does not work and why) opens the same page. On a phone, the same place says what to press on your computer.',
         ],
-        links: [{ label: 'Open Foreign-session control', path: '/remote', fragment: 'foreign' }],
+        notes: [
+          "**Install** is greyed out when Claude Code's `claude` command is not found. Install Claude Code, or start the app from a shell where `claude` works.",
+        ],
+        links: [{ label: 'Open Sessions started elsewhere', path: '/settings/elsewhere' }],
+      },
+      {
+        heading: 'One table for every account',
+        intro:
+          "Each Claude account that keeps its own folder has its own copy of the plugin, so **Settings › Sessions started elsewhere** has a row for each: the Default first, then each directory account. A token account uses the Default's folder, and its row.",
+        terms: [
+          { term: 'Claude account', text: 'The account, and the folder the plugin goes in.' },
+          {
+            term: 'Plugin',
+            text: '**On**, **Installed, switched off** (there, but doing nothing) or **Not installed**, with its version.',
+          },
+          {
+            term: 'Sessions reporting',
+            text: 'Running sessions whose plugin reports to Mother Claude.',
+          },
+          { term: 'Last hook event', text: 'When the plugin last reported something.' },
+        ],
+        points: [
+          "In the desktop app, each account's **Sessions started elsewhere** line on **Accounts** leads there too.",
+          'On a phone the table is read only: installing and uninstalling are done in the desktop app.',
+        ],
       },
       {
         heading: 'What works through the plugin',
@@ -1180,7 +1225,7 @@ const TOPICS: HelpTopicSource[] = [
         where: 'desktop',
         steps: [
           'Open **Settings › Sessions started elsewhere**.',
-          'Press **Uninstall**.',
+          "On the account's row, press **Uninstall**.",
           'Press **Tap again to uninstall**.',
         ],
         points: [
@@ -2063,7 +2108,7 @@ const TOPICS: HelpTopicSource[] = [
           'On the computer that will run the commands, open **Computers**.',
           'On the card of the computer whose sessions will ask, next to **On this PC, … may** (or **On this Mac, … may**), press **Change**.',
           'Tick **Run**, for **Same network**, **Internet** or both, and press **Save**.',
-          "On the computer whose sessions ask, keep **Give sessions Mother Claude's tools** on, under **Services**: sessions reach the other computer through those tools.",
+          "On the computer whose sessions ask, keep **Give sessions Mother Claude's tools** on, in **Settings › Claude Code tools**: sessions reach the other computer through those tools.",
         ],
         tips: [
           '**Run** needs **Drive** and **See**: ticking it ticks them. It stays off for every computer until you tick it.',
@@ -2464,11 +2509,14 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Sessions started elsewhere, by account',
         points: [
           "Each account's row on **Accounts** says whether Mother Claude can answer and message the sessions you start under it in a terminal, VS Code or JetBrains: **Sessions started elsewhere: on** or **Sessions started elsewhere: off**.",
-          "The Default's line opens foreign-session control (in the desktop app).",
-          'A directory account keeps the plugin in its own folder: **Install** puts it there and **Uninstall** takes it out (in the desktop app).',
+          'In the desktop app, that line opens **Settings › Sessions started elsewhere**, where the plugin of every account is installed and uninstalled.',
+          'A directory account keeps the plugin in its own folder, so it has a row of its own there.',
           "A token account has no line: its sessions use the Default's plugin.",
         ],
-        links: [{ label: 'See Sessions started elsewhere', path: '/help/foreign-sessions' }],
+        links: [
+          { label: 'Open Sessions started elsewhere', path: '/settings/elsewhere' },
+          { label: 'See Sessions started elsewhere', path: '/help/foreign-sessions' },
+        ],
       },
       {
         heading: 'Choose which account runs what',
@@ -2898,7 +2946,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'From a phone',
         points: [
           'A paired phone can do everything here except set or change the passphrase. It uses the buttons: dragging is for the desktop.',
-          'Force actions and folder trust need a device allowed dangerous actions (**Remote › Paired devices** in the desktop app).',
+          'Force actions and folder trust need a device allowed dangerous actions (**Settings › Phone & devices** in the desktop app).',
         ],
       },
     ],
@@ -2941,7 +2989,7 @@ const TOPICS: HelpTopicSource[] = [
           'When the panel says **Connected**, press **Done** in Mother Claude.',
         ],
         notes: ['Pairing is done in the desktop app, or on a phone allowed dangerous actions.'],
-        links: [{ label: 'Open Browser', path: '/browser' }],
+        links: [{ label: 'Open Browser', path: '/settings/browser' }],
       },
       {
         heading: 'Choose what sessions may do on a site',
@@ -2960,8 +3008,8 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Give sessions the browser tools',
         points: [
-          "Sessions use the browser through Mother Claude's tools, which are on by default (**Services › Claude Code tools (MCP)**).",
-          'Sessions started outside Mother Claude also need foreign-session control.',
+          "Sessions use the browser through Mother Claude's tools, which are on by default (**Settings › Claude Code tools**).",
+          'Sessions started outside Mother Claude also need the Mother Claude plugin (**Settings › Sessions started elsewhere**).',
           'A session that was already running needs `/reload-plugins` or a restart. In the side panel it shows **No browser tools** until then.',
         ],
         links: [{ label: 'See Claude Code tools', path: '/help/claude-code-tools' }],
@@ -2991,7 +3039,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Approvals',
         points: [
-          "Requests appear in the Inbox, on the session's page, under **Browser › Waiting for you** and in the side panel. The first answer wins; no answer within 5 minutes counts as no.",
+          "Requests appear in the Inbox, on the session's page, under **Waiting for you** on **Settings › Browser**, and in the side panel. The first answer wins; no answer within 5 minutes counts as no.",
           'Always asked: a sensitive site, forms with password, card or one-time-code fields, running a script, uploading files, reading or changing cookie and storage values, going over the per-minute limit, and any action in the minute after a Stop.',
           '**Always…** on a card saves a standing grant. Grants are listed under **Always allowed**, where **Remove** takes one back.',
         ],
@@ -3001,7 +3049,7 @@ const TOPICS: HelpTopicSource[] = [
         steps: ['In the side panel, press **Stop** on the session.'],
         points: [
           'Its running command fails, its approvals are withdrawn, and its browser actions are refused for 60 seconds. Closing its tab group does the same.',
-          '**Resume** lifts it early, from the side panel or from **Browser › Sessions using the browser** (which has **Stop** too).',
+          '**Resume** lifts it early, from the side panel or under **Sessions using the browser** on **Settings › Browser** (which has **Stop** too).',
           'During that minute, other sessions acting in that browser need approval.',
         ],
       },
@@ -3025,7 +3073,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'What is never done',
         points: [
           'Sessions never type into password, card, one-time-code or other secret fields: they ask you to type them yourself.',
-          "Uploads come only from the session's project folder or a folder you added under **Browser › Settings**, never from Claude Code's folders, `~/.ssh` or files that usually hold secrets.",
+          "Uploads come only from the session's project folder or a folder you added under **Folders sessions may upload files from** on **Settings › Browser**, never from Claude Code's folders, `~/.ssh` or files that usually hold secrets.",
           '**Activity** records the tool, site, path, outcome and time, never what was typed or read.',
         ],
       },
@@ -3135,7 +3183,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'A session started elsewhere as a role',
         steps: ['On a role that is not running, open **Take role…**.', 'Pick the session.'],
         points: [
-          'It needs foreign-session control and must run in the project. Mother Claude tells it about its tasks but never starts or stops it.',
+          'It needs the Mother Claude plugin (**Settings › Sessions started elsewhere**) and must run in the project. Mother Claude tells it about its tasks but never starts or stops it.',
           '**Release role** gives the role back; its tasks return to the board.',
         ],
       },
@@ -3283,17 +3331,18 @@ const TOPICS: HelpTopicSource[] = [
           'They are on by default. Sessions started from then on get them; running ones after `/reload-plugins` or a restart.',
           'Off: sessions get no tools, and calls from running ones are refused.',
         ],
-        links: [{ label: 'Open Services', path: '/services' }],
+        links: [{ label: 'Open Claude Code tools', path: '/settings/tools' }],
       },
       {
         heading: 'Which sessions have them',
         points: [
           'Sessions Mother Claude starts get them by themselves.',
-          'Terminal, VS Code and JetBrains sessions get them through the Mother Claude plugin: install foreign-session control.',
+          'Terminal, VS Code and JetBrains sessions get them through the Mother Claude plugin: install it under **Settings › Sessions started elsewhere**.',
           'Conversations started through the HTTP API do not get them yet.',
-          'The panel shows **Sessions connected (last 15 min)**, whether **Sessions Mother Claude starts** get the tools, the plugin, and **Last calls**.',
+          'The page shows how many **Tools** there are, **Sessions connected (last 15 min)**, whether **Sessions Mother Claude starts** get the tools, the plugin, and **Last calls**.',
+          'When the plugin is not installed, or is older than this app, a line says so, with a link to **Sessions started elsewhere**.',
         ],
-        links: [{ label: 'Open Foreign-session control', path: '/remote', fragment: 'foreign' }],
+        links: [{ label: 'Open Sessions started elsewhere', path: '/settings/elsewhere' }],
       },
       {
         heading: 'Approvals',
@@ -3303,7 +3352,10 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
-        heading: 'The Services page',
+        id: 'the-services-page',
+        heading: 'What Claude Code runs besides its sessions',
+        intro:
+          'Besides its sessions, Claude Code runs a background service, MCP servers and background jobs. **Computers › This Mac › Details** (**This PC** on Windows) shows them, and the link at the bottom of **Settings › Claude Code tools** leads there.',
         terms: [
           {
             term: 'Claude Code’s background service',
@@ -3312,9 +3364,7 @@ const TOPICS: HelpTopicSource[] = [
           { term: 'MCP servers', text: 'The MCP servers configured for Claude Code, by name.' },
           { term: 'Background jobs', text: 'Jobs started with `claude --bg`.' },
         ],
-        points: [
-          '**Refresh** reads it all again. On **Computers**, **Details** in the **This Mac** (or **This PC**) card shows the same.',
-        ],
+        points: ['**Check again** reads it all again.'],
       },
     ],
   },
@@ -3343,7 +3393,7 @@ const TOPICS: HelpTopicSource[] = [
           'To apply a change later, press **Restart with these settings**. **Switch conversation** changes only the conversation.',
           '**Stop** closes the port; conversations already running carry on.',
         ],
-        links: [{ label: 'Open API', path: '/api' }],
+        links: [{ label: 'Open HTTP API', path: '/settings/api' }],
       },
       {
         heading: 'Try it',
@@ -3358,7 +3408,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Programs on this computer need no token.',
           'A request that comes through a tunnel needs a token, and while a tunnel points at the API port every request does.',
-          'The **Authentication** line on the API screen says what is needed right now.',
+          'The **Authentication** line on **Settings › HTTP API** says what is needed right now.',
         ],
       },
       {
@@ -3435,7 +3485,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'No public URL yet',
-            text: 'No tunnel was found. Start one of the commands on the Remote page, or type its address under **Or enter it yourself**.',
+            text: 'No tunnel was found. Start one of the commands under **Start a tunnel** on **Settings › Phone & devices**, or type its address under **Or enter it yourself**.',
           },
           {
             term: 'Mother Claude is not listening on your local network.',
@@ -3455,7 +3505,7 @@ const TOPICS: HelpTopicSource[] = [
             text: "The session (one started elsewhere) hasn't reached a tool call or the end of its turn, or nothing can wake it. Take it back from the queue if you change your mind. Unread after 30 minutes, it is dropped with a notice.",
           },
           {
-            term: 'Started before foreign control was installed',
+            term: 'Started before the Mother Claude plugin was installed',
             text: 'Type `/reload-plugins` in that session, or restart it.',
           },
           {
@@ -3490,15 +3540,20 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
-        heading: 'Foreign-session control',
+        id: 'foreign-session-control',
+        heading: 'Sessions started elsewhere',
         terms: [
           {
-            term: '"Install foreign-session control" is greyed out',
+            term: 'Turn on Sessions started elsewhere on the … to approve and message this session from here.',
+            text: "The session's account has no Mother Claude plugin yet. In the desktop app, press **Install** on its row in **Settings › Sessions started elsewhere**, then type `/reload-plugins` in the session.",
+          },
+          {
+            term: '"Install" is greyed out',
             text: "The `claude` command wasn't found. Install Claude Code, or start the app from a shell where `claude` works.",
           },
           {
             term: 'No Mother Claude tools in a terminal session',
-            text: 'Install foreign-session control for that account (for a directory account, **Install** on its row on **Accounts**), then type `/reload-plugins`.',
+            text: "Install the Mother Claude plugin for that session's account (**Install** on its row in **Settings › Sessions started elsewhere**), then type `/reload-plugins`.",
           },
         ],
       },
@@ -3519,11 +3574,11 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'A terminal session of a token account shows the Default',
-            text: "Install foreign-session control: a token account's sessions use the Default's plugin. On **Accounts**, the Default's **Sessions started elsewhere** line opens it. The session's account shows after its first tool call.",
+            text: "Install the Mother Claude plugin on the Default's row (the first) in **Settings › Sessions started elsewhere**: a token account's sessions use the Default's plugin. The session's account shows after its first tool call.",
           },
           {
             term: "Can't remove an account",
-            text: 'Sessions Mother Claude started or the API still use it. Stop them, or start the API with another account.',
+            text: 'Sessions Mother Claude started or the API still use it. Stop them, or start the API with another account: **Open Settings › HTTP API** takes you there.',
           },
         ],
       },
@@ -3575,7 +3630,10 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'HTTP API and tools',
         terms: [
-          { term: '`bridge_not_started`', text: 'Open **API** and press **Start the API**.' },
+          {
+            term: '`bridge_not_started`',
+            text: 'Open **Settings › HTTP API** and press **Start the API**.',
+          },
           {
             term: 'Not logged in · Please run /login',
             text: 'Sign Claude Code in again with `claude auth login` in a terminal.',
@@ -3590,7 +3648,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: '`mcp_disabled`',
-            text: "Turn **Give sessions Mother Claude's tools** back on under **Services**.",
+            text: "Turn **Give sessions Mother Claude's tools** back on in **Settings › Claude Code tools**.",
           },
         ],
       },

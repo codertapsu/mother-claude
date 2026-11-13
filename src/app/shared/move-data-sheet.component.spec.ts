@@ -548,13 +548,13 @@ describe('MoveDataSheetComponent', () => {
     const trust = el.querySelector<HTMLInputElement>('.check input')!;
     expect(trust.disabled).toBe(true);
     expect(text(el.querySelector('.check'))).toContain(
-      'Needs dangerous actions for this device, granted on the computer in Remote › Devices.',
+      'Needs dangerous actions for this device, granted on the computer in Settings › Phone & devices.',
     );
     button(el, 'Customizations')?.click();
     await settle();
     const boxes = [...el.querySelectorAll<HTMLInputElement>('.custom input[type="checkbox"]')];
     expect(boxes.filter((b) => b.disabled).length).toBe(2);
-    expect(text(el.querySelectorAll('.custom li')[1])).toContain('Remote › Devices');
+    expect(text(el.querySelectorAll('.custom li')[1])).toContain('Settings › Phone & devices');
   });
 
   it('moves into a new set, named in the sheet', async () => {

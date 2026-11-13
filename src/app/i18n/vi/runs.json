@@ -83,5 +83,8 @@
   "Remove the {role} role here": "Gỡ bỏ vai trò {role} ở đây",
   "Only the tools that run commands on other computers wait for it: the rest works without it.": "Chỉ các công cụ chạy lệnh trên máy tính khác phải chờ: phần còn lại vẫn hoạt động.",
   "No team role runs here for another computer.": "Không có vai trò nhóm nào chạy ở đây cho máy tính khác.",
-  "Saved in Mother Claude (Computers › Activity › Always allowed runs)": "Lưu trong Mother Claude (Máy tính › Hoạt động › Lệnh chạy luôn được phép)"
+  "Saved in Mother Claude (Computers › Activity › Always allowed runs)": "Lưu trong Mother Claude (Máy tính › Hoạt động › Lệnh chạy luôn được phép)",
+  "Claude Code’s background service, its MCP servers and background jobs:": "Dịch vụ nền của Claude Code, các máy chủ MCP và công việc nền của nó:",
+  "Computers › {computer} › Details": "Máy tính › {computer} › Chi tiết",
+  "Mother Claude’s own tools for the Claude Code sessions on this computer: the browser extension and the team tools need them.": "Các công cụ riêng của Mother Claude cho các phiên Claude Code trên máy tính này: tiện ích trình duyệt và các công cụ nhóm cần chúng."
 }

@@ -735,9 +735,9 @@ pub async fn take_role(
     if !crate::server::hooks::is_active(&state, &sid) {
         return Err(ApiError::conflict(
             "hooks_inactive",
-            "Foreign-session control is not active in that session (install it on the desktop, \
-             then run /reload-plugins there): Mother Claude could neither guard its edits nor \
-             hand it tasks.",
+            "Sessions started elsewhere is not on in that session (turn it on on the desktop, \
+             in Settings › Sessions started elsewhere, then run /reload-plugins there): Mother \
+             Claude could neither guard its edits nor hand it tasks.",
         ));
     }
     if crate::server::hooks::effective_bypass(&state, &s).await {

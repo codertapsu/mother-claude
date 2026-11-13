@@ -139,14 +139,16 @@ describe('the map (core/nav.ts)', () => {
   });
 
   it("lists Settings' connections, the desktop's own only there", () => {
+    // Each a page of Settings (docs/UI-REDESIGN.md §6.7).
     expect(connections(true).map((c) => [c.label, c.path, c.fragment ?? ''])).toEqual([
-      ['Phone & devices', '/remote', ''],
-      ['Sessions started elsewhere', '/remote', 'foreign'],
-      ['Browser', '/browser', ''],
-      ['HTTP API', '/api', ''],
-      ['Claude Code tools', '/services', ''],
+      ['Phone & devices', '/settings/devices', ''],
+      ['Sessions started elsewhere', '/settings/elsewhere', ''],
+      ['Browser', '/settings/browser', ''],
+      ['HTTP API', '/settings/api', ''],
+      ['Claude Code tools', '/settings/tools', ''],
     ]);
-    expect(connections(false).map((c) => c.id)).toEqual(['browser', 'api', 'tools']);
+    // A phone reads Phone & devices (itself, the list) too.
+    expect(connections(false).map((c) => c.id)).toEqual(['devices', 'browser', 'api', 'tools']);
   });
 
   it("titles the phone's top bar by the place, or the page's own name", () => {
@@ -157,9 +159,8 @@ describe('the map (core/nav.ts)', () => {
     expect(titleOf('accounts')).toBe('Accounts');
     expect(titleOf('computers')).toBe('Computers');
     expect(titleOf('settings')).toBe('Settings');
-    expect(titleOf('remote')).toBe('Remote');
-    expect(titleOf('api')).toBe('API');
-    expect(titleOf('services')).toBe('Services');
+    // Settings' connections are its pages: the top bar names Settings.
+    expect(titleOf('settings')).toBe('Settings');
     expect(titleOf('new')).toBe('New session');
     expect(titleOf('help')).toBe('Help');
     expect(titleOf('session')).toBe('Session');
@@ -170,18 +171,7 @@ describe('the map (core/nav.ts)', () => {
   });
 
   it("marks the phone's More tab on the pages of what it lists", () => {
-    for (const s of [
-      'more',
-      'computers',
-      'accounts',
-      'settings',
-      'remote',
-      'browser',
-      'api',
-      'services',
-      'onboarding',
-      'help',
-    ]) {
+    for (const s of ['more', 'computers', 'accounts', 'settings', 'onboarding', 'help']) {
       expect(moreActive(s), s).toBe(true);
     }
     for (const s of ['', 'inbox', 'agents', 'teams', 'capacity', 'new', 'session', 'pair']) {

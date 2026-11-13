@@ -72,11 +72,11 @@ function groupCode(code: string): string {
         <div class="card">
           <p>
             {{ 'This is the desktop app. To connect a phone, open' | t }}
-            <strong>{{ 'Remote' | t }}</strong
+            <strong>{{ 'Settings › Phone & devices' | t }}</strong
             >{{ ", choose LAN or Internet, and scan the QR code with the phone's camera." | t }}
           </p>
-          <a class="btn primary" routerLink="/remote"
-            ><mc-icon name="qr" /> {{ 'Open Remote' | t }}</a
+          <a class="btn primary" routerLink="/settings/devices"
+            ><mc-icon name="qr" /> {{ 'Open Phone & devices' | t }}</a
           >
         </div>
       } @else if (alreadyPaired() && (phase() === 'enter' || phase() === 'error')) {
@@ -150,7 +150,7 @@ function groupCode(code: string): string {
               <ol class="steps">
                 <li>
                   {{ 'On your computer, open' | t }}
-                  <strong>{{ 'Mother Claude → Remote' | t }}</strong
+                  <strong>{{ 'Mother Claude › Settings › Phone & devices' | t }}</strong
                   >.
                 </li>
                 <li>

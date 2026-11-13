@@ -85,7 +85,7 @@ const INGRESS: Record<string, string> = {
           </label>
           <p id="pair-help" class="muted small">
             {{
-              'Only approve a device you are holding. It gets access to all your Claude sessions until you revoke it in Remote › Devices.'
+              'Only approve a device you are holding. It gets access to all your Claude sessions until you revoke it in Settings › Phone & devices.'
                 | t
             }}
           </p>

@@ -103,11 +103,11 @@ describe('Settings › Connections', () => {
       'Claude Code tools',
     ]);
     expect(rows(el).map((a) => a.getAttribute('href'))).toEqual([
-      '/remote',
-      '/remote#foreign',
-      '/browser',
-      '/api',
-      '/services',
+      '/settings/devices',
+      '/settings/elsewhere',
+      '/settings/browser',
+      '/settings/api',
+      '/settings/tools',
     ]);
     const internet = buildFixtures(Date.now()).remote.internet.enabled ? 'on' : 'off';
     expect(state(el, 'devices')).toBe(`2 devices paired · internet access ${internet}`);
@@ -118,10 +118,41 @@ describe('Settings › Connections', () => {
     expect(state(el, 'tools')).toBe('On · used by 4 sessions in the last 15 min');
   });
 
-  it("gives a phone the three it may open, and asks nothing of the desktop's own", async () => {
+  it("gives a phone the four it may open, and asks nothing of the desktop's own", async () => {
+    backend.routes.set('/devices', () => ({
+      status: 200,
+      body: {
+        self: 'dev_1',
+        devices: [
+          {
+            id: 'dev_1',
+            name: 'iPhone',
+            platform: 'iOS',
+            createdAt: 1,
+            online: true,
+            current: true,
+          },
+          {
+            id: 'dev_2',
+            name: 'iPad',
+            platform: 'iPadOS',
+            createdAt: 1,
+            online: false,
+            current: false,
+          },
+        ],
+      },
+    }));
     const el = await render();
-    expect(rows(el).map((a) => a.getAttribute('data-id'))).toEqual(['browser', 'api', 'tools']);
-    for (const call of ['GET /devices', 'GET /remote', 'GET /control/foreign']) {
+    expect(rows(el).map((a) => a.getAttribute('data-id'))).toEqual([
+      'devices',
+      'browser',
+      'api',
+      'tools',
+    ]);
+    // A phone reads the devices paired (read only), not how to reach them.
+    expect(state(el, 'devices')).toBe('2 devices paired');
+    for (const call of ['GET /remote', 'GET /control/foreign']) {
       expect(backend.calls).not.toContain(call);
     }
   });

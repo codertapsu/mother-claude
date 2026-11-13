@@ -92,7 +92,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Bắt đầu một phiên bằng nút **Phiên mới** trên trang **Phiên**: phiên bắt đầu ở đó được điều khiển hoàn toàn.',
           'Ghép nối điện thoại trên ứng dụng máy tính, trong **Cài đặt › Điện thoại & thiết bị**.',
-          'Để trả lời các phiên bạn bắt đầu trong terminal hay VS Code, hãy cài đặt điều khiển phiên bên ngoài trong **Cài đặt › Phiên bắt đầu ở nơi khác**.',
+          'Để trả lời các phiên bạn bắt đầu trong terminal hay VS Code, hãy cài plugin Mother Claude trong **Cài đặt › Phiên bắt đầu ở nơi khác**.',
         ],
         links: [
           { label: 'Mở trang Phiên mới', path: '/new' },
@@ -152,7 +152,7 @@ const TOPICS: HelpTopicSource[] = [
           'Một số thao tác là **nguy hiểm**: chúng cho Claude chạy mà không cần duyệt, hoặc thay đổi cài đặt vượt ra ngoài một yêu cầu.',
         points: [
           'Ví dụ: chuyển một phiên sang **Bỏ qua quyền**, lưu quy tắc “luôn cho phép” vào tệp cài đặt, cho phép một lệnh gọi công cụ bị đánh dấu nguy hiểm, gỡ bỏ hoặc xóa phiên, và gửi phím thô vào terminal.',
-          'Ứng dụng máy tính luôn làm được các thao tác này. Điện thoại chỉ làm được sau khi bạn cho phép trên ứng dụng máy tính, trong **Từ xa › Thiết bị đã ghép nối**, riêng cho mạng ở nhà và cho internet.',
+          'Ứng dụng máy tính luôn làm được các thao tác này. Điện thoại chỉ làm được sau khi bạn cho phép trên ứng dụng máy tính, trong **Cài đặt › Điện thoại & thiết bị**, riêng cho mạng ở nhà và cho internet.',
         ],
         links: [{ label: 'Xem “Truy cập qua internet và thiết bị”', path: '/help/internet' }],
       },
@@ -189,7 +189,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Các kết nối',
-            text: 'Những gì khác hoạt động với Mother Claude, mỗi mục kèm tình trạng và trang riêng của nó: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác** (cả hai trong ứng dụng máy tính), **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**.',
+            text: 'Những gì khác hoạt động với Mother Claude: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác** (trong ứng dụng máy tính), **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**. Mỗi dòng cho biết tình trạng của mục đó và mở một trang riêng, nơi **Cài đặt** ở trên cùng đưa bạn quay lại.',
           },
           {
             term: 'Kết nối',
@@ -277,7 +277,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           '**Kết nối** cho biết máy chủ mà thiết bị này dùng, cách nó kết nối, nó có được thực hiện thao tác nguy hiểm không, và trạng thái cập nhật trực tiếp.',
           'Nhấn **Kết nối lại** để kết nối lại ngay.',
-          'Trong ứng dụng máy tính, **Ghép nối điện thoại** mở phần ghép nối. Trên điện thoại, **Hủy ghép nối thiết bị này** gỡ điện thoại đó.',
+          'Trong ứng dụng máy tính, **Ghép nối điện thoại** mở **Điện thoại & thiết bị**. Trên điện thoại, **Hủy ghép nối thiết bị này** gỡ điện thoại đó.',
         ],
         links: [{ label: 'Xem “Dùng trên điện thoại”', path: '/help/phone' }],
       },
@@ -811,15 +811,15 @@ const TOPICS: HelpTopicSource[] = [
           'Mother Claude đánh dấu một số yêu cầu là **nguy hiểm**: ví dụ ghi vào cài đặt của Claude Code, `.mcp.json`, tệp khởi động shell hay git hook. Thẻ sẽ nói rõ lý do.',
         points: [
           'Ứng dụng máy tính có thể cho phép các yêu cầu này.',
-          'Điện thoại cần **Cho phép thao tác nguy hiểm** cho mạng mà nó đang dùng, bật trong ứng dụng máy tính tại **Từ xa › Thiết bị đã ghép nối**.',
+          'Điện thoại cần **Cho phép thao tác nguy hiểm** cho mạng mà nó đang dùng, bật trong ứng dụng máy tính tại **Cài đặt › Điện thoại & thiết bị**.',
           'Thiết bị nào cũng có thể từ chối chúng.',
         ],
       },
       {
         heading: 'Phiên bắt đầu ở nơi khác',
         points: [
-          'Khi đã cài điều khiển phiên bên ngoài, yêu cầu cấp quyền từ một phiên terminal hay VS Code sẽ hiện ở đây, trong khi phiên đó vẫn hiện hộp thoại của riêng nó. Ai trả lời trước thì câu trả lời đó có hiệu lực; hộp thoại còn lại sẽ biến mất.',
-          'Nếu chưa cài, các yêu cầu đó hiện trong **Chờ ở nơi phiên chạy**.',
+          'Khi đã cài plugin Mother Claude (**Cài đặt › Phiên bắt đầu ở nơi khác**), yêu cầu cấp quyền từ một phiên terminal hay VS Code sẽ hiện ở đây, trong khi phiên đó vẫn hiện hộp thoại của riêng nó. Ai trả lời trước thì câu trả lời đó có hiệu lực; hộp thoại còn lại sẽ biến mất.',
+          'Nếu chưa cài, các yêu cầu đó hiện trong **Chờ ở nơi phiên chạy**, và khi không có gì đang chờ, **Hộp thư** sẽ cho biết nơi cài plugin.',
           'Phiên ở chế độ **Bỏ qua quyền** gần như không hỏi gì, nên rất ít yêu cầu đến được với bạn.',
         ],
         links: [{ label: 'Xem “Phiên bắt đầu ở nơi khác”', path: '/help/foreign-sessions' }],
@@ -905,13 +905,14 @@ const TOPICS: HelpTopicSource[] = [
       'thông báo đẩy',
       'màn hình chính',
       'di động',
+      'thiết bị',
     ],
     sections: [
       {
         heading: 'Ghép nối điện thoại trên cùng Wi-Fi',
         steps: [
           'Trong ứng dụng máy tính, mở **Cài đặt › Điện thoại & thiết bị**.',
-          'Trong **Ghép nối thiết bị**, chọn **Cùng Wi-Fi**.',
+          'Trong **Ghép nối điện thoại**, chọn **Cùng Wi-Fi**.',
           'Nhấn **Hiện mã ghép nối**. Một mã QR và một mã 12 ký tự sẽ hiện ra.',
           'Quét mã QR bằng camera của điện thoại.',
           'Điện thoại mở ra các phiên của bạn, đã ghép nối xong.',
@@ -923,7 +924,7 @@ const TOPICS: HelpTopicSource[] = [
         notes: [
           'Mã **Cùng Wi-Fi** chỉ dùng được trong mạng của chính bạn. Chỉ ghép nối trên mạng mà bạn kiểm soát.',
         ],
-        links: [{ label: 'Mở Điện thoại & thiết bị', path: '/remote' }],
+        links: [{ label: 'Mở Điện thoại & thiết bị', path: '/settings/devices' }],
       },
       {
         heading: 'Tin cậy chứng chỉ của máy tính',
@@ -977,10 +978,25 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Điện thoại làm được gì',
         points: [
-          'Các thẻ ở dưới cùng là **Phiên** (có thẻ **Tác tử**), **Hộp thư**, **Nhóm** (có **Công suất**) và **Thêm**: **Máy tính**, **Tài khoản** (có **Mức dùng**, **Bản sao lưu** và **Thay đổi gần đây**), **Cài đặt** và **Trợ giúp**.',
+          'Các thẻ ở dưới cùng là **Phiên** (có thẻ **Tác tử**), **Hộp thư**, **Nhóm** (có **Công suất**) và **Thêm**: **Máy tính**, **Tài khoản** (có **Mức dùng**, **Bản sao lưu** và **Thay đổi gần đây**), **Cài đặt** (có **Điện thoại & thiết bị**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code** trong **Các kết nối**) và **Trợ giúp**.',
           'Xem mọi phiên, trả lời yêu cầu duyệt, câu hỏi và kế hoạch, gửi tin nhắn và ảnh, bắt đầu phiên và tiếp tục phiên.',
-          'Ghép nối thiết bị, thay đổi quyền truy cập từ xa và cài đặt plugin chỉ làm được trong ứng dụng máy tính.',
+          'Việc ghép nối thiết bị, truy cập qua internet, quyền của từng thiết bị và cài plugin chỉ thay đổi được trong ứng dụng máy tính.',
           'Thao tác nguy hiểm cần được cấp quyền cho thiết bị này trong ứng dụng máy tính (**Cài đặt › Điện thoại & thiết bị**, trong **Thiết bị đã ghép nối**).',
+        ],
+      },
+      {
+        heading: 'Điện thoại & thiết bị trên điện thoại',
+        intro:
+          'Trên điện thoại, **Cài đặt › Điện thoại & thiết bị** hiện điện thoại này và mọi thiết bị đã ghép nối với máy tính của bạn, ở chế độ chỉ xem.',
+        terms: [
+          {
+            term: 'Thiết bị này',
+            text: '**Tên** của thiết bị, **Mạng** mà nó dùng để kết nối tới máy tính của bạn, và nó có được làm **Thao tác nguy hiểm** ở đó không.',
+          },
+          {
+            term: 'Thiết bị đã ghép nối',
+            text: 'Mọi thiết bị đã ghép nối, thiết bị này đứng đầu: đang trực tuyến hay lần hoạt động gần nhất, và các thao tác nguy hiểm mà nó được phép làm.',
+          },
         ],
       },
       {
@@ -1031,17 +1047,17 @@ const TOPICS: HelpTopicSource[] = [
         tips: [
           'Mother Claude tự tìm địa chỉ của ngrok, Cloudflare quick tunnel và Tailscale. Với đường hầm khác, gõ địa chỉ `https://` của nó vào **Hoặc tự nhập**.',
         ],
-        links: [{ label: 'Mở trang Từ xa', path: '/remote' }],
+        links: [{ label: 'Mở Điện thoại & thiết bị', path: '/settings/devices' }],
       },
       {
         heading: 'Ghép nối điện thoại qua internet',
         where: 'desktop',
         steps: [
-          'Trong **Ghép nối thiết bị**, chọn **Internet**.',
+          'Trong **Ghép nối điện thoại**, chọn **Internet**.',
           'Nhấn **Hiện mã ghép nối**.',
           'Quét mã bằng điện thoại (ví dụ khi đang dùng dữ liệu di động). Điện thoại sẽ hiện 4 chữ số.',
-          'Trong ứng dụng máy tính, nhấn **Cho phép…** trên thẻ **Đang chờ bạn cho phép**.',
-          'Gõ 4 chữ số mà điện thoại hiện.',
+          'Trong ứng dụng máy tính, hộp thoại **Cho phép thiết bị mới?** tự mở ra; hoặc nhấn **Cho phép…** trên thẻ của nó trong **Hộp thư**.',
+          'Gõ 4 chữ số mà điện thoại hiện vào **Số hiển thị trên thiết bị**, rồi nhấn **Cho phép**.',
         ],
         points: [
           'Không ai vào được qua internet nếu bạn không gõ các chữ số đó trên máy tính của mình. Nhập sai ba lần thì yêu cầu bị từ chối.',
@@ -1060,14 +1076,14 @@ const TOPICS: HelpTopicSource[] = [
         steps: ['Trong **Truy cập Internet**, tắt **Cho phép truy cập qua đường hầm**.'],
         points: [
           'Thao tác này đóng cổng đường hầm và cắt mọi kết nối đã đi qua nó.',
-          'Hãy trỏ đường hầm vào cổng 6726, như các lệnh trên trang Từ xa. Một đường hầm trỏ vào cổng 6725 sẽ vẫn hoạt động sau khi bạn tắt mục này.',
+          'Hãy trỏ đường hầm vào cổng 6726, như các lệnh trong **Khởi chạy đường hầm**. Một đường hầm trỏ vào cổng 6725 sẽ vẫn hoạt động sau khi bạn tắt mục này.',
         ],
       },
       {
         heading: 'Quản lý thiết bị đã ghép nối',
         where: 'desktop',
         intro:
-          '**Từ xa › Thiết bị đã ghép nối** liệt kê mọi thiết bị cùng nền tảng của nó, lần kết nối gần nhất (khi nào, bằng cách nào) và các kết nối đang mở.',
+          '**Thiết bị đã ghép nối**, trên **Cài đặt › Điện thoại & thiết bị**, liệt kê mọi thiết bị cùng nền tảng của nó, lần kết nối gần nhất (khi nào, bằng cách nào) và các kết nối đang mở.',
         terms: [
           { term: 'Biểu tượng bút chì', text: 'Đổi tên thiết bị.' },
           {
@@ -1090,11 +1106,11 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
-        heading: 'Cảnh báo trên trang Từ xa',
+        heading: 'Cảnh báo ở mục Truy cập Internet',
         terms: [
           {
             term: 'Trình kiểm tra của ngrok đang ghi lại',
-            text: 'Khởi động lại ngrok với `--inspect=false`, như trang Từ xa hướng dẫn.',
+            text: 'Khởi động lại ngrok với `--inspect=false`, như lệnh ngrok trong **Khởi chạy đường hầm**.',
           },
           {
             term: 'Địa chỉ của quick tunnel thay đổi',
@@ -1121,7 +1137,7 @@ const TOPICS: HelpTopicSource[] = [
     summary:
       'Trả lời và nhắn tin cho phiên terminal, VS Code và JetBrains bằng plugin, hoặc qua tmux.',
     intro:
-      'Mother Claude hiện mọi phiên Claude Code trên máy tính của bạn, bất kể thứ gì đã bắt đầu chúng, và bạn có thể xem chúng ngay. Để trả lời và nhắn tin cho các phiên bạn bắt đầu trong terminal, VS Code, JetBrains hay Claude Desktop, hãy cài đặt điều khiển phiên bên ngoài.',
+      'Mother Claude hiện mọi phiên Claude Code trên máy tính của bạn, bất kể thứ gì đã bắt đầu chúng, và bạn có thể xem chúng ngay. Để trả lời và nhắn tin cho các phiên bạn bắt đầu trong terminal, VS Code, JetBrains hay Claude Desktop, hãy cài plugin Mother Claude trong **Cài đặt › Phiên bắt đầu ở nơi khác**.',
     keywords: [
       'phiên bên ngoài',
       'điều khiển phiên bên ngoài',
@@ -1129,27 +1145,53 @@ const TOPICS: HelpTopicSource[] = [
       'tải lại plugin',
       'tác vụ nền',
       'gỡ cài đặt',
+      'cài plugin',
     ],
     sections: [
       {
-        heading: 'Cài đặt điều khiển phiên bên ngoài',
+        heading: 'Cài plugin Mother Claude',
         where: 'desktop',
         steps: [
           'Mở **Cài đặt › Phiên bắt đầu ở nơi khác**.',
-          'Trong **Điều khiển phiên bên ngoài**, nhấn **Cài điều khiển phiên bên ngoài**.',
-          'Chờ đến khi **Trạng thái** ghi **đã cài**.',
+          'Ở dòng của tài khoản Claude của bạn, nhấn **Cài đặt** (tài khoản token dùng dòng đầu tiên, của tài khoản Mặc định).',
+          'Chờ đến khi cột **Plugin** ghi **Bật**.',
           'Trong mỗi phiên đã chạy từ trước, gõ `/reload-plugins` (hoặc khởi động lại phiên).',
         ],
         points: [
           'Thao tác này cài plugin Mother Claude bằng chính lệnh `claude plugin install` của Claude Code. `settings.json` và các hook riêng của bạn không bao giờ bị động đến.',
-          'Phiên mới tự báo cáo về. Trang Từ xa đếm **Phiên đang gửi báo cáo**, và liệt kê trong **Cần tải lại** các phiên đã bắt đầu trước khi cài.',
+          'Phiên mới tự báo cáo về: **Phiên đang gửi báo cáo** đếm các phiên đó. Bên dưới bảng, một dòng đếm các phiên đang chạy đã bắt đầu trước khi cài, vẫn cần `/reload-plugins`.',
           'Khi Mother Claude đóng, các phiên của bạn hoạt động y như trước.',
         ],
-        notes: [
-          'Nút bị làm mờ khi không tìm thấy lệnh `claude` của Claude Code. Hãy cài Claude Code, hoặc mở ứng dụng từ một shell mà lệnh `claude` chạy được.',
+        tips: [
+          'Từ một phiên bạn chỉ xem được, **Thiết lập Phiên bắt đầu ở nơi khác** (bên dưới ô nhập tin nhắn, hoặc cạnh những gì không dùng được và lý do) sẽ mở cùng trang đó. Trên điện thoại, chỗ đó cho biết cần nhấn gì trên máy tính của bạn.',
         ],
-        links: [
-          { label: 'Mở mục Điều khiển phiên bên ngoài', path: '/remote', fragment: 'foreign' },
+        notes: [
+          '**Cài đặt** bị làm mờ khi không tìm thấy lệnh `claude` của Claude Code. Hãy cài Claude Code, hoặc mở ứng dụng từ một shell mà lệnh `claude` chạy được.',
+        ],
+        links: [{ label: 'Mở Phiên bắt đầu ở nơi khác', path: '/settings/elsewhere' }],
+      },
+      {
+        heading: 'Một bảng cho mọi tài khoản',
+        intro:
+          'Mỗi tài khoản Claude có thư mục riêng thì có bản plugin riêng, nên **Cài đặt › Phiên bắt đầu ở nơi khác** có một dòng cho mỗi tài khoản: tài khoản Mặc định trước, rồi đến từng tài khoản thư mục. Tài khoản token dùng thư mục của tài khoản Mặc định, và cả dòng của nó.',
+        terms: [
+          {
+            term: 'Tài khoản Claude',
+            text: 'Tài khoản đó, và thư mục mà plugin được cài vào.',
+          },
+          {
+            term: 'Plugin',
+            text: '**Bật**, **Đã cài, đang tắt** (có cài nhưng không làm gì) hoặc **Chưa cài**, kèm phiên bản của nó.',
+          },
+          {
+            term: 'Phiên đang gửi báo cáo',
+            text: 'Các phiên đang chạy có plugin đang báo cáo về Mother Claude.',
+          },
+          { term: 'Sự kiện hook gần nhất', text: 'Thời điểm plugin báo cáo lần gần nhất.' },
+        ],
+        points: [
+          'Trong ứng dụng máy tính, dòng **Phiên bắt đầu ở nơi khác** của mỗi tài khoản trên trang **Tài khoản** cũng dẫn tới đó.',
+          'Trên điện thoại, bảng chỉ để xem: việc cài và gỡ cài đặt làm trong ứng dụng máy tính.',
         ],
       },
       {
@@ -1194,7 +1236,7 @@ const TOPICS: HelpTopicSource[] = [
         where: 'desktop',
         steps: [
           'Mở **Cài đặt › Phiên bắt đầu ở nơi khác**.',
-          'Nhấn **Gỡ cài đặt**.',
+          'Ở dòng của tài khoản đó, nhấn **Gỡ cài đặt**.',
           'Nhấn tiếp **Nhấn lần nữa để gỡ cài đặt**.',
         ],
         points: [

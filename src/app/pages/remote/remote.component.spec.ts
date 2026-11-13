@@ -1,7 +1,13 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
-import { FakeBackend, asDesktop, flush, useFakeServer } from '../../core/mock/fake-server.testing';
+import {
+  FakeBackend,
+  asDesktop,
+  asPhoneOf,
+  flush,
+  useFakeServer,
+} from '../../core/mock/fake-server.testing';
 import { buildFixtures } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { DetectedTunnel, RemoteInfo } from '../../core/models';
@@ -106,5 +112,53 @@ describe('RemoteComponent and API servers', () => {
     expect(text(el.querySelector('.internet .notice.error'))).toBe(
       'A tunnel points at the HTTP API port 5612: its tokenless access is switched off until that tunnel stops. Stop it unless you meant to publish the API.',
     );
+  });
+
+  it('shows a phone itself, then the devices paired, read only — no dead end', async () => {
+    asPhoneOf('macos');
+    backend.routes.set('/devices', () => ({
+      status: 200,
+      body: {
+        self: 'dev_2',
+        devices: [
+          {
+            id: 'dev_1',
+            name: 'iPad',
+            platform: 'iPadOS',
+            createdAt: 1,
+            lastSeenAt: Date.now() - 3_600_000,
+            allowDangerous: false,
+            allowDangerousInternet: false,
+            online: false,
+            current: false,
+          },
+          {
+            id: 'dev_2',
+            name: 'iPhone',
+            platform: 'iOS',
+            createdAt: 1,
+            allowDangerous: true,
+            allowDangerousInternet: false,
+            online: true,
+            current: true,
+          },
+        ],
+      },
+    }));
+    const el = await render(base());
+    expect(text(el.querySelector('mc-page-head h1'))).toBe('Phone & devices');
+    expect(el.querySelector('.this-device')).not.toBeNull();
+    const rows = [...el.querySelectorAll('.device-ro')];
+    // This device first, marked; what each may do in words.
+    expect(rows.map((r) => text(r.querySelector('strong')))).toEqual(['iPhone', 'iPad']);
+    expect(text(rows[0])).toContain('This device');
+    expect(text(rows[0])).toContain('Dangerous actions on the local network');
+    expect(text(rows[1])).toContain('seen');
+    // Nothing to pair, rename or revoke from here, and no desktop reads.
+    expect(el.querySelector('.card.pair')).toBeNull();
+    expect([...el.querySelectorAll('button')].filter((b) => !b.closest('mc-page-head'))).toEqual(
+      [],
+    );
+    expect(backend.calls).not.toContain('GET /remote');
   });
 });

@@ -69,10 +69,11 @@ impl PairError {
     pub fn message(self) -> String {
         match self {
             PairError::BadCode => "That pairing code is not right. Check the code Mother Claude \
-                                  shows (Browser › Pair a browser) and try again."
+                                  shows (Settings › Browser › Pair a browser) and try again."
                 .into(),
             PairError::ExpiredCode => "That pairing code expired or was already used. Create a \
-                                       new one in Mother Claude (Browser › Pair a browser)."
+                                       new one in Mother Claude (Settings › Browser › Pair a \
+                                       browser)."
                 .into(),
             PairError::RateLimited(secs) => {
                 format!("Too many wrong pairing codes. Try again in {secs} seconds.")

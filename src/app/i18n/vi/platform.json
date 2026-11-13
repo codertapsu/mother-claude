@@ -238,7 +238,6 @@
   "The Haiku classifier: {calls} calls, {usd} (estimated).": "Bộ phân loại Haiku: {calls} lượt gọi, {usd} (ước tính).",
   "Could not load the report: {error}": "Không tải được báo cáo: {error}",
   "Could not export the report: {error}": "Không xuất được báo cáo: {error}",
-  "A local HTTP API for Claude on this machine — conversations, turns, live streams, tool approvals, images. It is off until you start it.": "Một API HTTP cục bộ cho Claude trên máy này — cuộc trò chuyện, lượt, luồng trực tiếp, yêu cầu duyệt công cụ, hình ảnh. API chỉ chạy khi bạn khởi động nó.",
   "running": "đang chạy",
   "stopped": "đã dừng",
   "port {port}": "cổng {port}",
@@ -515,7 +514,6 @@
   "Create a code here and type it into the extension's options page.": "Tạo mã ở đây rồi nhập mã vào trang tùy chọn của tiện ích.",
   "Open a site's mode below (or in the extension's side panel) for sessions to use it.": "Mở chế độ của một trang ở bên dưới (hoặc trong bảng điều khiển bên của tiện ích) để các phiên dùng được trang đó.",
   "Pair a browser": "Ghép nối trình duyệt",
-  "Pair a browser on the Mother Claude desktop app (Browser › Pair a browser).": "Ghép nối trình duyệt trên ứng dụng máy tính Mother Claude (Trình duyệt › Ghép nối trình duyệt).",
   "Sessions using the browser": "Phiên đang dùng trình duyệt",
   "in {browser}": "trên {browser}",
   "in {browser} (not connected)": "trên {browser} (chưa kết nối)",
@@ -598,7 +596,6 @@
   "Open Capacity": "Mở Công suất",
   "Open Inbox": "Mở Hộp thư",
   "Open New session": "Mở Phiên mới",
-  "Open Remote": "Mở Từ xa",
   "Open Services": "Mở Dịch vụ",
   "Open Sessions": "Mở Phiên",
   "Open Settings": "Mở Cài đặt",
@@ -627,5 +624,7 @@
   "{commits} commits, {files} files": "{commits} commit, {files} tệp",
   "{computer} (template)": "{computer} (theo mẫu)",
   "Also in the Inbox, with everything else waiting ›": "Cũng có trong Hộp thư, cùng mọi thứ khác đang chờ ›",
-  "The Claude account conversations run under. Automatic takes the project's account, else the one Accounts sets for the API. A request can still name another.": "Tài khoản Claude dùng để chạy các cuộc trò chuyện. Tự động sẽ lấy tài khoản của dự án, nếu không thì tài khoản được đặt cho API trong Tài khoản. Một yêu cầu vẫn có thể chỉ định tài khoản khác."
+  "The Claude account conversations run under. Automatic takes the project's account, else the one Accounts sets for the API. A request can still name another.": "Tài khoản Claude dùng để chạy các cuộc trò chuyện. Tự động sẽ lấy tài khoản của dự án, nếu không thì tài khoản được đặt cho API trong Tài khoản. Một yêu cầu vẫn có thể chỉ định tài khoản khác.",
+  "A local HTTP API for Claude on this computer — conversations, turns, live streams, tool approvals, images. It is off until you start it.": "Một API HTTP cục bộ cho Claude trên máy tính này — cuộc trò chuyện, lượt, luồng trực tiếp, yêu cầu duyệt công cụ, hình ảnh. API chỉ chạy khi bạn khởi động nó.",
+  "Pair a browser on the Mother Claude desktop app (Settings › Browser › Pair a browser).": "Ghép nối trình duyệt trên ứng dụng máy tính Mother Claude (Cài đặt › Trình duyệt › Ghép nối trình duyệt)."
 }

@@ -159,11 +159,11 @@ function entryKey(e: Entry): string {
             @if (foreignHint()) {
               <p class="muted small hint">
                 {{
-                  'Approvals for VS Code and terminal sessions appear here once foreign-session control is installed'
+                  'Approvals for VS Code and terminal sessions appear here once the Mother Claude plugin is installed'
                     | t
                 }}
                 @if (isDesktop()) {
-                  (<a routerLink="/remote" fragment="foreign">{{
+                  (<a routerLink="/settings/elsewhere">{{
                     'Settings › Sessions started elsewhere' | t
                   }}</a
                   >).

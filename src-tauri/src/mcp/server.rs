@@ -417,7 +417,7 @@ fn admit(state: &AppState, ctx: &ClientContext, headers: &HeaderMap) -> Result<(
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "mcp_disabled",
-            "Mother Claude's tools for Claude Code are turned off (Services > Claude Code \
+            "Mother Claude's tools for Claude Code are turned off (Settings › Claude Code \
              tools in the app).",
         ));
     }

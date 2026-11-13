@@ -118,8 +118,8 @@ fn why_not(s: &SessionSummary) -> Option<&'static str> {
         );
     }
     tell_how(s).is_none().then_some(
-        "Mother Claude can't send it messages: install foreign-session control (Remote › \
-         Foreign-session control in the app), or tell it yourself.",
+        "Mother Claude can't send it messages: turn on Sessions started elsewhere in the app \
+         (Settings › Sessions started elsewhere), or tell it yourself.",
     )
 }
 

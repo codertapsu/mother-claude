@@ -326,7 +326,7 @@ function noneCaps(extra: Partial<ControlCaps> = {}, limits?: ControlCaps['limits
     limits: limits ?? [
       {
         code: 'no_hooks',
-        text: 'Install foreign-session control to answer prompts and send messages from here.',
+        text: 'Turn on Sessions started elsewhere to answer prompts and send messages from here.',
         action: 'install-foreign-control',
       },
       {
@@ -716,7 +716,7 @@ export function buildFixtures(now: number): Fixtures {
         },
         {
           code: 'no_hooks',
-          text: 'Install foreign-session control to send it messages.',
+          text: 'Turn on Sessions started elsewhere to send it messages.',
           action: 'install-foreign-control',
         },
       ]),

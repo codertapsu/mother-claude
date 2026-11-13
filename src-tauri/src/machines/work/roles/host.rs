@@ -95,7 +95,7 @@ fn tools_on(state: &AppState) -> ApiResult<()> {
         "tools_off",
         format!(
             "Claude Code tools are off on {}: the role reaches the board through them. Turn \
-             them on there (Settings › Services › Claude Code tools).",
+             them on there (Settings › Claude Code tools).",
             m::this_name(state)
         ),
     ))

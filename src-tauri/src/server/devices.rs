@@ -115,6 +115,51 @@ pub struct DeviceInfo {
     pub recent: Vec<RecentAction>,
 }
 
+/// A paired device as a paired device sees it (`GET /api/devices` from a
+/// phone): *Settings › Phone & devices* there lists the devices read only
+/// (docs/UI-REDESIGN.md §6.7). Its fields are named one by one, so what
+/// [`DeviceInfo`] gains later stays the desktop's: only what tells the
+/// devices apart and what each may do. Never where or how a device connects
+/// (`lastIp`, `userAgent`, `ingress`, `pairedVia`), what it did (`recent`),
+/// its tokens or expiry: a phone that is lost or shared must not become a
+/// map of where the others are and what they did — the desktop, which
+/// manages them, sees all of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceSummary {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    pub created_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen_at: Option<i64>,
+    /// Dangerous actions over the LAN.
+    pub allow_dangerous: bool,
+    /// Dangerous actions over a tunnel / proxy / anything but the LAN.
+    pub allow_dangerous_internet: bool,
+    /// It has an open WebSocket right now.
+    pub online: bool,
+    /// The device asking.
+    pub current: bool,
+}
+
+impl DeviceSummary {
+    /// `d` (its `sockets` filled in) as the device `asking` sees it.
+    pub fn of(d: DeviceInfo, asking: &str) -> Self {
+        Self {
+            current: d.id == asking,
+            online: d.sockets > 0,
+            id: d.id,
+            name: d.name,
+            platform: d.platform,
+            created_at: d.created_at,
+            last_seen_at: d.last_seen_at,
+            allow_dangerous: d.allow_dangerous,
+            allow_dangerous_internet: d.allow_dangerous_internet,
+        }
+    }
+}
+
 /// On-disk record.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

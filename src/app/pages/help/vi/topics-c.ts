@@ -897,7 +897,7 @@ const TOPICS: HelpTopicSource[] = [
           'Trên máy tính sẽ chạy lệnh, mở **Máy tính**.',
           'Trên thẻ của máy tính có các phiên sẽ nhờ chạy lệnh, cạnh **Trên máy PC này, … được** (hoặc **Trên máy Mac này, … được**), nhấn **Thay đổi**.',
           'Đánh dấu **Chạy**, cho **Cùng mạng**, **Internet** hoặc cả hai, rồi nhấn **Lưu**.',
-          'Trên máy tính có các phiên nhờ chạy lệnh, hãy giữ **Cấp công cụ của Mother Claude cho các phiên** ở trạng thái bật, trong **Dịch vụ**: các phiên tới được máy kia qua những công cụ đó.',
+          'Trên máy tính có các phiên nhờ chạy lệnh, hãy giữ **Cấp công cụ của Mother Claude cho các phiên** ở trạng thái bật, trong **Cài đặt › Công cụ cho Claude Code**: các phiên tới được máy kia qua những công cụ đó.',
         ],
         tips: [
           '**Chạy** cần **Điều khiển** và **Xem**: đánh dấu quyền này sẽ đánh dấu cả hai. Quyền này tắt với mọi máy cho đến khi bạn đánh dấu.',

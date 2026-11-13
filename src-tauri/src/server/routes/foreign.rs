@@ -208,8 +208,9 @@ pub async fn install(
     crate::server::ws::publish_notice(
         &state,
         NoticeLevel::Success,
-        "Foreign-session control installed. Sessions started from now on can be approved and \
-         messaged from Mother Claude; running ones need /reload-plugins or a restart.",
+        "The Mother Claude plugin is installed (Sessions started elsewhere). Sessions started \
+         from now on can be approved and messaged from Mother Claude; running ones need \
+         /reload-plugins or a restart.",
         None,
     );
     Ok(Json(status))
@@ -230,7 +231,7 @@ pub async fn uninstall(
     crate::server::ws::publish_notice(
         &state,
         NoticeLevel::Info,
-        "Foreign-session control uninstalled.",
+        "The Mother Claude plugin is uninstalled (Sessions started elsewhere).",
         None,
     );
     Ok(Json(status))

@@ -759,7 +759,8 @@ pub async fn status(state: &AppState) -> ForeignStatus {
     let mut notes = Vec::new();
     if paths_of(state).is_none() {
         notes.push(
-            "This build has no data directory, so foreign control cannot be installed.".into(),
+            "This build has no data directory, so the Mother Claude plugin cannot be installed."
+                .into(),
         );
     } else if c.cli_available == Some(false) {
         notes.push(
@@ -778,8 +779,8 @@ pub async fn status(state: &AppState) -> ForeignStatus {
         }
         if needing_reload > 0 {
             notes.push(format!(
-                "{needing_reload} running session(s) started before foreign control was \
-                 installed: run /reload-plugins in them, or restart them."
+                "{needing_reload} running session(s) started before the Mother Claude plugin \
+                 was installed: run /reload-plugins in them, or restart them."
             ));
         }
     }
@@ -840,7 +841,9 @@ pub async fn install(state: &AppState) -> ApiResult<ForeignStatus> {
         }
         if paths.disabled.exists() {
             std::fs::remove_file(&paths.disabled).map_err(|e| {
-                ApiError::internal(format!("Could not turn foreign control back on: {e}"))
+                ApiError::internal(format!(
+                    "Could not turn the Mother Claude plugin back on: {e}"
+                ))
             })?;
         }
         state.plugin.set_disabled(false);
@@ -994,7 +997,8 @@ fn directory_env(
     if a.is_default() {
         return Err(ApiError::unprocessable(
             "use_default_install",
-            "The Default account's plugin is managed with foreign control's own install.",
+            "The Default account's plugin is managed with its own install (Sessions started \
+             elsewhere).",
         ));
     }
     if a.kind != crate::claude::accounts::AccountKind::Directory {

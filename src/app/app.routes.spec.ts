@@ -73,6 +73,18 @@ describe('old routes (docs/UI-REDESIGN.md §10.1)', () => {
     );
   });
 
+  it('splits Remote: its #foreign card is Sessions started elsewhere, the rest Phone & devices', async () => {
+    expect(await land('/remote#foreign')).toBe('/settings/elsewhere');
+    expect(await land('/remote')).toBe('/settings/devices');
+    expect(await land('/remote?x=1#internet')).toBe('/settings/devices?x=1#internet');
+  });
+
+  it("sends Browser, API and Services to Settings' connections, the query kept", async () => {
+    expect(await land('/browser')).toBe('/settings/browser');
+    expect(await land('/api?server=work')).toBe('/settings/api?server=work');
+    expect(await land('/services')).toBe('/settings/tools');
+  });
+
   it('keeps the links that never move', async () => {
     expect(await land('/pair?c=K7QM-4R2X')).toBe('/pair?c=K7QM-4R2X');
     expect(await land('/session/abc?pending=p1')).toBe('/session/abc?pending=p1');

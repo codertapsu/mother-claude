@@ -1876,7 +1876,7 @@ export function describeError(e: unknown): DescribedError {
   if (e.status === 403 && (code === 'dangerous_blocked' || /dangerous/i.test(e.message))) {
     return {
       text: tr(
-        'Only allowed from the {computer}, or allow dangerous actions for this device in Remote › Devices.',
+        'Only allowed from the {computer}, or allow dangerous actions for this device in Settings › Phone & devices.',
         { computer: computerNoun() },
       ),
       dangerous: true,

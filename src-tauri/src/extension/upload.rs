@@ -179,7 +179,8 @@ pub fn check(
     if allowed.is_empty() {
         return Err(refuse(
             "Mother Claude does not know this session's project folder, and no upload folder \
-             is approved: the user can approve one in Mother Claude (Browser › Settings).",
+             is approved: the user can approve one in Mother Claude (Settings › Browser › \
+             Settings).",
         ));
     }
     let forbidden = config_dirs(state);
@@ -241,7 +242,7 @@ pub fn check(
         if !allowed.iter().any(|r| path.starts_with(r)) {
             return Err(refuse(format!(
                 "{raw} is outside this session's project folder and the approved upload \
-                 folders (Mother Claude › Browser › Settings)."
+                 folders (Mother Claude › Settings › Browser › Settings)."
             )));
         }
         total += meta.len();
