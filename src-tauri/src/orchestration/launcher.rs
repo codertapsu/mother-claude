@@ -35,7 +35,7 @@ use super::board::{Task, TaskStatus};
 use super::capacity::{self, Admission, RunningWorker, StartRequest};
 use super::router::{self, ModelChoice, TaskClass, TaskFacts};
 use super::teams::{liveness, RoleSlot, Team, Waiting};
-use super::templates::RoleDef;
+use super::templates::{Handoff, RoleDef};
 use crate::claude::control::SpawnOptions;
 use crate::claude::model::NoticeLevel;
 use crate::claude::owned::{self, Caller, EFFORT_LEVELS};
@@ -86,6 +86,64 @@ fn computer_words(spec: &str) -> String {
         ),
         None => spec.to_string(),
     }
+}
+
+/// What the template's flow says to `role` (docs/TEAMS.md "Templates"): the
+/// lead hears how work usually moves on and that it writes each next task;
+/// a worker, where its finished work goes and what it builds on. Steps that
+/// name no role of the team are left out.
+fn flow_lines(team: &Team, role: &RoleDef) -> String {
+    let t = &team.template;
+    let steps: Vec<&Handoff> = t
+        .flow
+        .iter()
+        .filter(|h| h.from != h.to && t.role(&h.from).is_some() && t.role(&h.to).is_some())
+        .collect();
+    let title = |id: &str| t.role(id).map_or(id, |r| r.title.as_str()).to_string();
+    let named = |id: &str| format!("{} \"{}\"", title(id), team.session_name(id));
+    let note = |h: &Handoff| match h.note.trim() {
+        "" => String::new(),
+        n => format!(" ({n})"),
+    };
+    if role.lead {
+        if steps.is_empty() {
+            return String::new();
+        }
+        let words: Vec<String> = steps
+            .iter()
+            .map(|h| format!("{} → {}{}", title(&h.from), title(&h.to), note(h)))
+            .collect();
+        return format!(
+            "- How work usually moves on: {}. When a task is done, write the next role's task \
+             from its result.\n",
+            words.join("; ")
+        );
+    }
+    let mut out = String::new();
+    let next: Vec<String> = steps
+        .iter()
+        .filter(|h| h.from == role.id)
+        .map(|h| format!("{}{}", named(&h.to), note(h)))
+        .collect();
+    if !next.is_empty() {
+        out.push_str(&format!(
+            "- Your finished work usually goes on to {}: the lead writes that task from your \
+             task_done summary, so make it complete.\n",
+            next.join(", ")
+        ));
+    }
+    let from: Vec<String> = steps
+        .iter()
+        .filter(|h| h.to == role.id)
+        .map(|h| named(&h.from))
+        .collect();
+    if !from.is_empty() {
+        out.push_str(&format!(
+            "- Your work usually builds on what {} finished.\n",
+            from.join(" and ")
+        ));
+    }
+    out
 }
 
 /// [`charter`], for a role that runs on another computer (`place`: where).
@@ -165,6 +223,7 @@ pub fn charter_for(
             )),
         }
     }
+    out.push_str(&flow_lines(team, role));
     let base = match place {
         Some(p) => p.folder.clone(),
         None => team.base_of(role),
@@ -1637,6 +1696,24 @@ mod tests {
         assert!(!fe.contains("task_create"));
         let scout = charter(&t, t.role("scout").unwrap());
         assert!(scout.contains("You change no files"));
+        // The template's flow: the whole of it to the lead, each worker's
+        // own steps to the worker.
+        assert!(lead.contains(
+            "- How work usually moves on: Scout → Frontend (what the code already does); Scout → \
+             Backend & API (what the code already does). When a task is done, write the next \
+             role's task from its result."
+        ));
+        assert!(scout.contains(
+            "- Your finished work usually goes on to Frontend \"app/frontend\" (what the code \
+             already does), Backend & API \"app/backend\" (what the code already does)"
+        ));
+        assert!(!scout.contains("builds on"));
+        assert!(fe.contains("- Your work usually builds on what Scout \"app/scout\" finished."));
+        assert!(!fe.contains("goes on to"));
+        let mut no_flow = t.clone();
+        no_flow.template.flow.clear();
+        let quiet_lead = charter(&no_flow, no_flow.role("lead").unwrap());
+        assert!(!quiet_lead.contains("moves on"));
         let p = packet(&task());
         assert!(p.starts_with("[Mother Claude · assignment] Task 12: Login form"));
         assert!(p.contains("- Shows errors"));

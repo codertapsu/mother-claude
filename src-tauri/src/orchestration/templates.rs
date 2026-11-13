@@ -168,6 +168,24 @@ pub struct Integration {
     pub extra: BTreeMap<String, Value>,
 }
 
+/// One step of a template's flow (the arrows of the visual editor): when a
+/// task of `from` is done, its result usually goes on to `to`. The lead is
+/// told the flow and writes the next role's task; nothing moves by itself.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Handoff {
+    pub from: String,
+    pub to: String,
+    /// What passes along ("the script").
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+/// The longest note on a handoff.
+pub const HANDOFF_NOTE_MAX: usize = 200;
+
 /// A workflow template.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -178,6 +196,11 @@ pub struct Template {
     pub description: String,
     pub roles: Vec<RoleDef>,
     pub integration: Integration,
+    /// How work usually moves on between the roles (docs/TEAMS.md
+    /// "Templates"). The editor's node positions are `layout`, kept in
+    /// `extra` as they came: the team never reads them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub flow: Vec<Handoff>,
     /// Minutes a role's session may sit idle with nothing to do before it is
     /// stopped (0: never). Default 30.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -476,6 +499,38 @@ pub fn validate(t: &Template) -> Report {
     if t.idle_stop_minutes.is_some_and(|m| m > 24 * 60) {
         r.error("idleStopMinutes", "At most 1440 (a day); 0 never stops.");
     }
+    let mut steps: Vec<(&str, &str)> = Vec::new();
+    for (i, h) in t.flow.iter().enumerate() {
+        let at = |f: &str| format!("flow[{i}].{f}");
+        let from = t.roles.iter().any(|x| x.id == h.from);
+        let to = t.roles.iter().any(|x| x.id == h.to);
+        if !from {
+            r.error(at("from"), format!("No role is called {:?}.", h.from));
+        }
+        if !to {
+            r.error(at("to"), format!("No role is called {:?}.", h.to));
+        }
+        if from && to {
+            if h.from == h.to {
+                r.error(
+                    format!("flow[{i}]"),
+                    "Work goes on from one role to another.",
+                );
+            } else if steps.contains(&(h.from.as_str(), h.to.as_str())) {
+                r.error(
+                    format!("flow[{i}]"),
+                    format!("{} → {} is there twice.", h.from, h.to),
+                );
+            }
+            steps.push((&h.from, &h.to));
+        }
+        if h.note.chars().count() > HANDOFF_NOTE_MAX {
+            r.error(
+                at("note"),
+                format!("At most {HANDOFF_NOTE_MAX} characters."),
+            );
+        }
+    }
     r
 }
 
@@ -627,6 +682,10 @@ fn software_delivery() -> Template {
                       first)."
             .into(),
         roles: vec![lead, frontend, backend, scout],
+        flow: vec![
+            handoff("scout", "frontend", "what the code already does"),
+            handoff("scout", "backend", "what the code already does"),
+        ],
         integration: Integration {
             branch: Some("main".into()),
             merge_by: Some("lead".into()),
@@ -721,6 +780,13 @@ fn content_production() -> Template {
                       publish."
             .into(),
         roles: vec![planner, writer, designer, producer, qa, publisher],
+        flow: vec![
+            handoff("planner", "scriptwriter", "the outline"),
+            handoff("scriptwriter", "designer", "the script"),
+            handoff("designer", "producer", "the assets"),
+            handoff("producer", "qa", "the cut"),
+            handoff("qa", "publisher", "the approved piece"),
+        ],
         integration: Integration {
             merge_by: Some("planner".into()),
             review: Some(true),
@@ -788,6 +854,10 @@ fn research() -> Template {
         name: "Research & analysis".into(),
         description: "A lead, a researcher, a synthesiser and a fact-checker.".into(),
         roles: vec![lead, researcher, synthesiser, checker],
+        flow: vec![
+            handoff("researcher", "synthesiser", "the notes"),
+            handoff("synthesiser", "fact-checker", "the draft report"),
+        ],
         integration: Integration {
             merge_by: Some("lead".into()),
             review: Some(true),
@@ -834,6 +904,7 @@ fn browser_operations() -> Template {
                       verifier."
             .into(),
         roles: vec![operator, verifier],
+        flow: vec![handoff("operator", "verifier", "what was done")],
         integration: Integration {
             review: Some(true),
             ..Default::default()
@@ -889,6 +960,7 @@ fn documentation() -> Template {
         name: "Documentation".into(),
         description: "An editor, a read-only librarian and a writer in its own worktree.".into(),
         roles: vec![editor, librarian, writer],
+        flow: vec![handoff("librarian", "writer", "what is missing")],
         integration: Integration {
             branch: Some("main".into()),
             merge_by: Some("editor".into()),
@@ -896,6 +968,16 @@ fn documentation() -> Template {
             ..Default::default()
         },
         idle_stop_minutes: Some(20),
+        ..Default::default()
+    }
+}
+
+/// A built-in template's handoff.
+fn handoff(from: &str, to: &str, note: &str) -> Handoff {
+    Handoff {
+        from: from.into(),
+        to: to.into(),
+        note: note.into(),
         ..Default::default()
     }
 }
@@ -1121,6 +1203,11 @@ mod tests {
             assert!(r.warnings.is_empty(), "{}: {:?}", t.id, r.warnings);
             assert!(t.lead().is_some(), "{}", t.id);
             assert!(!t.needs_dangerous(), "{}: built-ins never bypass", t.id);
+            assert!(
+                !t.flow.is_empty(),
+                "{}: the editor shows how work moves",
+                t.id
+            );
             for role in &t.roles {
                 assert!(!role.charter.is_empty(), "{}/{}", t.id, role.id);
                 assert!(role.model.is_some());
@@ -1234,6 +1321,62 @@ mod tests {
         assert!(warned.contains(&"roles[1].classes[1]"));
         assert!(t.needs_dangerous());
         assert!(r.first_error().is_some());
+    }
+
+    #[test]
+    fn a_flow_names_two_roles_once_and_keeps_the_editors_layout() {
+        let t = parse(
+            &json!({
+                "id": "flow",
+                "name": "Flow",
+                "roles": [
+                    {"id": "lead", "title": "Lead", "lead": true},
+                    {"id": "writer", "title": "Writer"},
+                    {"id": "qa", "title": "QA", "readOnly": true}
+                ],
+                "flow": [
+                    {"from": "lead", "to": "writer", "note": "the outline"},
+                    {"from": "writer", "to": "qa", "note": "the draft", "colour": "teal"}
+                ],
+                "layout": {"lead": {"x": 0, "y": 40}, "@merge": {"x": 640, "y": 40}}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert!(validate(&t).ok(), "{:?}", validate(&t).errors);
+        assert_eq!(t.flow[1].note, "the draft");
+        // The handoff's own unknowns and the editor's layout come back as
+        // they were.
+        let back = serde_json::to_value(&t).unwrap();
+        assert_eq!(back["flow"][1]["colour"], "teal");
+        assert_eq!(back["layout"]["@merge"]["x"], 640);
+        assert!(back["flow"][0].get("extra").is_none());
+        // No flow: none written.
+        let plain = serde_json::to_value(Template::default()).unwrap();
+        assert!(plain.get("flow").is_none());
+
+        let mut bad = t.clone();
+        bad.flow = vec![
+            handoff("writer", "nobody", ""),
+            handoff("ghost", "qa", ""),
+            handoff("qa", "qa", ""),
+            handoff("writer", "qa", ""),
+            handoff("writer", "qa", ""),
+            handoff("lead", "writer", &"x".repeat(HANDOFF_NOTE_MAX + 1)),
+        ];
+        let r = validate(&bad);
+        let paths: Vec<&str> = r.errors.iter().map(|i| i.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "flow[0].to",
+                "flow[1].from",
+                "flow[2]",
+                "flow[4]",
+                "flow[5].note"
+            ]
+        );
+        assert!(r.errors[3].message.contains("writer → qa"));
     }
 
     #[test]

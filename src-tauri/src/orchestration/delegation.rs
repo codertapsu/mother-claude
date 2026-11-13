@@ -319,13 +319,49 @@ pub fn outcome_id(project: &str, task: u64) -> String {
     format!("{}#{task}", super::board::board_key(project))
 }
 
+/// Who the template's flow sends a finished task of `role` on to, for the
+/// lead's notice (" Next in the flow: QA \"app/qa\" (the draft)."); `None`
+/// when the flow names nobody after it.
+pub fn next_in_flow(team: &Team, role: &str) -> Option<String> {
+    let t = &team.template;
+    let next: Vec<String> = t
+        .flow
+        .iter()
+        .filter(|h| h.from == role && h.to != role)
+        .filter_map(|h| {
+            let to = t.role(&h.to)?;
+            let note = match h.note.trim() {
+                "" => String::new(),
+                n => format!(" ({n})"),
+            };
+            Some(format!(
+                "{} \"{}\"{note}",
+                to.title,
+                team.session_name(&to.id)
+            ))
+        })
+        .collect();
+    (!next.is_empty()).then(|| format!(" Next in the flow: {}.", next.join(", ")))
+}
+
 /// Everything a board change sets off. Call after every mutation.
 pub async fn on_change(state: &AppState, team_id: &str, change: Change) {
     let Some(team) = state.teams.get(team_id) else {
         return;
     };
     publish_task(state, team_id, &change.task);
-    let (to_lead, to_holder) = notices(&change);
+    let (mut to_lead, to_holder) = notices(&change);
+    // A finished task: the lead writes the next role's task from it.
+    if change.is(ChangeKind::Review) || change.is(ChangeKind::Done) {
+        let next = change
+            .task
+            .role
+            .as_deref()
+            .and_then(|r| next_in_flow(&team, r));
+        if let (Some(text), Some(next)) = (to_lead.as_mut(), next) {
+            text.push_str(&next);
+        }
+    }
     if let (Some(text), Some(lead)) = (to_lead, team.lead()) {
         deliver(state, &team, &lead.id, &text).await;
     }
@@ -395,6 +431,35 @@ mod tests {
 
     fn roles() -> Vec<String> {
         team().role_ids()
+    }
+
+    #[test]
+    fn a_finished_tasks_notice_names_who_is_next_in_the_flow() {
+        let t = team();
+        // Software delivery: the scout's findings go on to both builders.
+        assert_eq!(
+            next_in_flow(&t, "scout").as_deref(),
+            Some(
+                " Next in the flow: Frontend \"app/frontend\" (what the code already does), \
+                 Backend & API \"app/backend\" (what the code already does)."
+            )
+        );
+        assert_eq!(next_in_flow(&t, "frontend"), None);
+        assert_eq!(next_in_flow(&t, "nobody"), None);
+        let mut odd = t.clone();
+        odd.template.flow = vec![
+            crate::orchestration::templates::Handoff {
+                from: "scout".into(),
+                to: "gone".into(),
+                ..Default::default()
+            },
+            crate::orchestration::templates::Handoff {
+                from: "scout".into(),
+                to: "scout".into(),
+                ..Default::default()
+            },
+        ];
+        assert_eq!(next_in_flow(&odd, "scout"), None, "only roles of the team");
     }
 
     fn lead() -> Actor {

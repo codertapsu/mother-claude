@@ -53,6 +53,9 @@ starts or stops it.
      "permissionMode": "plan", "readOnly": true}
   ],
   "integration": {"branch": "main", "mergeBy": "lead", "gate": "npm test", "review": true},
+  "flow": [
+    {"from": "scout", "to": "frontend", "note": "what the code already does"}
+  ],
   "idleStopMinutes": 30
 }
 ```
@@ -72,10 +75,23 @@ command the lead runs before merging), `review` (a worker's finished task
 waits for the lead; default on). `idleStopMinutes`: 0 never stops an idle
 role.
 
+`flow` says how work usually moves on between the roles: each step names
+two different roles (`from`, `to`; the lead too) and, at most 200
+characters, what passes along (`note`). Nothing moves by itself — the
+lead's charter lists the steps ("How work usually moves on: Scout →
+Frontend (what the code already does)") and asks it to write the next
+role's task from a finished one; a worker's charter says where its
+finished work usually goes and what its work builds on. Every built-in
+has one (Content production: planner → scriptwriter → designer → producer
+→ QA → publisher). `layout` is where the visual editor placed each node
+(role ids, `@merge` for the merge node): kept as written, never read by a
+team.
+
 Parsing is tolerant — unknown fields are kept, missing ones default — and
 validation reports every problem at once (errors block saving and starting,
 warnings do not): ids, one lead, model names, effort and mode values,
-relative path globs, budgets, `mergeBy` naming a role, `machine` (a name or
+relative path globs, budgets, `mergeBy` naming a role, a flow's steps
+(two different roles, each step once), `machine` (a name or
 id of at most 64 characters, or one of the three `os:`; an error on the
 lead). A `machine` no paired computer matches is a warning on the template
 and a refusal when a team starts with it (`422 machine_unknown`).
