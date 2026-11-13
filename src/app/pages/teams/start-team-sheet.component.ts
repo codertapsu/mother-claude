@@ -9,6 +9,8 @@ import { TPipe } from '../../core/i18n/t.pipe';
 import { PeerMachine } from '../../core/machines';
 import { ProjectInfo } from '../../core/models';
 import {
+  ROLE_EFFORTS,
+  ROLE_MODES,
   RoleOverride,
   TeamView,
   TemplateEntry,
@@ -17,9 +19,6 @@ import {
   needsDangerous,
 } from '../../core/teams';
 import { SheetComponent } from '../../shared/sheet.component';
-
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
-const MODES = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions', 'dontAsk'];
 
 /** Start a team: a template on one of the known projects, an account, the
  * lead's brief and per-role changes. */
@@ -253,8 +252,8 @@ export class StartTeamSheetComponent {
   readonly closed = output<void>();
   readonly started = output<TeamView>();
 
-  protected readonly efforts = EFFORTS;
-  protected readonly modes = MODES;
+  protected readonly efforts = ROLE_EFFORTS;
+  protected readonly modes = ROLE_MODES;
   /** The desktop's computer in words ("Mac", "PC", "computer"). */
   protected readonly computer = computerNoun;
   protected readonly projects = signal<ProjectInfo[]>([]);

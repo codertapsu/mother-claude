@@ -99,6 +99,23 @@ export interface Integration {
   [extra: string]: unknown;
 }
 
+/** One step of a template's flow: when a task of role `from` is done, its
+ * result usually goes on to role `to` next (the lead is told this flow and
+ * writes the next role's task). Any two different roles, the lead included. */
+export interface Handoff {
+  from: string;
+  to: string;
+  /** What passes along ("the script"), at most `HANDOFF_NOTE_MAX`. */
+  note?: string;
+  [extra: string]: unknown;
+}
+
+/** Where the visual editor placed a node (purely visual: teams ignore it). */
+export interface NodePosition {
+  x: number;
+  y: number;
+}
+
 export interface TeamTemplate {
   id: string;
   name: string;
@@ -106,8 +123,33 @@ export interface TeamTemplate {
   roles: RoleDef[];
   integration?: Integration;
   idleStopMinutes?: number;
+  flow?: Handoff[];
+  /** The editor's node positions: by role id, and `MERGE_NODE` for the
+   * merge node (role ids never contain `@`). */
+  layout?: Record<string, NodePosition>;
   [extra: string]: unknown;
 }
+
+/** The merge node's key in a template's `layout`. */
+export const MERGE_NODE = '@merge';
+/** The longest note on a handoff. */
+export const HANDOFF_NOTE_MAX = 200;
+/** The longest role id (it names the role's worktree). */
+export const ROLE_ID_MAX = 32;
+/** The most roles a template may have. */
+export const MAX_ROLES = 12;
+
+/** The effort levels a role may name (the server's `EFFORT_LEVELS`). */
+export const ROLE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+/** The permission modes a role may name (the server's `PERMISSION_MODES`). */
+export const ROLE_MODES = [
+  'default',
+  'acceptEdits',
+  'plan',
+  'auto',
+  'bypassPermissions',
+  'dontAsk',
+] as const;
 
 export interface TemplateIssue {
   path: string;

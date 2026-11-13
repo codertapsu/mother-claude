@@ -635,5 +635,18 @@
   "{amount} spent today": "hôm nay đã tiêu {amount}",
   "Its teams:": "Nhóm của dự án:",
   "Change the limits": "Thay đổi giới hạn",
-  "What every session in its folder may spend since midnight. Leave a field empty for every project’s.": "Số tiền mọi phiên trong thư mục của dự án được tiêu kể từ nửa đêm. Để trống một ô để dùng mức chung cho mọi dự án."
+  "What every session in its folder may spend since midnight. Leave a field empty for every project’s.": "Số tiền mọi phiên trong thư mục của dự án được tiêu kể từ nửa đêm. Để trống một ô để dùng mức chung cho mọi dự án.",
+  "The lead runs on the computer that runs the team.": "Trưởng nhóm chạy trên máy tính đang chạy nhóm.",
+  "Use lower case letters, digits and - (at most {n}).": "Hãy dùng chữ thường, chữ số và - (tối đa {n} ký tự).",
+  "Another role is called {id}.": "Đã có vai trò khác tên {id}.",
+  "Give the template a name.": "Hãy đặt tên cho mẫu.",
+  "A team needs at least one role.": "Một nhóm cần ít nhất một vai trò.",
+  "Make one role the lead.": "Hãy chọn một vai trò làm trưởng nhóm.",
+  "Only one role can be the lead.": "Chỉ một vai trò được làm trưởng nhóm.",
+  "Two roles are called {id}.": "Có hai vai trò cùng tên {id}.",
+  "Give the role a title.": "Hãy đặt tiêu đề cho vai trò.",
+  "A handoff names the role it comes from and the one it goes to.": "Một bước chuyển giao cần ghi rõ vai trò gửi và vai trò nhận.",
+  "No role is called \"{id}\".": "Không có vai trò nào tên “{id}”.",
+  "A role cannot hand its work to itself.": "Một vai trò không thể chuyển kết quả cho chính nó.",
+  "This handoff is there twice.": "Bước chuyển giao này bị lặp lại."
 }
