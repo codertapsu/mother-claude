@@ -31,16 +31,23 @@ describe('MockTeams', () => {
     return { status: res.status, body: res.status === 204 ? null : await res.json() };
   };
 
-  it('lists the built-in templates and a demo team in every state', async () => {
+  it('lists the built-in templates, one of yours, and a demo team in every state', async () => {
     const { body } = await call('/team-templates');
-    const ids = (body.templates as TemplateEntry[]).map((t) => t.id);
-    expect(ids).toEqual([
+    const list = body.templates as TemplateEntry[];
+    expect(list.map((t) => t.id)).toEqual([
       'software-delivery',
       'content-production',
       'research',
       'browser-operations',
       'documentation',
+      'weekly-newsletter',
     ]);
+    // A built-in with a flow (arranged by the editor), yours placed by it.
+    expect(list[1].flow?.length).toBe(4);
+    expect(list[1].layout).toBeUndefined();
+    expect(list[5].builtin).toBe(false);
+    expect(Object.keys(list[5].layout ?? {})).toContain('@merge');
+    expect(validateTemplate(list[5])).toEqual([]);
     const teams = (await call('/teams')).body.teams as TeamView[];
     expect(teams.length).toBe(1);
     const states = teams[0].roles.map((r) => r.state);
@@ -116,6 +123,50 @@ describe('MockTeams', () => {
     ).toContain('lead');
     expect((await call(`/team-templates/${copy.body.id}`, 'DELETE')).status).toBe(204);
     expect(frames.filter((f) => f.templates).length).toBe(2);
+  });
+
+  it('reports a flow that names no role, a role to itself, twice, a long note', async () => {
+    const roles = [
+      { id: 'lead', title: 'Lead', lead: true },
+      { id: 'dev', title: 'Dev' },
+    ];
+    const flow = [
+      { from: 'dev', to: 'ghost' },
+      { from: 'dev', to: 'dev' },
+      { from: 'lead', to: 'dev' },
+      { from: 'lead', to: 'dev', note: 'x'.repeat(201) },
+      { from: 'nobody', to: 'lead' },
+    ];
+    const v = await call('/team-templates/validate', 'POST', {
+      id: 'mine',
+      name: 'Mine',
+      roles,
+      flow,
+      integration: { mergeBy: 'ghost' },
+    });
+    expect(v.body.ok).toBe(false);
+    expect((v.body.errors as { path: string }[]).map((e) => e.path)).toEqual([
+      'flow[0].to',
+      'flow[1]',
+      'flow[3]',
+      'flow[3].note',
+      'flow[4].from',
+      'integration.mergeBy',
+    ]);
+    // Saved, a flow and a layout stay as they were sent.
+    const saved = await call('/team-templates', 'POST', {
+      id: 'mine',
+      name: 'Mine',
+      roles,
+      flow: [{ from: 'lead', to: 'dev', note: 'the plan' }],
+      layout: { lead: { x: 0, y: 0 }, '@merge': { x: 300, y: 0 } },
+    });
+    expect(saved.status).toBe(201);
+    const mine = ((await call('/team-templates')).body.templates as TemplateEntry[]).find(
+      (t) => t.id === 'mine',
+    );
+    expect(mine?.flow).toEqual([{ from: 'lead', to: 'dev', note: 'the plan' }]);
+    expect(mine?.layout?.['@merge']).toEqual({ x: 300, y: 0 });
   });
 
   it('stops and removes a team', async () => {

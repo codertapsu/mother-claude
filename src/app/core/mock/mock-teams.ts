@@ -132,6 +132,14 @@ function builtins(): TemplateEntry[] {
         role({ id: 'qa', title: 'QA', model: 'opus', permissionMode: 'plan', readOnly: true }),
         role({ id: 'publisher', title: 'Publisher', model: 'sonnet', paths: ['publish/**'] }),
       ],
+      // A pipeline: each role's finished work goes on to the next (no
+      // layout: built-ins are arranged by the editor).
+      flow: [
+        { from: 'scriptwriter', to: 'designer', note: 'the script' },
+        { from: 'designer', to: 'producer', note: 'the storyboard and assets' },
+        { from: 'producer', to: 'qa', note: 'the render' },
+        { from: 'qa', to: 'publisher', note: 'the approved cut' },
+      ],
       integration: { mergeBy: 'planner', review: true },
       idleStopMinutes: 20,
     }),
@@ -225,6 +233,81 @@ function builtins(): TemplateEntry[] {
   ];
 }
 
+/** One of the user's own templates, drawn in the visual editor: a flow with
+ * notes, a role on another computer, and the places of its nodes. */
+function newsletter(): TemplateEntry {
+  return {
+    id: 'weekly-newsletter',
+    name: 'Weekly newsletter',
+    description: 'Research, write, illustrate and fact-check one issue a week.',
+    roles: [
+      role({
+        id: 'editor',
+        title: 'Editor',
+        lead: true,
+        model: 'opus',
+        effort: 'high',
+        autostart: true,
+        paths: ['issues/**', '*.md'],
+        charter: 'You plan each issue, write one task per role and merge what comes back.',
+      }),
+      role({
+        id: 'researcher',
+        title: 'Researcher',
+        model: 'sonnet',
+        effort: 'medium',
+        permissionMode: 'acceptEdits',
+        paths: ['research/**'],
+        classes: ['search', 'summarize'],
+      }),
+      role({
+        id: 'writer',
+        title: 'Writer',
+        model: 'sonnet',
+        effort: 'high',
+        permissionMode: 'acceptEdits',
+        worktree: true,
+        paths: ['drafts/**'],
+      }),
+      role({
+        id: 'illustrator',
+        title: 'Illustrator',
+        model: 'sonnet',
+        permissionMode: 'acceptEdits',
+        paths: ['images/**'],
+        machine: 'os:windows',
+      }),
+      role({
+        id: 'checker',
+        title: 'Fact-checker',
+        model: 'haiku',
+        effort: 'low',
+        permissionMode: 'plan',
+        readOnly: true,
+        classes: ['review'],
+      }),
+    ],
+    flow: [
+      { from: 'researcher', to: 'writer', note: 'notes and sources' },
+      { from: 'writer', to: 'checker', note: 'the draft' },
+      { from: 'illustrator', to: 'checker', note: 'the images' },
+      { from: 'checker', to: 'editor', note: 'what to fix' },
+    ],
+    integration: { branch: 'main', mergeBy: 'editor', gate: 'npm run lint:md', review: true },
+    idleStopMinutes: 20,
+    layout: {
+      editor: { x: 32, y: 160 },
+      researcher: { x: 320, y: 48 },
+      illustrator: { x: 320, y: 288 },
+      writer: { x: 608, y: 48 },
+      checker: { x: 896, y: 160 },
+      '@merge': { x: 1184, y: 160 },
+    },
+    builtin: false,
+    report: { errors: [], warnings: [] },
+  };
+}
+
 /** The server's checks a mock can make. */
 export function validateTemplate(t: Partial<TeamTemplate>): TemplateIssue[] {
   const out: TemplateIssue[] = [];
@@ -257,6 +340,29 @@ export function validateTemplate(t: Partial<TeamTemplate>): TemplateIssue[] {
       }
     });
   });
+  // The flow: each handoff from one role to another, once, with a short note.
+  const ids = new Set(roles.map((r) => r.id));
+  const pairs = new Set<string>();
+  (Array.isArray(t.flow) ? t.flow : []).forEach((h, i) => {
+    const from = typeof h?.from === 'string' ? h.from : '';
+    const to = typeof h?.to === 'string' ? h.to : '';
+    if (!ids.has(from))
+      out.push({ path: `flow[${i}].from`, message: `No role is called "${from}".` });
+    if (!ids.has(to)) out.push({ path: `flow[${i}].to`, message: `No role is called "${to}".` });
+    if (from && from === to) {
+      out.push({ path: `flow[${i}]`, message: 'A handoff goes from one role to another.' });
+    } else if (pairs.has(`${from}>${to}`)) {
+      out.push({ path: `flow[${i}]`, message: `${from} hands its work to ${to} twice.` });
+    }
+    pairs.add(`${from}>${to}`);
+    if (typeof h?.note === 'string' && [...h.note].length > 200) {
+      out.push({ path: `flow[${i}].note`, message: 'At most 200 characters.' });
+    }
+  });
+  const merger = t.integration?.mergeBy;
+  if (merger !== undefined && !ids.has(merger)) {
+    out.push({ path: 'integration.mergeBy', message: `No role is called "${merger}".` });
+  }
   return out;
 }
 
@@ -269,6 +375,8 @@ export class MockTeams {
 
   constructor(private readonly host: TeamsHost) {
     this.seed(Date.now());
+    const own = newsletter();
+    this.user.set(own.id, own);
   }
 
   /** The answer to a request this mock takes, or null. */
