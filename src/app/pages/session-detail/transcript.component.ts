@@ -14,6 +14,7 @@ import {
 
 import { TPipe } from '../../core/i18n/t.pipe';
 import { StreamBubble } from '../../core/live-stream';
+import { UiEvent } from '../../core/models';
 import { TranscriptStore } from '../../core/transcript-store';
 import { IconComponent } from '../../shared/icon.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
@@ -24,6 +25,18 @@ import { Row, buildRows, sameRow } from './transcript-rows';
 /** Within this many px of the bottom counts as "at the bottom". */
 const STICK_PX = 80;
 
+/** Rows that fade in when they arrive: the messages. */
+const ARRIVING = new Set<UiEvent['kind']>([
+  'prompt',
+  'relayed',
+  'text',
+  'plan',
+  'question',
+  'image',
+]);
+/** More rows than this at once is catching up (a reconnect), not arriving. */
+const ARRIVE_MAX = 3;
+
 /**
  * The chat: the transcript's rows, the owned live bubble, "Load earlier" at
  * the top and an "N new ↓" pill.
@@ -33,6 +46,11 @@ const STICK_PX = 80;
  * only bump the pill. "Load earlier" keeps the reader's place by anchoring on
  * the first visible row. The scroll container is the page's (passed in), so
  * the chip row and tabs scroll away with the conversation on phones.
+ *
+ * A message that arrives while the reader watches, and a live bubble as it
+ * starts, fade in with a small rise (not under reduced motion); the rows of
+ * the first load and of "Load earlier" don't, nor a message whose live
+ * bubble already showed it.
  */
 @Component({
   selector: 'mc-transcript',
@@ -77,6 +95,7 @@ const STICK_PX = 80;
       <div class="rows">
         @for (r of rows(); track r.id) {
           <mc-transcript-row
+            [class.arrive]="arrived.has(r.id)"
             [row]="r"
             [sessionId]="sessionId()"
             [cwd]="cwd()"
@@ -185,6 +204,18 @@ const STICK_PX = 80;
         border-right-color: transparent;
         animation: mc-spin 0.8s linear infinite;
       }
+      @media (prefers-reduced-motion: no-preference) {
+        .arrive,
+        mc-stream-bubble {
+          animation: mc-arrive 0.18s ease-out;
+        }
+      }
+      @keyframes mc-arrive {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+      }
     `,
   ],
 })
@@ -213,15 +244,22 @@ export class TranscriptComponent {
   protected readonly rows = computed<Row[]>(() => {
     const fresh = buildRows(this.store()?.events() ?? []);
     const next = new Map<string, Row>();
+    const added: Row[] = [];
     const out = fresh.map((r) => {
       const old = this.cache.get(r.id);
+      if (!old) added.push(r);
       const keep = old && sameRow(old, r) ? old : r;
       next.set(r.id, keep);
       return keep;
     });
     this.cache = next;
+    this.noteArrivals(added);
     return out;
   });
+  /** Rows that came in while the reader watched: they fade in. */
+  protected readonly arrived = new Set<string>();
+  /** Messages a live bubble showed as they streamed. */
+  private readonly streamed = new Set<string>();
   protected readonly newCount = signal(0);
 
   private atBottom = true;
@@ -259,6 +297,8 @@ export class TranscriptComponent {
         this.firstLoad = true;
         this.lastCount = 0;
         this.cache = new Map();
+        this.arrived.clear();
+        this.streamed.clear();
         this.newCount.set(0);
       });
     });
@@ -266,9 +306,10 @@ export class TranscriptComponent {
     // New rows or stream deltas: stay pinned, or count what's new.
     effect(() => {
       const count = this.rows().length;
-      this.bubbles();
+      const bubbles = this.bubbles();
       const loading = this.store()?.loading() ?? true;
       untracked(() => {
+        for (const b of bubbles) this.streamed.add(b.messageId);
         if (loading) return;
         const added = Math.max(0, count - this.lastCount);
         this.lastCount = count;
@@ -286,6 +327,18 @@ export class TranscriptComponent {
   protected jump(): void {
     this.newCount.set(0);
     this.scrollToBottom(true);
+  }
+
+  /** Of the rows just added, the messages that arrived while the reader
+   * watched — not those of the first load or of "Load earlier", not a burst,
+   * not one a live bubble showed — fade in. */
+  private noteArrivals(added: readonly Row[]): void {
+    if (this.firstLoad || this.prepending || added.length > ARRIVE_MAX) return;
+    for (const r of added) {
+      if (r.type !== 'event' || !ARRIVING.has(r.ev.kind)) continue;
+      if (r.ev.messageId && this.streamed.has(r.ev.messageId)) continue;
+      this.arrived.add(r.id);
+    }
   }
 
   protected async loadEarlier(): Promise<void> {
