@@ -1,7 +1,9 @@
 # UI redesign — a proposal to choose from
 
 **Proposal of 2026-11-12; direction A built through stage 8, and the
-borrowed stages 9–11, on 2026-11-13** ([status](#status)). How Mother Claude's dashboard (`src/`: the
+borrowed stages 9–11, on 2026-11-13** ([status](#status)); **the map
+regrouped on 2026-11-14**, five features made places of their own
+([§11](#11-decisions-for-you)). How Mother Claude's dashboard (`src/`: the
 desktop webview and the phone, one code path) could be reorganized so that
 each thing you come to do has one obvious place. §2 reads the app as it was
 on `main` at `b8c0aae`, before the redesign. Three directions are drawn;
@@ -455,6 +457,12 @@ No group headings: a line divides the work from what you look after.
 becomes a tab of Sessions. The phone keeps four tabs (`.tabbar` stays a grid
 of 4), and *More* lists the sidebar's second group in the same order.
 
+> **Since 2026-11-14** ([§11](#11-decisions-for-you)): three groups under
+> small headings — **Work** (Sessions, Inbox, Teams), **Connections**
+> (Computers, Phone & devices, Sessions started elsewhere, Browser, HTTP
+> API), **Manage** (Accounts, Backups, Settings) — and *More* lists the
+> last two under the same headings.
+
 ### 6.2 What lives where
 
 | Place | Tabs (routes) | From today |
@@ -649,6 +657,9 @@ left half-way: *Setup: step 3 of 7 — 2 required left*).
 
 ### 6.6 Accounts: accounts, usage, backups, undo
 
+> **Since 2026-11-14** ([§11](#11-decisions-for-you)): Backups is a place
+> of its own (`/backups`, under *Manage*); Accounts keeps three tabs.
+
 - **Accounts** — today's page without *Moves and copies*; its *Install hooks
   plugin* buttons become one line, "Sessions started elsewhere: on ›".
 - **Usage** — every account's windows (the plan usage sheet's list, as a
@@ -686,6 +697,11 @@ left half-way: *Setup: step 3 of 7 — 2 required left*).
 ```
 
 ### 6.7 Settings and its Connections
+
+> **Since 2026-11-14** ([§11](#11-decisions-for-you)): Phone & devices,
+> Sessions started elsewhere, Browser and HTTP API are places of their own
+> (`/devices`, `/elsewhere`, `/browser`, `/http-api`, under *Connections*
+> in the sidebar); Settings keeps *Claude Code tools* as its one row.
 
 One page: what is set once. Simple settings stay inline; the five
 *Connections* rows show their state and open a page each.
@@ -1410,6 +1426,19 @@ Help: *Getting started*. Specs: matching, ranking, the keys, opening.
 | `/browser`, `/api?server=`, `/services` | `/settings/browser`, `/settings/api?server=`, `/settings/tools` | relative redirects |
 | `/more`, `/help…`, `/good-to-know`, `/pair`, `/onboarding` | the same | — |
 
+Since 2026-11-14 ([§11](#11-decisions-for-you)), five of them moved again,
+each to a place of its own; the old paths redirect, query and fragment
+kept:
+
+| Before | Now | How |
+|---|---|---|
+| `/settings/devices`, `/remote` | `/devices` | relative redirect; `/remote` a redirect function (`#foreign` → `/elsewhere`) |
+| `/settings/elsewhere` | `/elsewhere` | relative redirect |
+| `/settings/browser` | `/browser` (a page again, no longer a redirect) | relative redirect |
+| `/settings/api?server=`, `/api?server=` | `/http-api?server=` | relative redirects |
+| `/accounts/backups`, `/backup` | `/backups` | relative redirects |
+| `/settings/tools`, `/services` | the same | — |
+
 ---
 
 ## 11. Decisions for you
@@ -1422,6 +1451,54 @@ Help: *Getting started*. Specs: matching, ranking, the keys, opening.
 > *Computers › This Mac*; the borrowed stages last). Built after the
 > remaining Machines work (Phases 3b and 5, and the gaps), as the user
 > asked: finish the features, then redesign, then one release.
+
+> **Changed on 2026-11-14 — five features get places of their own.**
+> Decisions 5 and 6 are taken back in part: **Phone & devices**,
+> **Sessions started elsewhere**, **Browser** and **HTTP API** left
+> *Settings › Connections*, and **Backups** left *Accounts*, each to be a
+> place of the map with its own path — `/devices`, `/elsewhere`,
+> `/browser`, `/http-api` (not `/api`), `/backups`.
+>
+> *Why:* they are major features, and one level down — a row of
+> Settings, a tab of Accounts — they were hard to find, for a first-time
+> user above all. §6.12 had counted that as the move's cost ("one click
+> further away … they are set up once").
+>
+> *What changed:*
+>
+> - **The sidebar has three groups**, each under a small muted heading
+>   with a thin line between them: **Work** — Sessions, Inbox, Teams;
+>   **Connections** — Computers, Phone & devices, Sessions started
+>   elsewhere, Browser, HTTP API; **Manage** — Accounts, Backups,
+>   Settings. Help stays at the foot. On a short laptop screen the places
+>   scroll between *Jump to…* and the foot (a few always show; shorter
+>   still, the whole sidebar scrolls) instead of being cut off.
+> - **The phone's bar** stays Sessions · Inbox · Teams · More; *More*
+>   lists the other two groups under the same headings, then Help, each
+>   new place with a line saying what it is for.
+> - **Settings** keeps everything else, *Claude Code tools* included: its
+>   one row with a state, under a *Claude Code* heading. **Accounts**
+>   keeps Accounts, Usage and Recent changes. Every page keeps its
+>   component and behaviour; Sessions started elsewhere is still listed on
+>   the desktop only, and the four former connections lose their
+>   *‹ Settings* link (the phone's top bar names them now).
+> - **Every old path redirects** with its query and fragment:
+>   `/settings/devices`, `/settings/elsewhere`, `/settings/browser`,
+>   `/settings/api` (`?server=`), `/accounts/backups`, and the older
+>   `/remote`, `/backup` and `/api` go straight to the new places. The
+>   app's links, its sentences ("Open HTTP API", "in Phone & devices"),
+>   *Jump to…* and the Help (English and Vietnamese) use the new places;
+>   *Settings and updates* says what moved.
+> - **Left for later:** the server's and the extension's own sentences
+>   still say *Settings › Phone & devices*, *Settings › Browser*,
+>   *Settings › HTTP API* or *Settings › Sessions started elsewhere*
+>   (F17), and the mock repeats the server's; they need the server and
+>   the extension changed.
+>
+> The map in `src/app/core/nav.ts` holds the groups (`NAV_GROUPS`, each
+> place's `group`); a place added later lands in its group whatever its
+> position in `PLACES`. §6.1, §6.6, §6.7 and §10.3 are kept as they were
+> decided, with a pointer here.
 
 1. **The direction** — **A** *(recommended)*, B or C.
 2. **Machines' name** — **Computers** *(recommended: Help's group and every
