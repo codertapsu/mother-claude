@@ -6,7 +6,7 @@
 //!   online, whether this computer may run there (their `run` grant),
 //!   versions.
 //! * `machine_run {machine, command, cwd?, timeout?, artifacts?}` — the run;
-//!   an approval here unless a standing grant covers it; waits up to 10
+//!   an approval here unless a permission covers it; waits up to 10
 //!   minutes.
 //! * `machine_wait {id, timeout?}`, `machine_output {id, from?, max?}` /
 //!   `{id, artifact}`, `machine_cancel {id}`.
@@ -100,7 +100,7 @@ pub fn register(r: &mut Registry) {
              not), sends it, and runs the command there in a kept work folder: a git worktree \
              of that computer's checkout, so build caches the project ignores (target/, \
              node_modules/) survive between runs; that computer's own checkout is never \
-             touched. The user approves each run (or a standing grant covers it). Write the \
+             touched. The user approves each run (or a permission they saved covers it). Write the \
              command for that computer's shell (machine_list). Waits up to 10 minutes and \
              returns the exit code, the duration and the output's last 64 KiB — or 'still \
              running' with the run's id: then machine_wait, machine_output, machine_cancel.",

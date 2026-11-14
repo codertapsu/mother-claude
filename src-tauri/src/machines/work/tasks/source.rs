@@ -24,7 +24,7 @@ use super::{
     audit, clean_text, clip, first_line, is_task_id, mirrored, publish, Task, TaskRecord,
     TaskState, IN_DIR, MAX_SUMMARY, MAX_TASK,
 };
-use crate::claude::model::{PendingItem, PendingKind, PendingSource};
+use crate::claude::model::{GrantOffer, PendingItem, PendingKind, PendingSource, RuleKind};
 use crate::claude::owned;
 use crate::machines::chunks::{self, PutError};
 use crate::machines::code::{self, TaskBranchError, TaskTip};
@@ -142,8 +142,10 @@ fn there_of(v: &Value) -> Option<There> {
 }
 
 /// The approval card (decision 2): the computer, its folder, the task's
-/// first line — the whole task below it. Never an *Always…*: a task is a
-/// free-form prompt.
+/// first line — the whole task below it — and what a permission could
+/// remember of the answer (tasks from this session, this project or any,
+/// on that computer; never one that would run without asking: a task is a
+/// free-form prompt, so no pattern narrows it).
 async fn approve(
     state: &AppState,
     asker: &Asker,
@@ -189,6 +191,22 @@ async fn approve(
                 "Its session on {name} would run in {mode}: it would edit files and run commands \
                  there without asking anyone."
             )
+        }),
+        grant: Some(GrantOffer {
+            kind: RuleKind::Task,
+            tool: None,
+            patterns: None,
+            suggested: Vec::new(),
+            session: asker.session.clone(),
+            session_name: asker.title.clone(),
+            project: Some(project.clone()),
+            project_name: Some(crate::machines::setup::folders::name_of(&project)),
+            machine: Some(peer.id.clone()),
+            machine_name: Some(name.clone()),
+            blocked: dangerous.then(|| {
+                "A task that would run without asking always asks: this one can't be remembered."
+                    .to_string()
+            }),
         }),
         ..Default::default()
     };
@@ -332,7 +350,28 @@ pub async fn hand_over(state: &AppState, caller: &Caller, ask: Ask) -> Result<St
         effort,
         ..ask
     };
-    let approved_by = approve(state, &asker, &peer, &there, &ask, &mode, dangerous).await?;
+    // A permission covers it (never one that would run without asking).
+    let top = asker.top.display().to_string();
+    let covered = if dangerous {
+        None
+    } else {
+        state.rules.covering(&crate::pending::rules::Ask {
+            kind: RuleKind::Task,
+            tool: None,
+            session: &asker.session,
+            folder: Some(&top),
+            project: Some(&top),
+            machine: Some(&peer.id),
+            subject: None,
+        })
+    };
+    let approved_by = match covered {
+        Some(rule) => Some(format!(
+            "your permission ({})",
+            crate::pending::rules::describe(&rule)
+        )),
+        None => approve(state, &asker, &peer, &there, &ask, &mode, dangerous).await?,
+    };
     // The task, here.
     let id = super::new_task_id();
     let branch = code::task_branch(&name, &id);

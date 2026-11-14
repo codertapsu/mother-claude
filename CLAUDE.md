@@ -20,12 +20,12 @@ layers:
    — a programmatic HTTP API over Claude on this machine (conversations, turns,
    SSE, tool approvals, images) plus a direct Messages API path. Mounted at `/v1`
    on the main server and on its own loopback port (default `5612`).
-   **It does not listen until started** from Settings › HTTP API
+   **It does not listen until started** from the HTTP API page
    (`bridge::control`, `/api/bridge/*`); until then the routes that drive Claude
    answer `503 bridge_not_started` while discovery stays open. Start-time
    choices are *defaults* — every request may override them — and one of them is
    which conversation an unaddressed `/chat` message joins.
-   That is the **main** API server; Settings › HTTP API adds more
+   That is the **main** API server; the HTTP API page adds more
    (`bridge::servers`, saved in `<app data dir>/api-servers.json`, 0600), each
    with its own loopback port, defaults, active conversation, token policy and
    started gate, and reachable through the main ones at `/servers/<id>/` on the
@@ -350,7 +350,7 @@ bridge's Messages API client (an API key).
   it without setup; a tunnelled request needs a token, the tokenless mode turns
   off while a detected tunnel points at the port, and the LAN-reachable `/v1`
   mount always needs a token. The one exception is the operator's explicit
-  opt-in, the *Open to tunnels* switch on Settings › HTTP API
+  opt-in, the *Open to tunnels* switch on the HTTP API page
   (`openToTunnels` on `POST /api/bridge/start`, desktop principal only to
   turn on; `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN=never` is its starting position;
   `bridge::TokenPolicy::Never`, the running run's policy in
@@ -440,6 +440,35 @@ bridge's Messages API client (an API key).
   runs Claude Code writes its pidfile under `~/.claude/sessions` (removed on
   exit) and refreshes its own caches in `~/.claude.json`. Our code still writes
   nothing there.
+
+## Permissions (docs/PERMISSIONS.md)
+
+What Claude may do without asking: rules the user saves by answering a card
+with *Allow for…* (`remember` on respond), each a kind (a tool family, a
+run on another computer, a task there), a place (one session, one
+project folder, the whole computer) and optional patterns (command
+prefixes at a word boundary, file globs relative to the session's folder,
+sites) — `src-tauri/src/pending/rules.rs`. Invariants:
+
+- **One door.** `pending::raise` asks `Rules::covering` before it shows a
+  card, for every channel (owned, hooks, bridge, sidecar); runs and tasks
+  ask before they raise theirs. A covered request is an *allow* whose
+  resolution names the rule (`ResolverKind::Permission`) — no card, no
+  push. A channel that would not hold a request nobody sees asks
+  `pending::would_be_allowed` first.
+- **Never a dangerous item**, never a question, plan or elicitation, never
+  while paused; the browser keeps its own standing grants. A command
+  pattern never covers a command with a shell metacharacter, and may not
+  start with a shell (`bash`, `env`, `sudo`, …) or name an interpreter
+  alone.
+- **A project or the computer is a standing grant**: saving one, widening
+  one and turning them back on need the dangerous right (`is_dangerous`
+  on the answer; the routes check it); one for a session does not.
+  Pausing and removing are `ManageData`, never the local-script token.
+- **Mother Claude's own**: `<app data dir>/permissions.json` (0600,
+  atomic, read entry by entry), never Claude Code's settings or anything
+  under a config directory. Audits keep each pattern's SHA-256, never its
+  text. Changes go out as `{t:"permissions"}`.
 
 ## Mother Claude's MCP server (docs/MCP.md)
 
@@ -694,9 +723,10 @@ developed on `main`, as the rest of the app is. Invariants:
 - **Runs on another computer** (`machines::work`, docs/PLAN-MACHINES.md
   Phase 4): a session's `machine_run` needs the target's `run` grant and an
   approval on the source per run (`crate::pending`, source `machine`)
-  unless a standing grant covers it (project + computer + prefix at a word
-  boundary, no shell metacharacter, never a dangerous command; attaching
-  one needs the dangerous right). A command `pending::sensitive_command`
+  unless a permission covers it (`pending::rules`, below: commands like
+  these, from the session, the project or any, on that computer — a
+  prefix at a word boundary, no shell metacharacter, never a dangerous
+  command). A command `pending::sensitive_command`
   flags also needs the target's `dangerous` grant (`X-MC-Acting: machine;
   dangerous=1`, intersected there; the target classifies it again). It
   runs in a kept work folder, `<app data>/machines/work/<wk_…>`: a detached
@@ -708,9 +738,10 @@ developed on `main`, as the rest of the app is. Invariants:
   PowerShell, never `claude`.
 - **Tasks on another computer** (`machines::work::tasks`, plan Phase 4
   decision 6): `machine_task` needs the target's `run` grant and an
-  approval on the source **every time** (no standing grant ever covers a
-  task); `bypassPermissions`/`dontAsk` is a dangerous approval and needs the
-  target's `dangerous` grant (the hop rule). The target starts an **owned**
+  approval on the source unless a permission covers it (tasks from the
+  session, the project or any, on that computer — never a
+  `bypassPermissions`/`dontAsk` one: that is a dangerous approval and
+  needs the target's `dangerous` grant, the hop rule). The target starts an **owned**
   session through `ControlRegistry::spawn` in the task's own worktree,
   `<app data>/machines/work/tasks/<task>/<project>` (detached at the
   snapshot; the checkout never touched), under the account of the asking

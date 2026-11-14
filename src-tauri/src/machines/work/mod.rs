@@ -6,9 +6,10 @@
 //! **Who agrees.** The target's `run` grant for the source (off until the
 //! target's desktop turns it on, LAN and internet apart), and an approval
 //! here for every run (`crate::pending`, source `machine`: the computer,
-//! the folder, the command) unless a standing grant (`grants`) covers it —
-//! project + computer + command prefix, attached from the approval with the
-//! dangerous right. A command `pending::sensitive_command` flags is a
+//! the folder, the command) unless a permission covers it
+//! (`pending::rules`, docs/PERMISSIONS.md: commands like these, from the
+//! session, the project or any, on that computer; `grants` reads the
+//! commands). A command `pending::sensitive_command` flags is a
 //! dangerous approval, and the target then requires its own `dangerous`
 //! grant for this computer too (`X-MC-Acting`, `machines::acting`).
 //!
@@ -536,8 +537,6 @@ pub struct WorkState {
     resets: Mutex<HashMap<String, i64>>,
     /// Incoming chunks are written one at a time.
     pub(crate) chunks: tokio::sync::Mutex<()>,
-    /// The standing grants for runs this computer asks for.
-    pub grants: grants::RunGrants,
     /// Tasks handed to another computer, or taken from one (`tasks`).
     pub tasks: tasks::Tasks,
     /// Team roles this computer runs for other computers' leads, and the
@@ -563,7 +562,6 @@ impl WorkState {
             }
         }
         Self {
-            grants: grants::RunGrants::load(data_dir),
             tasks: tasks::Tasks::load(dir.as_deref()),
             roles: roles::Roles::load(dir.as_deref()),
             dir,

@@ -697,6 +697,9 @@ async fn raise_request_inner(state: AppState, frame: Value) {
     // in the app and on the phone exactly as it does for any other session.
     // The guard withdraws the card whichever surface answers.
     let (guard, dash_rx) = crate::pending::raise(state, item.clone()).await;
+    // A permission allowed it already (docs/PERMISSIONS.md): nobody needs to
+    // see it.
+    let allowed_already = state.pending.get(guard.id()).is_none();
 
     // Bridge surface: an SSE frame so a headless client can see it too.
     let event = json!({
@@ -704,6 +707,7 @@ async fn raise_request_inner(state: AppState, frame: Value) {
         "params": snapshot,
     });
     match (session_id.as_str(), turn_id.as_deref()) {
+        _ if allowed_already => {}
         (s, Some(t)) => match state.bridge.ops.for_turn(s, t) {
             Some(op) => op.emit(&state.bridge.ops.global, &event),
             None => {

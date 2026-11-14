@@ -437,7 +437,6 @@ impl World {
             let item = a.approval().await;
             let body = match answer {
                 "allow" => json!({ "decision": "allow" }),
-                "always" => json!({ "decision": "allow", "suggestion": 0 }),
                 _ => json!({ "decision": "deny" }),
             };
             let token = a.st.auth.token.clone();
@@ -620,7 +619,7 @@ async fn a_run_brings_back_its_output_and_exit_code_from_a_work_folder_at_the_se
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn each_run_is_approved_unless_a_standing_grant_covers_it() {
+async fn each_run_is_approved_unless_a_permission_covers_it() {
     let w = world().await;
     // Denied: nothing runs there.
     let r = w
@@ -632,9 +631,10 @@ async fn each_run_is_approved_unless_a_standing_grant_covers_it() {
     assert!(is_error(&r));
     assert!(text(&r).contains("denied"), "{}", text(&r));
     assert!(w.b.runs().await.is_empty(), "nothing reached B");
-    // The approval card names the computer, the folder and the command;
-    // its "always allow" is a standing grant, which needs the dangerous
-    // right: the local-script token may allow once, not always.
+    // The approval card names the computer, the folder and the command,
+    // and offers to remember the answer: a permission for the project is a
+    // standing grant, which needs the dangerous right — the local-script
+    // token may allow once, not remember it for the project.
     let call = {
         let url = w.a.url.clone();
         let token = w.a.st.mcp.token().to_string();
@@ -668,33 +668,31 @@ async fn each_run_is_approved_unless_a_standing_grant_covers_it() {
         .as_str()
         .is_some_and(|c| c.ends_with("app")));
     assert_eq!(item["dangerous"], false);
-    let s = &item["suggestions"][0];
-    assert_eq!(s["standing"], true);
-    assert_eq!(s["raw"]["prefix"], "echo granted");
+    assert!(item["suggestions"].as_array().is_none_or(|s| s.is_empty()));
+    let g = &item["grant"];
+    assert_eq!(g["kind"], "run");
+    assert_eq!(g["patterns"], "command");
+    assert_eq!(g["suggested"][0], "echo granted");
+    assert_eq!(g["machineName"], w.b_name());
+    assert!(g.get("blocked").is_none(), "{g}");
+    let remember = json!({
+        "decision": "allow",
+        "remember": { "scope": "project", "patterns": ["echo granted"] },
+    });
     let script = w.a.st.auth.script_token.clone();
-    let (st, v) =
-        w.a.respond(
-            &script,
-            &item,
-            json!({ "decision": "allow", "suggestion": 0 }),
-        )
-        .await;
+    let (st, v) = w.a.respond(&script, &item, remember.clone()).await;
     assert_eq!(st, StatusCode::FORBIDDEN, "{v}");
     let desktop = w.a.st.auth.token.clone();
-    let (st, v) =
-        w.a.respond(
-            &desktop,
-            &item,
-            json!({ "decision": "allow", "suggestion": 0 }),
-        )
-        .await;
+    let (st, v) = w.a.respond(&desktop, &item, remember).await;
     assert_eq!(st, StatusCode::OK, "{v}");
     let r = call.await.unwrap();
     assert!(!is_error(&r), "{}", text(&r));
-    let (s, v) = w.a.call("GET", "/machines/run-grants", None).await;
+    let (s, v) = w.a.call("GET", "/permissions", None).await;
     assert_eq!(s, StatusCode::OK);
-    let grant = v["grants"][0].clone();
-    assert_eq!(grant["prefix"], "echo granted");
+    let grant = v["rules"][0].clone();
+    assert_eq!(grant["kind"], "run");
+    assert_eq!(grant["scope"], "project");
+    assert_eq!(grant["patterns"][0], "echo granted");
     assert_eq!(grant["machineName"], w.b_name());
     // Covered now: no approval.
     let r = w
@@ -726,26 +724,21 @@ async fn each_run_is_approved_unless_a_standing_grant_covers_it() {
         )
         .await;
     assert!(is_error(&r));
-    // Revoked (the desktop only): asked again.
+    // Removed (never by the local-script token): asked again.
     let id = grant["id"].as_str().unwrap();
     let (s, _) =
-        w.a.call_as(
-            &script,
-            "DELETE",
-            &format!("/machines/run-grants/{id}"),
-            None,
-        )
-        .await;
+        w.a.call_as(&script, "DELETE", &format!("/permissions/{id}"), None)
+            .await;
     assert_eq!(
         s,
         StatusCode::FORBIDDEN,
-        "the local-script token can't revoke"
+        "the local-script token can't remove one"
     );
     let (s, v) =
-        w.a.call("DELETE", &format!("/machines/run-grants/{id}"), None)
+        w.a.call("DELETE", &format!("/permissions/{id}"), None)
             .await;
     assert_eq!(s, StatusCode::OK, "{v}");
-    assert!(v["grants"].as_array().unwrap().is_empty());
+    assert!(v["rules"].as_array().unwrap().is_empty());
     let r = w
         .run(
             json!({ "machine": w.b_name(), "command": "echo granted again" }),

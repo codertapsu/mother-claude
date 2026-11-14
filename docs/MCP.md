@@ -61,7 +61,7 @@ a dashboard card; a foreign session's is its own dialog).
 
 | Session | Path |
 |---|---|
-| Terminal, VS Code, JetBrains, Desktop (foreign) | The installed Mother Claude plugin (Settings › Sessions started elsewhere). The CLI reads the plugin from our data dir in place, so the `.mcp.json` written there reaches every session started afterwards; running sessions need `/reload-plugins` or a restart. |
+| Terminal, VS Code, JetBrains, Desktop (foreign) | The installed Mother Claude plugin (Sessions started elsewhere). The CLI reads the plugin from our data dir in place, so the `.mcp.json` written there reaches every session started afterwards; running sessions need `/reload-plugins` or a restart. |
 | Sessions Mother Claude launches (owned, Path B) | Their own copy of the plugin, loaded inline: `claude -p … --plugin-dir <app data>/mcp-plugin/mother-claude` (`claude::control::headless_command`). Works for every account kind, installed plugin or not. |
 | Path A sidecar sessions, HTTP bridge conversations | Not yet (the Agent SDK takes `plugins: [{type: "local", path}]`; to do). |
 
@@ -283,10 +283,11 @@ How a call goes:
 * **The approval**: a `crate::pending` item (`source: "machine"`,
   `toolName: "machine_run"`, its `input` the computer, checkout, folder,
   command, shell, time limit and glob), dangerous when
-  `pending::sensitive_command` flags the command, with the suggestion
-  *Always allow `<prefix>` on … for this project* (`kind:
-  "machineRunGrant"`, `standing: true`) when a grant could cover the
-  command — unless a standing grant covers it already. Denied: `denied`
+  `pending::sensitive_command` flags the command, with the offer to
+  remember the answer (`grant`: `{kind: "run", patterns: "command",
+  suggested: [<prefix>], project, machine, blocked?}`,
+  docs/PERMISSIONS.md) — unless a permission covers it already (then no
+  card, and the run records which). Denied: `denied`
   (the model is told not to retry, with the user's note); unanswered for
   10 minutes: `approval_timeout`. A dangerous command also needs the other
   computer's `dangerous` grant (`dangerous_needed`). That computer
@@ -294,12 +295,13 @@ How a call goes:
   back with *where it would run*): a flag on either side makes the approval
   dangerous, and that computer checks again when the run starts.
 * **A task** needs the same `run` grant (and a build that takes tasks, else
-  "Update Mother Claude on … it does not take tasks"), and an approval every
-  time: a `crate::pending` item (`source: "machine"`, `toolName:
-  "machine_task"`, its `input` `{kind: "task", machine, machineName, os,
-  checkout, cwd, task, firstLine, permissionMode, model, effort, account,
-  project, projectName}`), never with a suggestion — no standing grant
-  covers a task. `bypassPermissions` or `dontAsk` makes it dangerous, and is
+  "Update Mother Claude on … it does not take tasks"), and an approval
+  unless a permission covers it: a `crate::pending` item (`source:
+  "machine"`, `toolName: "machine_task"`, its `input` `{kind: "task",
+  machine, machineName, os, checkout, cwd, task, firstLine, permissionMode,
+  model, effort, account, project, projectName}`, `grant: {kind: "task"}`
+  without patterns). `bypassPermissions` or `dontAsk` makes it dangerous —
+  never covered, never remembered — and is
   refused before anyone is asked when the other computer has not given this
   one its `dangerous` grant (`not_allowed`); it checks again itself
   (`dangerous_needed`). That computer answers where the project is and which
@@ -363,7 +365,7 @@ machines); see the contract in `mcp/mod.rs`. A tool:
 |---|---|
 | `/mcp` in a session shows `plugin:mother-claude:mc` failed, `ECONNREFUSED` | Mother Claude was not running when the session started (the CLI tries three times, then gives up). Start the app, then reconnect in `/mcp` or restart the session. |
 | Failed with `Dynamic Client Registration rejected` or an OAuth error | The helper sent no valid token, so Claude Code tried OAuth against the server (`/.well-known/oauth-*`, `POST /register`). Check that `<app data>/mcp.token` exists (the setting is on) and that the entry quotes the helper. |
-| No `mcp__plugin_mother-claude_mc__…` tools in a foreign session | The Mother Claude plugin is not installed for that account (Settings › Sessions started elsewhere), or the session started before the entry existed: `/reload-plugins`. |
+| No `mcp__plugin_mother-claude_mc__…` tools in a foreign session | The Mother Claude plugin is not installed for that account (Sessions started elsewhere), or the session started before the entry existed: `/reload-plugins`. |
 | Calls fail with `mcp_disabled` | Settings › Claude Code tools is off. |
 | A `machine_*` tool says Computers is off, *Update Mother Claude on …*, or that a computer has not given this one the Run permission | See [MACHINES.md](MACHINES.md) "Troubleshooting". |
 | A tool says it cannot tell which session is calling | The CLI's pidfile was not readable yet, or the session runs under a config directory Mother Claude does not know. |

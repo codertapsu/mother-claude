@@ -101,7 +101,7 @@ a password.
 - A **shared folder** (a *root*) is one folder on each computer:
   `~/development/projects` on the Mac and `D:\development\projects` on
   Windows. A project under it on one is the same project, at the same
-  place, on the other. Your folder pairs from *Accounts › Backups* are kept,
+  place, on the other. Your folder pairs from *Backups* are kept,
   as roots.
 - The setup looks at your projects and the folders right under your shared
   folders, reads each git repository's `origin`, and where the same remote
@@ -675,23 +675,25 @@ ask — each run still needs the approval below. A session in
   **Time limit** and the **Files to list**. *Allow once* runs it; *Deny*
   tells Claude not to try again (*Deny with feedback…* says what to do
   instead); unanswered for 10 minutes, it does not run.
-- **Or a standing grant.** *Always…* on that card offers *Always allow
-  `cargo test` on DESKTOP-PC for this project*: from then on, a command of
-  this project that starts with those words runs on DESKTOP-PC without
-  asking. It is saved in Mother Claude — not in Claude Code's settings —
-  and listed under *Always allowed runs* on Computers › Activity, where
-  *Revoke* (desktop) takes it back. Attaching one needs the dangerous
-  right (the desktop, or a device allowed dangerous actions), as every
-  standing grant does; without it the card offers *Allow once* only.
+- **Or a permission.** *Allow for…* on that card allows it and remembers the
+  answer ([PERMISSIONS.md](PERMISSIONS.md)): commands from *this session*,
+  from *this project*, or *every command on DESKTOP-PC* — or *Only
+  matching…* commands that start with words you choose (`cargo test`, `npm
+  run build`). From then on such a run goes ahead without asking. It is
+  saved in Mother Claude — not in Claude Code's settings — and listed on the
+  **Permissions** page, where you can change, pause or remove it. A
+  permission for the project or for every project needs the dangerous right
+  (the desktop, or a device allowed dangerous actions); one for the session
+  does not.
 
-A standing grant is narrow on purpose:
+A command pattern is narrow on purpose:
 
-- **Whole words.** The command's first words must be the grant's words,
+- **Whole words.** The command's first words must be the pattern's words,
   exactly: `cargo test` covers `cargo test --lib`, never `cargo test-foo`
   or `cargo testing`.
 - **One command.** A command holding `;`, `&`, `|`, a backtick, `$`,
   parentheses, braces, `<`, `>` or a line break always asks, whatever it
-  starts with: no grant lets a second command ride along.
+  starts with: no pattern lets a second command ride along.
 - **Never a dangerous command** (next).
 - **What it offers** is the program and what it runs: `cargo test`, `npm
   run build`, `python -m pytest`, `./gradlew build`. Nothing is offered for
@@ -812,17 +814,18 @@ and output size. *Output* opens what it printed last, with the files it
 made; *Cancel* stops a run that has not ended, from either computer. Each
 computer keeps its runs a day after they end.
 
-Under it, **Always allowed runs** lists the standing grants: each one's
-command prefix, computer and project, who added it and how often it was
-used. *Revoke* (desktop) takes one back; the next such run asks again.
+The permissions that let runs go ahead without asking are on the
+**Permissions** page: each one's computer, project and command patterns,
+who saved it and how often it was used. Remove one and the next such run
+asks again.
 
 ### From a phone
 
 A phone paired with the computer that asks answers a run's approval like
 any other (Inbox, the session's page), follows runs and cancels them.
-*Always…* and dangerous runs need the phone's dangerous permission (set on
-the desktop). It sees *Always allowed runs* read only: *Revoke* is the
-desktop's.
+*Allow for…* this session is open to it; for the project or every project,
+and dangerous runs, it needs the phone's dangerous permission (set on the
+desktop). It can pause and remove permissions on the Permissions page.
 
 ## Handing a task to another computer
 

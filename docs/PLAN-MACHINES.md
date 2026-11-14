@@ -1333,6 +1333,13 @@ open:
    A command `pending::classify_dangerous` flags (config directories, shell
    startup files, …) is a dangerous approval, and the target also requires
    its `dangerous` grant (the `X-MC-Acting` rule).
+   *Changed 2026-11-14 (v0.14.0):* the standing grants became
+   **permissions** (docs/PERMISSIONS.md), which cover runs and tasks and
+   every other approval alike — commands like these from the session, the
+   project or every project, on that computer — and are listed on the
+   Permissions page; the old grants were taken over as permissions for
+   their project. A task may now be covered too, never one that would run
+   without asking.
 3. **How it runs there**: macOS through `/bin/zsh -lc` (the login shell's
    `PATH`, as the app resolves it for `claude`), Windows through PowerShell
    7 when present, else Windows PowerShell (`-NoProfile -NonInteractive

@@ -116,7 +116,7 @@ pub enum ServerEvent {
         agent: Option<String>,
     },
     /// A full pending item appeared (session and inbox subscribers).
-    Pending { item: PendingItem },
+    Pending { item: Box<PendingItem> },
     /// Owned live deltas (subscribers only).
     Stream {
         session: String,
@@ -199,6 +199,9 @@ pub enum ServerEvent {
         kind: String,
         state: crate::claude::transfer::JobState,
     },
+    /// The permissions changed (everyone): `{t:"permissions"}` — refetch
+    /// `GET /api/permissions` (`pending::rules`, docs/PERMISSIONS.md).
+    Permissions,
     /// A move of a session to or from another computer changed (everyone):
     /// `{t:"move", move}` with the move's whole record as `GET
     /// /api/moves/{id}` answers it (`machines::moves`, docs/PLAN-MACHINES.md
@@ -247,7 +250,8 @@ impl ServerEvent {
             | ServerEvent::Accounts { .. }
             | ServerEvent::AccountUsage { .. }
             | ServerEvent::Browser { .. }
-            | ServerEvent::Jobs { .. } => Audience::All,
+            | ServerEvent::Jobs { .. }
+            | ServerEvent::Permissions => Audience::All,
             ServerEvent::Teams(_) | ServerEvent::Machines { .. } | ServerEvent::Move { .. } => {
                 Audience::All
             }
@@ -493,7 +497,9 @@ pub fn publish_transcript_reset(state: &AppState, session: &str, agent: Option<&
 /// A full pending item, for subscribers of its session and inbox
 /// subscribers.
 pub fn publish_pending(state: &AppState, item: PendingItem) {
-    state.broadcast(ServerEvent::Pending { item });
+    state.broadcast(ServerEvent::Pending {
+        item: Box::new(item),
+    });
 }
 
 /// An owned session's live delta, for subscribers of `session`.
@@ -1612,11 +1618,11 @@ mod tests {
             json!({ "t": "pendingResolved", "id": "p1", "session": "s", "outcome": "allowed", "at": 7 })
         );
         let p = ServerEvent::Pending {
-            item: PendingItem {
+            item: Box::new(PendingItem {
                 id: "p2".into(),
                 session_id: "s".into(),
                 ..Default::default()
-            },
+            }),
         };
         let v = serde_json::to_value(&p).unwrap();
         assert_eq!(v["t"], "pending");

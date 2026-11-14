@@ -1,24 +1,20 @@
-//! Standing grants for runs (docs/PLAN-MACHINES.md Phase 4, decision 2):
-//! *Always allow `cargo test` on DESKTOP-PC for this project*, attached
-//! from a run's approval card by someone with the dangerous right, listed
-//! and revoked on the Machines page. One covers a run when its project and
-//! computer are the run's and its prefix starts the command **at a word
-//! boundary** — `cargo test` covers `cargo test --lib`, never `cargo
-//! test-foo` — and the command holds no shell metacharacter: anything that
-//! could chain, substitute or redirect (`;`, `&`, `|`, a backtick, `$`,
-//! parentheses, braces, `<`, `>`, a line break) makes every grant not
-//! apply, so a prefix never smuggles a second command in. A command the
-//! danger classifier flags is never covered (it always asks).
+//! Commands, as permissions read them (docs/PERMISSIONS.md): the first
+//! words of a command **at a word boundary** — `cargo test` covers `cargo
+//! test --lib`, never `cargo test-foo` — and nothing for a command holding
+//! a shell metacharacter: anything that could chain, substitute or redirect
+//! (`;`, `&`, `|`, a backtick, `$`, parentheses, braces, `<`, `>`, a line
+//! break) makes every pattern not apply, so a prefix never smuggles a
+//! second command in. `pending::rules` uses these for `Bash` and
+//! `PowerShell` calls and for runs on another computer.
 //!
-//! Kept in `<app data>/machines/run-grants.json` (0600, written whole and
-//! atomically), read entry by entry: one this build cannot read is skipped.
+//! Until v0.13 runs had standing grants of their own, in
+//! `<app data>/machines/run-grants.json`; [`legacy`] reads them once for
+//! `pending::rules` to take over.
 
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-
+use serde_json::Value;
 /// The file, under `<app data>/machines`.
 pub const FILE: &str = "run-grants.json";
 /// Its format.
@@ -63,14 +59,6 @@ struct FileShape {
 pub fn is_grant_id(s: &str) -> bool {
     s.strip_prefix("rg_")
         .is_some_and(|h| h.len() == 12 && h.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
-}
-
-fn new_grant_id() -> String {
-    let hex: String = crate::server::auth::random_bytes(6)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    format!("rg_{hex}")
 }
 
 /// The characters that let a command line do more than run one program
@@ -197,153 +185,41 @@ pub fn suggested_prefix(command: &str) -> Option<String> {
     clean_prefix(&out.join(" "))
 }
 
-/// The standing grants (`MachinesState::work.grants`).
-pub struct RunGrants {
-    path: Option<PathBuf>,
-    list: Mutex<Vec<RunGrant>>,
+/// Whether `word` names a program that runs whatever it is given (a shell,
+/// `env`, `sudo`, `xargs`…): no pattern may start with one.
+pub fn is_shell(word: &str) -> bool {
+    SHELLS.contains(&base_name(word).as_str())
 }
 
-impl std::fmt::Debug for RunGrants {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RunGrants").finish_non_exhaustive()
-    }
+/// Whether `word` names an interpreter (`python`, `node`, `npx`…): a
+/// pattern names what it runs, never the interpreter alone.
+pub fn is_interpreter(word: &str) -> bool {
+    INTERPRETERS.contains(&base_name(word).as_str())
 }
 
-impl RunGrants {
-    pub fn load(data_dir: Option<&Path>) -> Self {
-        let path = data_dir.map(|d| d.join("machines").join(FILE));
-        let shape: FileShape = path
-            .as_deref()
-            .and_then(crate::persist::read_json)
-            .unwrap_or_default();
-        let list = shape
-            .grants
-            .into_iter()
-            .filter_map(|v| serde_json::from_value::<RunGrant>(v).ok())
-            .filter(|g| {
-                is_grant_id(&g.id)
-                    && crate::machines::ids::is_machine_id(&g.machine)
-                    && clean_prefix(&g.prefix).as_deref() == Some(g.prefix.as_str())
-                    && !g.project.is_empty()
-            })
-            .take(MAX_GRANTS)
-            .collect();
-        Self {
-            path,
-            list: Mutex::new(list),
-        }
-    }
-
-    fn save(&self, list: &[RunGrant]) {
-        let Some(path) = &self.path else { return };
-        let shape = FileShape {
-            version: VERSION,
-            grants: list
-                .iter()
-                .filter_map(|g| serde_json::to_value(g).ok())
-                .collect(),
-        };
-        if let Err(e) = crate::persist::write_json_private(path, &shape) {
-            tracing::warn!(error = %e, "the standing grants for runs could not be saved");
-        }
-    }
-
-    pub fn list(&self) -> Vec<RunGrant> {
-        let mut l = self.list.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        l.sort_by_key(|g| std::cmp::Reverse(g.created_at));
-        l
-    }
-
-    /// Adds one (the same project, computer and prefix: the one there).
-    /// Its id.
-    pub fn add(
-        &self,
-        project: &str,
-        project_name: &str,
-        machine: &str,
-        prefix: &str,
-        by: &str,
-    ) -> Option<String> {
-        let prefix = clean_prefix(prefix)?;
-        let mut list = self.list.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(g) = list.iter().find(|g| {
-            g.machine == machine
-                && g.prefix == prefix
-                && crate::claude::paths::same_path(&g.project, project)
-        }) {
-            return Some(g.id.clone());
-        }
-        if list.len() >= MAX_GRANTS {
-            list.sort_by_key(|g| std::cmp::Reverse(g.created_at));
-            list.truncate(MAX_GRANTS - 1);
-        }
-        let id = new_grant_id();
-        list.push(RunGrant {
-            id: id.clone(),
-            project: project.to_string(),
-            project_name: project_name.to_string(),
-            machine: machine.to_string(),
-            prefix,
-            created_at: crate::machines::now(),
-            created_by: crate::server::devices::sanitize_label(by, 64),
-            used_at: None,
-            uses: 0,
-        });
-        self.save(&list);
-        Some(id)
-    }
-
-    /// Removes one; whether it was there.
-    pub fn remove(&self, id: &str) -> Option<RunGrant> {
-        let mut list = self.list.lock().unwrap_or_else(|e| e.into_inner());
-        let at = list.iter().position(|g| g.id == id)?;
-        let g = list.remove(at);
-        self.save(&list);
-        Some(g)
-    }
-
-    /// The grant that covers running `command` in `project` on `machine`
-    /// (the longest prefix), counted as used.
-    pub fn covering(&self, project: &str, machine: &str, command: &str) -> Option<RunGrant> {
-        let mut list = self.list.lock().unwrap_or_else(|e| e.into_inner());
-        let best = list
-            .iter()
-            .enumerate()
-            .filter(|(_, g)| {
-                g.machine == machine
-                    && crate::claude::paths::same_path(&g.project, project)
-                    && prefix_matches(&g.prefix, command)
-            })
-            .max_by_key(|(_, g)| g.prefix.len())
-            .map(|(i, _)| i)?;
-        let g = &mut list[best];
-        g.used_at = Some(crate::machines::now());
-        g.uses += 1;
-        let out = g.clone();
-        self.save(&list);
-        Some(out)
-    }
+/// The standing grants for runs v0.11–v0.13 kept in
+/// `<app data>/machines/run-grants.json`, read entry by entry for
+/// `pending::rules` to take over (one this build cannot read is skipped).
+pub fn legacy(data_dir: &Path) -> Vec<RunGrant> {
+    let path = data_dir.join("machines").join(FILE);
+    let shape: FileShape = crate::persist::read_json(&path).unwrap_or_default();
+    shape
+        .grants
+        .into_iter()
+        .filter_map(|v| serde_json::from_value::<RunGrant>(v).ok())
+        .filter(|g| {
+            is_grant_id(&g.id)
+                && crate::machines::ids::is_machine_id(&g.machine)
+                && clean_prefix(&g.prefix).as_deref() == Some(g.prefix.as_str())
+                && !g.project.is_empty()
+        })
+        .take(MAX_GRANTS)
+        .collect()
 }
-
-/// One grant as the Machines page shows it.
-pub fn grant_view(state: &crate::state::AppState, g: &RunGrant) -> Value {
-    json!({
-        "id": g.id,
-        "project": g.project,
-        "projectName": g.project_name,
-        "machine": g.machine,
-        "machineName": crate::machines::peer_name(state, &g.machine),
-        "prefix": g.prefix,
-        "createdAt": g.created_at,
-        "createdBy": g.created_by,
-        "usedAt": g.used_at,
-        "uses": g.uses,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn a_prefix_matches_at_a_word_boundary_only() {
@@ -423,44 +299,39 @@ mod tests {
     }
 
     #[test]
-    fn grants_are_kept_found_by_the_longest_prefix_and_removed() {
+    fn the_old_grants_are_read_entry_by_entry() {
         let dir = tempfile::tempdir().unwrap();
         let m = "0123456789abcdef0123456789abcdef";
-        let other = "fedcba9876543210fedcba9876543210";
-        let g = RunGrants::load(Some(dir.path()));
-        let a = g.add("/Users/me/app", "app", m, "cargo", "Mac").unwrap();
-        let b = g
-            .add("/Users/me/app", "app", m, "cargo  test", "Mac")
-            .unwrap();
-        assert_eq!(
-            g.add("/Users/me/app", "app", m, "cargo test", "Mac")
-                .as_deref(),
-            Some(b.as_str()),
-            "the same grant once"
-        );
-        assert!(g
-            .add("/Users/me/app", "app", m, "cargo; x", "Mac")
-            .is_none());
-        let hit = g.covering("/Users/me/app", m, "cargo test --lib").unwrap();
-        assert_eq!(hit.id, b, "the longest prefix");
-        assert_eq!(hit.uses, 1);
-        assert!(g.covering("/Users/me/app/", m, "cargo build").is_some());
-        assert!(g.covering("/Users/me/other", m, "cargo test").is_none());
-        assert!(g.covering("/Users/me/app", other, "cargo test").is_none());
-        assert!(g.covering("/Users/me/app", m, "cargo test; rm x").is_none());
-        // Kept across a restart; unreadable entries skipped.
-        let again = RunGrants::load(Some(dir.path()));
-        assert_eq!(again.list().len(), 2);
-        let path = dir.path().join("machines").join(FILE);
-        let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        v["grants"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"id": "bad", "prefix": "x"}));
-        std::fs::write(&path, v.to_string()).unwrap();
-        assert_eq!(RunGrants::load(Some(dir.path())).list().len(), 2);
-        assert_eq!(again.remove(&a).map(|g| g.prefix), Some("cargo".into()));
-        assert!(again.remove(&a).is_none());
-        assert_eq!(RunGrants::load(Some(dir.path())).list().len(), 1);
+        std::fs::create_dir_all(dir.path().join("machines")).unwrap();
+        std::fs::write(
+            dir.path().join("machines").join(FILE),
+            json!({
+                "version": 1,
+                "grants": [
+                    {"id": "rg_0123456789ab", "project": "/Users/me/app", "projectName": "app",
+                     "machine": m, "prefix": "cargo test", "createdAt": 1, "createdBy": "Mac",
+                     "uses": 3},
+                    {"id": "bad", "prefix": "x"},
+                    {"id": "rg_0123456789ac", "project": "/Users/me/app", "machine": m,
+                     "prefix": "cargo; rm", "createdAt": 1}
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let l = legacy(dir.path());
+        assert_eq!(l.len(), 1);
+        assert_eq!(l[0].prefix, "cargo test");
+        assert_eq!(l[0].uses, 3);
+        assert!(legacy(&dir.path().join("none")).is_empty());
+    }
+
+    #[test]
+    fn shells_and_interpreters_are_known_by_their_base_name() {
+        assert!(is_shell("bash") && is_shell("/bin/zsh") && is_shell("PowerShell.exe"));
+        assert!(is_shell("sudo") && is_shell("xargs"));
+        assert!(!is_shell("cargo"));
+        assert!(is_interpreter("python3") && is_interpreter("C:\\Python\\python.exe"));
+        assert!(!is_interpreter("cargo"));
     }
 }

@@ -7,8 +7,6 @@
 //! | `GET /api/machines/runs` | Authed | `{runs: [summary…]}`: both ways, newest first (each with its output's last 2 KiB) |
 //! | `GET /api/machines/runs/{id}` | Authed | one run whole: its output's last 64 KiB, the files it made |
 //! | `POST /api/machines/runs/{id}/cancel` | Authed | stops it — there, or here — and answers it |
-//! | `GET /api/machines/run-grants` | Authed | `{grants: […]}`: the standing grants for runs this computer asks for |
-//! | `DELETE /api/machines/run-grants/{id}` | DesktopOnly | revokes one; answers the list |
 //! | `GET /api/machines/tasks` | Authed | `{tasks: [summary…]}`: tasks handed over and taken, newest first |
 //! | `GET /api/machines/tasks/{id}` | Authed | one task whole: the task's text, its summary, its branch |
 //! | `POST /api/machines/tasks/{id}/cancel` | Authed | stops its session — there, or here — and answers it |
@@ -32,16 +30,15 @@
 
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde_json::{json, Value};
 
-use super::{grants, source, target, tasks};
+use super::{source, target, tasks};
 use crate::machines::grants::Grant;
 use crate::machines::{self as m};
-use crate::server::auth::{Authed, DesktopOnly, ManageData};
+use crate::server::auth::{Authed, ManageData};
 use crate::server::context::{ClientContext, Principal};
-use crate::server::devices::audit::AuditEntry;
 use crate::server::error::{ApiError, ApiResult};
 use crate::server::routes::Body;
 use crate::state::AppState;
@@ -52,8 +49,6 @@ pub fn api_router() -> Router<AppState> {
         .route("/machines/runs", get(list))
         .route("/machines/runs/{id}", get(one))
         .route("/machines/runs/{id}/cancel", post(cancel))
-        .route("/machines/run-grants", get(list_grants))
-        .route("/machines/run-grants/{id}", delete(revoke_grant))
         .route("/machines/tasks", get(list_tasks))
         .route("/machines/tasks/{id}", get(one_task).delete(remove_task))
         .route("/machines/tasks/{id}/cancel", post(cancel_task))
@@ -140,54 +135,6 @@ async fn cancel(
     let run = state.machines.work.get(&id).ok_or_else(unknown)?;
     let r = source::cancel_run(&state, &run).await?;
     Ok(Json(r.full()))
-}
-
-fn grants_answer(state: &AppState) -> Value {
-    let list: Vec<Value> = state
-        .machines
-        .work
-        .grants
-        .list()
-        .iter()
-        .map(|g| grants::grant_view(state, g))
-        .collect();
-    json!({ "grants": list })
-}
-
-async fn list_grants(Authed(_): Authed, State(state): State<AppState>) -> Json<Value> {
-    Json(grants_answer(&state))
-}
-
-async fn revoke_grant(
-    DesktopOnly(ctx): DesktopOnly,
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> ApiResult<Json<Value>> {
-    if !grants::is_grant_id(&id) {
-        return Err(ApiError::not_found(
-            "grant_unknown",
-            "No such standing grant.",
-        ));
-    }
-    let g = state
-        .machines
-        .work
-        .grants
-        .remove(&id)
-        .ok_or_else(|| ApiError::not_found("grant_unknown", "No such standing grant."))?;
-    state.devices.audit.record(AuditEntry {
-        device_id: Some(g.machine.clone()),
-        device_name: Some(m::peer_name(&state, &g.machine)),
-        detail: Some(json!({
-            "grant": g.id,
-            "program": super::program_of(&g.prefix),
-            "prefixSha256": super::command_sha256(&g.prefix),
-            "project": g.project_name,
-        })),
-        ..AuditEntry::from_ctx(&ctx, "machine.run.grant.remove")
-    });
-    m::publish(&state, "runGrants");
-    Ok(Json(grants_answer(&state)))
 }
 
 // ─── tasks, on this computer's dashboard ─────────────────────────────────────────

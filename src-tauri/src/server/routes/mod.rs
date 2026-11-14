@@ -18,6 +18,7 @@ pub mod data;
 pub mod disk;
 pub mod foreign;
 pub mod pairing;
+pub mod permissions;
 pub mod push;
 pub mod remote;
 pub mod transfers;
@@ -330,6 +331,15 @@ pub fn api_router() -> Router<AppState> {
         .route(
             "/browser/sessions/{id}/resume",
             post(crate::extension::routes::post_resume),
+        )
+        // ── what Claude may do without asking (pending::rules, docs/PERMISSIONS.md) ──
+        .route(
+            "/permissions",
+            get(permissions::list).patch(permissions::set_paused),
+        )
+        .route(
+            "/permissions/{id}",
+            axum::routing::patch(permissions::update).delete(permissions::remove),
         )
         // ── teams of sessions (orchestration::routes, docs/TEAMS.md) ──
         .merge(crate::orchestration::routes::router())

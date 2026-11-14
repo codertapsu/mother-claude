@@ -971,15 +971,19 @@ async fn permission_request(
     if finished {
         return relay::empty();
     }
-    let Some(hold_for) = hold_policy(state, session).await else {
-        return relay::empty();
-    };
     let cwd = state
         .find_session(session)
         .await
         .map(|s| s.cwd)
         .filter(|c| !c.is_empty());
     let item = build_item(p, agent, tool_use_id.clone(), cwd.as_deref());
+    let hold_for = match hold_policy(state, session).await {
+        Some(hold) => hold,
+        // Nobody would see a card, but a permission answers it at once
+        // (`pending::raise` allows it before it shows one).
+        None if pending::would_be_allowed(state, &item, cwd.as_deref()) => Duration::from_secs(5),
+        None => return relay::empty(),
+    };
     let (guard, rx) = pending::raise(state, item.clone()).await;
     let id = guard.id().to_string();
     // The store's copy (the server may have adjusted it, e.g. classified it

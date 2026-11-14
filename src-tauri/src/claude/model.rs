@@ -733,6 +733,83 @@ pub struct PendingItem {
     pub dangerous_reason: Option<String>,
     pub answerable: bool,
     pub created_at: i64,
+    /// What Mother Claude can remember of an answer to it (`pending::rules`,
+    /// docs/PERMISSIONS.md): absent when nothing can be.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grant: Option<GrantOffer>,
+}
+
+/// What a permission rule allows (`pending::rules`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuleKind {
+    /// A session's tool call: a tool family (`Bash`, `Edit`, `Read`,
+    /// `WebFetch`, …) or one exact tool.
+    #[default]
+    Tool,
+    /// A command a session runs on another computer (`machine_run`).
+    Run,
+    /// A task a session hands to another computer (`machine_task`).
+    Task,
+}
+
+/// What a rule's patterns name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PatternKind {
+    /// The first words of a command (`cargo test` covers `cargo test --lib`).
+    Command,
+    /// Files, as globs relative to the session's folder (`src/**`).
+    Path,
+    /// Sites (`docs.rs`, `*.github.com`).
+    Domain,
+}
+
+/// Where a rule applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuleScope {
+    /// One session.
+    #[default]
+    Session,
+    /// Every session in one project folder.
+    Project,
+    /// Everywhere on the computer (for runs and tasks: the computer they
+    /// run on).
+    Computer,
+}
+
+/// A card's offer to remember its answer (`PendingItem.grant`): what a rule
+/// made from it would name.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GrantOffer {
+    pub kind: RuleKind,
+    /// `kind: tool`: the tool family (`pending::rules::family_of`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    /// What a pattern names here; absent: this kind takes none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patterns: Option<PatternKind>,
+    /// Patterns to start from (`cargo test`, `src/app/**`, `docs.rs`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub suggested: Vec<String>,
+    pub session: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_name: Option<String>,
+    /// The project folder (absent: the session has none).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_name: Option<String>,
+    /// `kind: run | task`: the computer it runs on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine_name: Option<String>,
+    /// Why nothing can be remembered (a dangerous action): only *Allow once*.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<String>,
 }
 
 /// Quick answers offered on a list card (single single-select question with
@@ -847,6 +924,9 @@ pub enum ResolverKind {
     Host,
     /// Nobody answered in time.
     Timeout,
+    /// A permission the user gave (`name`: what it allows,
+    /// `pending::rules`).
+    Permission,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

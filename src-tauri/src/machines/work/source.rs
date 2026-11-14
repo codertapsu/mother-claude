@@ -1,7 +1,7 @@
 //! The computer that asks (docs/PLAN-MACHINES.md Phase 4): a session's
 //! `machine_run` — the calling session's project (its folder's repository
 //! top), the other computer asked where the project is there, an approval
-//! here unless a standing grant covers the command, the code snapshotted
+//! here unless a permission covers the command (`pending::rules`), the code snapshotted
 //! and sent (a bundle of what the other computer lacks, chained on the
 //! work folder's last snapshots), the run started there and followed
 //! (`follow`: its state and output's tail, long-polled, into this
@@ -25,7 +25,9 @@ use super::{
     audit, is_run_id, publish, tail_of, Direction, FetchedArtifact, Run, RunRecord, RunState,
     DEFAULT_TIMEOUT_SECS, MAX_ARTIFACT, MAX_COMMAND, MAX_TIMEOUT_SECS, TAIL, WAIT_SECS,
 };
-use crate::claude::model::{PendingItem, PendingKind, PendingSource, PermissionSuggestion};
+use crate::claude::model::{
+    GrantOffer, PatternKind, PendingItem, PendingKind, PendingSource, RuleKind,
+};
 use crate::machines::chunks::{self, PutError};
 use crate::machines::grants::Grant;
 use crate::machines::store::PeerRecord;
@@ -37,8 +39,6 @@ use crate::state::AppState;
 
 /// How long an approval waits for someone to answer.
 pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
-/// The suggestion's kind on an approval card.
-pub const GRANT_KIND: &str = "machineRunGrant";
 /// A plain request's time.
 const CALL: Duration = Duration::from_secs(30);
 /// How long the other computer may take to take the code in.
@@ -301,9 +301,10 @@ fn clip(s: &str, n: usize) -> String {
     }
 }
 
-/// The approval card (decision 2): the computer, the folder, the command;
-/// *Always allow `<prefix>` on <computer> for this project* when a grant
-/// could cover it (choosing it is a dangerous answer: a standing grant).
+/// The approval card (decision 2): the computer, the folder, the command —
+/// and what a permission could remember of the answer (`pending::rules`:
+/// commands like this one, from this session, this project or any, on
+/// this computer; never a dangerous one).
 #[allow(clippy::too_many_arguments)]
 async fn approve(
     state: &AppState,
@@ -318,22 +319,20 @@ async fn approve(
 ) -> Result<Allowed, ToolError> {
     let name = peer.display_name().to_string();
     let project_name = crate::machines::setup::folders::name_of(&asker.top.display().to_string());
-    let suggestion = if dangerous.is_none() {
-        suggested_prefix(command).map(|prefix| PermissionSuggestion {
-            index: 0,
-            label: format!("Always allow `{prefix}` on {name} for this project"),
-            kind: GRANT_KIND.into(),
-            destination: Some("machines".into()),
-            standing: true,
-            raw: json!({
-                "type": GRANT_KIND,
-                "prefix": prefix,
-                "machine": peer.id,
-                "project": asker.top.display().to_string(),
-            }),
-        })
-    } else {
-        None
+    let grant = GrantOffer {
+        kind: RuleKind::Run,
+        tool: None,
+        patterns: Some(PatternKind::Command),
+        suggested: suggested_prefix(command).into_iter().collect(),
+        session: asker.session.clone(),
+        session_name: asker.title.clone(),
+        project: Some(asker.top.display().to_string()),
+        project_name: Some(project_name.clone()),
+        machine: Some(peer.id.clone()),
+        machine_name: Some(name.clone()),
+        blocked: dangerous
+            .is_some()
+            .then(|| "Dangerous commands always ask: this one can't be remembered.".to_string()),
     };
     let folder_there = if cwd.is_empty() {
         there.checkout.clone()
@@ -366,57 +365,25 @@ async fn approve(
             "project": asker.top.display().to_string(),
             "projectName": project_name,
         })),
-        suggestions: suggestion.iter().cloned().collect(),
         dangerous: dangerous.is_some(),
         dangerous_reason: dangerous.map(|why| format!("The command {why}.")),
+        grant: Some(grant),
         ..Default::default()
     };
     let (guard, rx) = pending::raise(state, item).await;
     let id = guard.id().to_string();
     let end = pending::wait_end(rx, APPROVAL_TIMEOUT).await;
     match end {
-        WaitEnd::Decided(d) if d.is_allow() => {
-            let by = state
+        // A permission the answer saved (`remember`) covers the next ones:
+        // `pending::respond` made it.
+        WaitEnd::Decided(d) if d.is_allow() => Ok(Allowed {
+            by: state
                 .pending
                 .resolution(&id)
                 .and_then(|r| r.by)
-                .and_then(|b| b.name);
-            let mut allowed = Allowed {
-                by: by.clone(),
-                grant: None,
-            };
-            if let (Some(_), Some(s)) = (d.suggestion, &suggestion) {
-                let prefix = s.raw["prefix"].as_str().unwrap_or_default();
-                let by = by.unwrap_or_else(|| crate::claude::paths::machine_noun().into());
-                if let Some(g) = state.machines.work.grants.add(
-                    &asker.top.display().to_string(),
-                    &project_name,
-                    &peer.id,
-                    prefix,
-                    &by,
-                ) {
-                    state
-                        .devices
-                        .audit
-                        .record(crate::server::devices::audit::AuditEntry {
-                            action: "machine.run.grant.add".into(),
-                            device_id: Some(peer.id.clone()),
-                            device_name: Some(name.clone()),
-                            detail: Some(json!({
-                                "grant": g,
-                                "program": super::program_of(prefix),
-                                "prefixSha256": super::command_sha256(prefix),
-                                "project": project_name,
-                                "by": by,
-                            })),
-                            ..crate::server::devices::audit::AuditEntry::now()
-                        });
-                    m::publish(state, "runGrants");
-                    allowed.grant = Some(g);
-                }
-            }
-            Ok(allowed)
-        }
+                .and_then(|b| b.name),
+            grant: None,
+        }),
         WaitEnd::Decided(d) => {
             let note = d
                 .message
@@ -539,18 +506,25 @@ pub async fn run(state: &AppState, caller: &Caller, ask: Ask) -> Result<String, 
             .map(|why| format!("{why} (on {})", peer.display_name()))
     });
     let covered = if dangerous.is_none() {
-        state
-            .machines
-            .work
-            .grants
-            .covering(&project, &peer.id, &command)
+        state.rules.covering(&crate::pending::rules::Ask {
+            kind: RuleKind::Run,
+            tool: None,
+            session: &asker.session,
+            folder: Some(&project),
+            project: Some(&project),
+            machine: Some(&peer.id),
+            subject: Some(&command),
+        })
     } else {
         None
     };
     let allowed = match &covered {
-        Some(g) => Allowed {
-            by: Some(g.created_by.clone()),
-            grant: Some(g.id.clone()),
+        Some(rule) => Allowed {
+            by: Some(format!(
+                "your permission ({})",
+                crate::pending::rules::describe(rule)
+            )),
+            grant: Some(rule.id.clone()),
         },
         None => {
             approve(

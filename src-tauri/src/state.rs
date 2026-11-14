@@ -103,6 +103,9 @@ pub struct Inner {
     pub registry: RwLock<Vec<Session>>,
     /// Pending human decisions. Foundation (`pending.rs`).
     pub pending: PendingStore,
+    /// What Claude may do without asking (`pending::rules`,
+    /// docs/PERMISSIONS.md).
+    pub rules: crate::pending::rules::Rules,
     /// Connected WebSocket clients. Foundation (`server/ws.rs`).
     pub hub: Hub,
     /// Per-device foreground state from `visible` frames. Foundation; read by
@@ -228,6 +231,7 @@ impl Inner {
             snapshot: RwLock::new(Snapshot::default()),
             registry: RwLock::new(Vec::new()),
             pending: PendingStore::new(),
+            rules: crate::pending::rules::Rules::load(data_dir),
             hub: Hub::new(),
             presence: Presence::new(),
             bridge: BridgeState::load(bridge, data_dir),

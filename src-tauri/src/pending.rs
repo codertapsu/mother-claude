@@ -30,6 +30,7 @@
 //! tracking: B3. Channels (B3 owned, B4 hooks) only call the API.
 
 mod danger;
+pub mod rules;
 
 pub use danger::{sensitive_command, sensitive_path, DangerEnv};
 
@@ -102,6 +103,20 @@ pub struct Decision {
     /// decline).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<Value>,
+    /// Allow, and remember it as a permission (`rules`): what the item's
+    /// `grant` offers, for this scope, narrowed by these patterns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remember: Option<Remember>,
+}
+
+/// An answer's `remember`: the scope and the patterns of the permission it
+/// saves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Remember {
+    pub scope: crate::claude::model::RuleScope,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub patterns: Vec<String>,
 }
 
 impl Decision {
@@ -162,6 +177,8 @@ struct RespondWire {
     interrupt: bool,
     #[serde(default)]
     content: Option<Value>,
+    #[serde(default)]
+    remember: Option<Remember>,
 }
 
 impl From<RespondWire> for RespondBody {
@@ -176,6 +193,7 @@ impl From<RespondWire> for RespondBody {
                 mode: w.mode,
                 interrupt: w.interrupt,
                 content: w.content,
+                remember: w.remember,
             },
         }
     }
@@ -194,6 +212,9 @@ pub enum RespondError {
     Forbidden(String),
     /// The body does not fit the item (bad suggestion index, unknown mode).
     Invalid(String),
+    /// Its `remember` cannot be saved (a pattern, the scope, a dangerous
+    /// item).
+    Unrememberable(String),
 }
 
 impl RespondError {
@@ -213,6 +234,7 @@ impl RespondError {
             ),
             RespondError::Forbidden(msg) => ApiError::dangerous_blocked(msg),
             RespondError::Invalid(msg) => ApiError::unprocessable("invalid_response", msg),
+            RespondError::Unrememberable(msg) => ApiError::unprocessable("invalid_pattern", msg),
         }
         .with("requestId", request_id)
     }
@@ -346,9 +368,10 @@ impl PendingStore {
         if dangerous && !ctx.may_dangerous() {
             return Err((
                 RespondError::Forbidden(
-                    "Approving a dangerous action — bypassPermissions, or an \"always allow\" \
-                     that is written to settings or widens the filesystem — is restricted to \
-                     this computer or a device you granted dangerous actions."
+                    "Approving a dangerous action — bypassPermissions, a permission saved for a \
+                     project or the whole computer, or an \"always allow\" that is written to \
+                     settings or widens the filesystem — is restricted to this computer or a \
+                     device you granted dangerous actions."
                         .into(),
                 ),
                 None,
@@ -378,6 +401,30 @@ impl PendingStore {
         }
         g.resolutions.insert(id.to_string(), resolution);
         Ok(slot.item)
+    }
+
+    /// Allow an item a permission covers (`what`: the rule in words), as if
+    /// someone had: removed, the decision delivered, the resolution saying
+    /// which permission. Whether it was pending.
+    pub fn resolve_by_rule(&self, id: &str, what: &str) -> bool {
+        let mut g = self.lock();
+        let Some(mut slot) = g.slots.remove(id) else {
+            return false;
+        };
+        g.finish(id);
+        let mut r = resolved(
+            &slot.item,
+            PendingOutcome::Allowed,
+            Some(ResolverKind::Permission),
+            Some(what.to_string()),
+            None,
+        );
+        r.text = Some(format!("Allowed by your permission · {what}"));
+        g.resolutions.insert(id.to_string(), r);
+        if let Some(tx) = slot.tx.take() {
+            let _ = tx.send(Decision::allow());
+        }
+        true
     }
 
     /// Remove an item that no longer needs an answer. Its raiser's receiver
@@ -531,6 +578,21 @@ fn validate(item: &PendingItem, d: &Decision) -> Result<(), RespondError> {
             return Err(RespondError::Invalid("`content` must be an object.".into()));
         }
     }
+    if let Some(rem) = &d.remember {
+        if !d.is_allow() {
+            return Err(RespondError::Invalid("`remember` goes with allow.".into()));
+        }
+        let offer = item.grant.as_ref().ok_or_else(|| {
+            RespondError::Unrememberable("Nothing can be remembered for this request.".into())
+        })?;
+        if item.dangerous {
+            return Err(RespondError::Unrememberable(
+                "Dangerous actions always ask: this one can't be remembered.".into(),
+            ));
+        }
+        rules::rule_from_offer(offer, rem.scope, &rem.patterns, "")
+            .map_err(|e| RespondError::Unrememberable(e.to_string()))?;
+    }
     Ok(())
 }
 
@@ -647,6 +709,15 @@ fn resolution_for_decision(
                 t.push_str(&s.label);
             }
         }
+        if let Some(rule) = d.remember.as_ref().and_then(|rem| {
+            let offer = item.grant.as_ref()?;
+            rules::rule_from_offer(offer, rem.scope, &rem.patterns, "").ok()
+        }) {
+            if let Some(t) = r.text.as_mut() {
+                t.push_str(" · from now on: ");
+                t.push_str(&rules::describe(&rule));
+            }
+        }
         if let Some(mode) = &d.mode {
             if let Some(t) = r.text.as_mut() {
                 t.push_str(&format!(" · switched to {mode}"));
@@ -665,6 +736,14 @@ pub fn is_dangerous(item: &PendingItem, d: &Decision) -> bool {
     if d.mode
         .as_deref()
         .is_some_and(|m| UNGATED_MODES.contains(&m))
+    {
+        return true;
+    }
+    // A permission for a project or the computer outlives the session: a
+    // standing grant. One for the session is not.
+    if d.remember
+        .as_ref()
+        .is_some_and(|r| r.scope != crate::claude::model::RuleScope::Session)
     {
         return true;
     }
@@ -1048,14 +1127,41 @@ pub async fn raise(
 ) -> (PendingGuard, oneshot::Receiver<Decision>) {
     let session_id = item.session_id.clone();
     // Classify against the session's cwd (relative paths, symlinks).
-    let cwd = match state.find_session(&session_id).await {
-        Some(s) if !s.cwd.is_empty() => Some(s.cwd),
+    let summary = state.find_session(&session_id).await;
+    let cwd = match &summary {
+        Some(s) if !s.cwd.is_empty() => Some(s.cwd.clone()),
         _ => state.control.cwd_of(&session_id),
     };
     if let Some(why) = classify_dangerous(&item, cwd.as_deref()) {
         item.dangerous = true;
         item.dangerous_reason.get_or_insert(why);
     }
+    // As the store classifies it, before a permission reads it: a
+    // permission never covers a dangerous item.
+    if !item.dangerous || item.dangerous_reason.is_none() {
+        if let Some(why) = classify_dangerous(&item, None) {
+            item.dangerous = true;
+            item.dangerous_reason.get_or_insert(why);
+        }
+    }
+    // What a permission could remember of the answer (runs and tasks bring
+    // their own offer).
+    if item.grant.is_none() {
+        let name = summary.as_ref().map(|s| {
+            s.title
+                .clone()
+                .filter(|t| !t.trim().is_empty())
+                .unwrap_or_else(|| s.name.clone())
+        });
+        item.grant = rules::tool_offer(&item, cwd.as_deref(), name).map(|mut offer| {
+            // The computer it would apply on, named for a card shown on
+            // another one (a session seen through Machines).
+            offer.machine_name = Some(crate::machines::this_name(state));
+            offer
+        });
+    }
+    // A permission the user gave covers it: allowed at once, no card.
+    let covered = covering(state, &item, cwd.as_deref());
     let (id, rx) = state.pending.register(item);
     // The guard exists before the first await: if the raiser's future is
     // dropped while publishing (client gone), the item is withdrawn instead
@@ -1066,11 +1172,49 @@ pub async fn raise(
         session_id: session_id.clone(),
         reason: "request ended",
     };
+    if let Some(rule) = covered {
+        if state.pending.resolve_by_rule(&id, &rules::describe(&rule)) {
+            publish_resolution(state, &id);
+            return (guard, rx);
+        }
+    }
     changed(state, &session_id).await;
     if let Some(item) = state.pending.get(&id) {
         crate::server::push::on_pending_added(state, &item);
     }
     (guard, rx)
+}
+
+/// What a session's tool call asks, as permissions read it: `None` for a
+/// dangerous item or one no permission answers (runs and tasks check their
+/// own before they ask).
+fn tool_ask_parts(
+    item: &PendingItem,
+    cwd: Option<&str>,
+) -> Option<(Option<String>, Option<String>)> {
+    if item.dangerous || item.kind != PendingKind::Permission {
+        return None;
+    }
+    let tool = item.tool_name.as_deref()?;
+    let subject = item.input.as_ref().and_then(|i| rules::subject_of(tool, i));
+    Some((cwd.map(rules::project_of), subject))
+}
+
+/// The permission that allows `item` at once (counted as used), if any.
+fn covering(state: &AppState, item: &PendingItem, cwd: Option<&str>) -> Option<rules::Rule> {
+    let (project, subject) = tool_ask_parts(item, cwd)?;
+    let ask = rules::ask_of(item, cwd, project.as_deref(), subject.as_deref())?;
+    state.rules.covering(&ask)
+}
+
+/// Whether a permission would allow `item` at once (nothing counted): a
+/// channel that would not hold a request nobody can see asks this first.
+pub fn would_be_allowed(state: &AppState, item: &PendingItem, cwd: Option<&str>) -> bool {
+    let Some((project, subject)) = tool_ask_parts(item, cwd) else {
+        return false;
+    };
+    rules::ask_of(item, cwd, project.as_deref(), subject.as_deref())
+        .is_some_and(|ask| state.rules.would_cover(&ask))
 }
 
 /// How waiting for a decision ended.
@@ -1164,11 +1308,108 @@ pub async fn respond(
     if name.is_some() {
         state
             .pending
-            .set_resolution(resolution_for_decision(&item, &decision, ctx, name));
+            .set_resolution(resolution_for_decision(&item, &decision, ctx, name.clone()));
+    }
+    // A remembered answer: the permission it saves (checked by `validate`,
+    // and the dangerous right for a project or the computer by `resolve`).
+    if let (Some(rem), Some(offer)) = (&decision.remember, &item.grant) {
+        let by = name.unwrap_or_else(|| match &ctx.principal {
+            Principal::Device { .. } => "a paired device".to_string(),
+            _ => crate::claude::paths::machine_noun().to_string(),
+        });
+        match rules::rule_from_offer(offer, rem.scope, &rem.patterns, &by) {
+            Ok(rule) => {
+                let rule = state.rules.add(rule);
+                state
+                    .devices
+                    .audit
+                    .record(crate::server::devices::audit::AuditEntry {
+                        detail: Some(rules::audit_detail(&rule)),
+                        ..crate::server::devices::audit::AuditEntry::from_ctx(ctx, "permission.add")
+                    });
+                state.broadcast(crate::server::ws::ServerEvent::Permissions);
+                settle_covered(state, &rule).await;
+            }
+            Err(e) => tracing::warn!(error = %e, "a remembered answer could not be saved"),
+        }
     }
     publish_resolution(state, request_id);
     changed(state, session_id).await;
     Ok(item)
+}
+
+/// What a run's or a task's card asks, as permissions read it: its kind,
+/// computer, project and command (from the card's input).
+fn machine_ask_parts(
+    item: &PendingItem,
+) -> Option<(
+    crate::claude::model::RuleKind,
+    String,
+    String,
+    Option<String>,
+)> {
+    use crate::claude::model::RuleKind;
+    let input = item.input.as_ref()?;
+    let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_string);
+    let kind = match item.tool_name.as_deref()? {
+        "machine_run" => RuleKind::Run,
+        "machine_task" => RuleKind::Task,
+        _ => return None,
+    };
+    let subject = (kind == RuleKind::Run).then(|| s("command")).flatten();
+    Some((kind, s("machine")?, s("project")?, subject))
+}
+
+/// Allows every request still waiting that a newly saved permission
+/// covers — the others like the one it was saved from — as `raise` would
+/// have, and publishes them.
+async fn settle_covered(state: &AppState, rule: &rules::Rule) {
+    let what = rules::describe(rule);
+    let mut sessions: Vec<String> = Vec::new();
+    for item in state.pending.all() {
+        if item.dangerous || item.kind != PendingKind::Permission || !item.answerable {
+            continue;
+        }
+        let covered = if item.source == PendingSource::Machine {
+            machine_ask_parts(&item).is_some_and(|(kind, machine, project, subject)| {
+                rules::applies(
+                    rule,
+                    &rules::Ask {
+                        kind,
+                        tool: None,
+                        session: &item.session_id,
+                        folder: Some(&project),
+                        project: Some(&project),
+                        machine: Some(&machine),
+                        subject: subject.as_deref(),
+                    },
+                )
+            })
+        } else {
+            let cwd = match state.find_session(&item.session_id).await {
+                Some(s) if !s.cwd.is_empty() => Some(s.cwd),
+                _ => state.control.cwd_of(&item.session_id),
+            };
+            tool_ask_parts(&item, cwd.as_deref()).is_some_and(|(project, subject)| {
+                rules::ask_of(
+                    &item,
+                    cwd.as_deref(),
+                    project.as_deref(),
+                    subject.as_deref(),
+                )
+                .is_some_and(|ask| rules::applies(rule, &ask))
+            })
+        };
+        if covered && state.pending.resolve_by_rule(&item.id, &what) {
+            publish_resolution(state, &item.id);
+            if !sessions.contains(&item.session_id) {
+                sessions.push(item.session_id.clone());
+            }
+        }
+    }
+    for s in sessions {
+        changed(state, &s).await;
+    }
 }
 
 /// Re-publish one session's pending list (snapshot + WebSocket diff).
