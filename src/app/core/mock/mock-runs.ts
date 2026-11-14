@@ -414,9 +414,9 @@ export class MockRuns {
 
 /**
  * `?mockmachines=1`: "Build and notarize v0.5.1" asks to run a command on
- * DESKTOP-PC and to hand it a task — the approval cards of Phase 4, with
- * *Always allow `npm run` on DESKTOP-PC for this project* on the run's —
- * and the run it has going there is one of its background tasks.
+ * DESKTOP-PC and to hand it a task — the approval cards of Phase 4, each
+ * with *Allow for…* (the run's suggests `npm run`) — and the run it has
+ * going there is one of its background tasks.
  */
 export function addMachineRequests(fx: Fixtures, now: number): void {
   const s = fx.sessions.find((x) => x.id === 's-build');
@@ -428,6 +428,15 @@ export function addMachineRequests(fx: Fixtures, now: number): void {
     checkout: CHECKOUT,
     project: PROJECT,
     projectName: 'mother-claude',
+  };
+  /** What Mother Claude can remember of the answers (*Allow for…*). */
+  const offer = {
+    session: s.id,
+    sessionName: s.name,
+    project: PROJECT,
+    projectName: 'mother-claude',
+    machine: MOCK_DESKTOP,
+    machineName: 'DESKTOP-PC',
   };
   const items: PendingItem[] = [
     {
@@ -449,24 +458,11 @@ export function addMachineRequests(fx: Fixtures, now: number): void {
         timeoutSecs: 3600,
         artifacts: 'src-tauri/target/release/bundle/msi/*.msi',
       },
-      suggestions: [
-        {
-          index: 0,
-          label: 'Always allow `npm run` on DESKTOP-PC for this project',
-          kind: 'machineRunGrant',
-          destination: 'machines',
-          standing: true,
-          raw: {
-            type: 'machineRunGrant',
-            prefix: 'npm run',
-            machine: MOCK_DESKTOP,
-            project: PROJECT,
-          },
-        },
-      ],
+      suggestions: [],
       dangerous: false,
       answerable: true,
       createdAt: now - 40 * S,
+      grant: { kind: 'run', patterns: 'command', suggested: ['npm run'], ...offer },
     },
     {
       id: 'req-machine-task',
@@ -492,6 +488,7 @@ export function addMachineRequests(fx: Fixtures, now: number): void {
       dangerous: false,
       answerable: true,
       createdAt: now - 20 * S,
+      grant: { kind: 'task', ...offer },
     },
   ];
   fx.pendingItems.push(...items);

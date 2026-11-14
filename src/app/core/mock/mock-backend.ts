@@ -44,6 +44,7 @@ import { MockBrowser } from './mock-browser';
 import { MockData } from './mock-data';
 import { MockDelete } from './mock-delete';
 import { MockMcp } from './mock-mcp';
+import { MockPermissions } from './mock-permissions';
 import { MockSwitch } from './mock-switch';
 import { MockMachines } from './mock-machines';
 import { MOCK_MACHINES, MockMoves } from './mock-moves';
@@ -53,6 +54,7 @@ import { MockMove } from './mock-move';
 import { mockFolder, mockFoldersLike, mockHostOs } from './mock-os';
 import { MOCK_SERVERS, MockServers } from './mock-servers';
 import { isAbsoluteAnywhere, machineNoun, trimSeparators } from '../paths';
+import type { PermissionRule } from '../permission-rules';
 import { urlParam } from '../platform';
 import { SessionFilters, sessionPasses } from '../../shared/session-search';
 
@@ -148,6 +150,8 @@ class FixtureBackend implements MockBackend {
   /** Runs, tasks and team roles on the other computers (`?mockmachines=1`:
    * `/machines/{runs,tasks,roles,run-grants}*`). */
   private readonly computerRuns: MockRuns | null;
+  /** What Claude may do without asking (`/permissions*`, `remember`). */
+  private readonly permissions: MockPermissions;
 
   constructor(readonly role: MockRole) {
     const now = Date.now();
@@ -264,6 +268,14 @@ class FixtureBackend implements MockBackend {
       };
     }
     this.capacity = new MockCapacity({ desktop: role === 'desktop' });
+    this.permissions = new MockPermissions(
+      {
+        desktop: role === 'desktop',
+        who: role === 'desktop' ? 'Mac' : "Marcus's iPhone",
+        broadcast: (frame) => this.broadcast(frame),
+      },
+      { now, machines: MOCK_MACHINES },
+    );
     this.browser = new MockBrowser({
       desktop: role === 'desktop',
       pendingItems: () => this.fx.pendingItems,
@@ -367,6 +379,9 @@ class FixtureBackend implements MockBackend {
     if (computerRuns) return computerRuns;
     const machines = this.machines.route(path, method, body);
     if (machines) return machines;
+    // What Claude may do without asking
+    const permissions = this.permissions.route(path, method, body);
+    if (permissions) return permissions;
 
     // Sessions
     if (path === '/sessions' && method === 'GET') {
@@ -1354,6 +1369,20 @@ class FixtureBackend implements MockBackend {
         403,
       );
     }
+    // Allow, and keep the answer as a permission (or say why not, before
+    // anything is answered).
+    let remembered: PermissionRule | null = null;
+    if (body.remember !== undefined && body.remember !== null) {
+      if (body.decision !== 'allow') {
+        return json(
+          { error: { code: 'invalid_request', message: 'Only an allow is remembered.' } },
+          400,
+        );
+      }
+      const r = this.permissions.remember(item, body.remember);
+      if (r instanceof Response) return r;
+      remembered = r;
+    }
     const now = Date.now();
     this.dropPending(item);
     if (body.mode) this.patch(s.id, { permissionMode: body.mode });
@@ -1372,17 +1401,90 @@ class FixtureBackend implements MockBackend {
       body.suggestion !== undefined
         ? item.suggestions.find((x) => x.index === body.suggestion)
         : null;
+    const kept = remembered
+      ? ` · remembered: ${this.permissions.describe(remembered)}`
+      : suggestion
+        ? ` · ${suggestion.label}`
+        : '';
     this.append(s.id, [
       ev(`resp-${now}:0`, now, 'system', 'decision', {
         text:
           outcome === 'answered'
             ? `Answered by ${who}: ${Object.values(body.answers ?? {}).join(' · ')}`
             : outcome === 'allowed'
-              ? `Allowed by ${who}${suggestion ? ` · ${suggestion.label}` : ''}`
+              ? `Allowed by ${who}${kept}`
               : `Denied by ${who}${body.message ? `: ${body.message}` : ''}`,
       }),
     ]);
+    if (remembered) this.settleCovered();
     return empty();
+  }
+
+  /** Every request a permission now allows goes without asking: the
+   * server never shows it a card, and settles one already waiting. */
+  private settleCovered(): void {
+    for (const item of [...this.fx.pendingItems]) {
+      const rule = this.permissions.covering(item);
+      if (rule) this.allowByPermission(item, rule);
+    }
+  }
+
+  /** A permission allowed `item`: its `pendingResolved` and timeline row
+   * say so ("Allowed by your permission · …"). */
+  private allowByPermission(item: PendingItem, rule: PermissionRule): void {
+    const now = Date.now();
+    const name = this.permissions.describe(rule);
+    this.permissions.use(rule);
+    if (this.fx.pendingItems.includes(item)) this.dropPending(item);
+    this.broadcast({
+      t: 'pendingResolved',
+      id: item.id,
+      session: item.sessionId,
+      outcome: 'allowed',
+      by: { kind: 'permission', name },
+      at: now,
+      text: `Allowed by your permission · ${name}`,
+    });
+    this.append(item.sessionId, [
+      ev(`perm-${item.id}:0`, now, 'system', 'decision', {
+        text: `Allowed by your permission · ${name}`,
+      }),
+    ]);
+  }
+
+  /** Dev hook: `sessionId` asks to run `command` in Bash. A permission
+   * that covers it allows it without a card, as the server does; else
+   * its card waits (e.g. `__mcMock.ask('s-auth', 'npm test -- --watch')`). */
+  ask(sessionId = 's-auth', command = 'npm test -- --watch=false'): void {
+    const s = this.find(sessionId);
+    if (!s) return;
+    const now = Date.now();
+    const item: PendingItem = {
+      id: `req-ask-${now}`,
+      sessionId: s.id,
+      kind: 'permission',
+      source: s.owned ? 'owned' : 'hook',
+      toolName: 'Bash',
+      title: 'Allow Bash?',
+      detail: command,
+      input: { command },
+      suggestions: [],
+      dangerous: false,
+      answerable: true,
+      createdAt: now,
+      grant: {
+        kind: 'tool',
+        tool: 'Bash',
+        patterns: 'command',
+        suggested: [command.split(/\s+/).slice(0, 2).join(' ')],
+        session: s.id,
+        ...(s.name ? { sessionName: s.name } : {}),
+        ...(s.cwd ? { project: s.cwd, projectName: s.projectName ?? s.cwd } : {}),
+      },
+    };
+    const rule = this.permissions.covering(item);
+    if (rule) this.allowByPermission(item, rule);
+    else this.addPending(item);
   }
 
   /** A waiting message Claude takes in (its next step, or Send now): off

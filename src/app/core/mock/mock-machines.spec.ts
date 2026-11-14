@@ -121,7 +121,22 @@ describe('the Machines mock (`?mock=1&mockmachines=1`)', () => {
     expect(asks.map((p) => p.toolName)).toEqual(['machine_run', 'machine_task']);
     const s = fx.sessions.find((x) => x.id === 's-build')!;
     expect(s.pending?.map((p) => p.id)).toEqual(['req-machine-run', 'req-machine-task']);
-    expect(asks[0].suggestions[0].kind).toBe('machineRunGrant');
+    // Each offers to remember the answer (*Allow for…*): the run with the
+    // first words of its command, the task without patterns.
+    expect(asks[0].suggestions).toEqual([]);
+    expect(asks[0].grant).toEqual(
+      expect.objectContaining({
+        kind: 'run',
+        patterns: 'command',
+        suggested: ['npm run'],
+        session: 's-build',
+        projectName: 'mother-claude',
+        machine: MOCK_DESKTOP,
+        machineName: 'DESKTOP-PC',
+      }),
+    );
+    expect(asks[1].grant?.kind).toBe('task');
+    expect(asks[1].grant?.patterns).toBeUndefined();
     expect(fx.tasks['s-build'].some((t) => t.kind === 'machine')).toBe(true);
   });
 
