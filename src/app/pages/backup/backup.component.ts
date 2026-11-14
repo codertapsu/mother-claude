@@ -39,9 +39,9 @@ import { DataJobComponent } from '../../shared/data-job.component';
 import { DesktopOnlyComponent } from '../../shared/desktop-only.component';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { IconComponent } from '../../shared/icon.component';
+import { PageHeadComponent } from '../../shared/page-head.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import { relativeTime, shortPath } from '../../shared/util';
-import { AccountsHeadComponent } from '../accounts/accounts-head.component';
 import { BackupBrowserComponent, BrowserBring, BrowserTarget } from './backup-browser.component';
 import { FolderPairsComponent } from './folder-pairs.component';
 import { ForceBackupSheetComponent } from './force-backup-sheet.component';
@@ -71,7 +71,8 @@ interface SetRow {
 }
 
 /**
- * Accounts › Backups (docs/BACKUP.md, docs/ACCOUNTS.md §6.6): an
+ * Backups (docs/BACKUP.md, docs/ACCOUNTS.md §6.6), a place of its own
+ * (docs/UI-REDESIGN.md §11, 2026-11-14; Accounts' tab before): an
  * encrypted backup of each Claude account's data in a folder of your
  * choosing — the same folder carries conversations to another laptop. The
  * folder (with iCloud Drive and Google Drive suggested when the Mac has
@@ -95,7 +96,6 @@ interface SetRow {
   selector: 'mc-backup',
   imports: [
     FormsModule,
-    AccountsHeadComponent,
     RouterLink,
     BackupBrowserComponent,
     CopyButtonComponent,
@@ -106,6 +106,7 @@ interface SetRow {
     ForceBackupSheetComponent,
     IconComponent,
     JobDetailsComponent,
+    PageHeadComponent,
     PassphraseSheetComponent,
     PullSheetComponent,
     RestoreSheetComponent,

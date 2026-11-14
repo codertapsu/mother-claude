@@ -18,10 +18,12 @@ import { IconComponent } from '../../shared/icon.component';
 import { PageHeadComponent } from '../../shared/page-head.component';
 
 /**
- * The phone's "More" tab: what you look after — Computers, Accounts,
- * Settings — and Help, from the map (core/nav.ts), each with one line of
- * how it stands: which computers are online and what needs fixing, how
- * much of each account's plan is used, the notifications and the theme.
+ * The phone's "More" tab: what you look after — Computers, Phone &
+ * devices, Sessions started elsewhere (the desktop's), Browser, HTTP API,
+ * Accounts, Backups, Settings — and Help, from the map (core/nav.ts), each
+ * with one line: how it stands where this device already knows it (which
+ * computers are online and what needs fixing, how much of each account's
+ * plan is used, the notifications and the theme), else what it is for.
  * Only what this device already knows (and Machines' summary) is read.
  */
 @Component({
@@ -186,8 +188,21 @@ export class MoreComponent {
     switch (id) {
       case 'computers':
         return this.computersLine();
+      case 'devices':
+        // A phone reads itself and the devices paired; the desktop pairs.
+        return this.auth.isDesktop()
+          ? tr('Pair a phone, internet access, the paired devices')
+          : tr('This device and the others paired');
+      case 'elsewhere':
+        return tr('Answer VS Code and terminal sessions from here');
+      case 'browser':
+        return tr('Sessions in your browser: site modes, approvals');
+      case 'http-api':
+        return tr('Drive Claude from scripts and tools');
       case 'accounts':
         return this.accountsLine();
+      case 'backups':
+        return tr('Back up, restore and carry conversations to another computer');
       case 'settings':
         return this.settingsLine();
       case 'help':

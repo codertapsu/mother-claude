@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
 import { JumpService } from '../../core/jump';
-import { FakeBackend, flush, useFakeServer } from '../../core/mock/fake-server.testing';
+import { FakeBackend, asDesktop, flush, useFakeServer } from '../../core/mock/fake-server.testing';
 import { setActiveMock } from '../../core/mock/mock-api';
 import {
   PEER_ID,
@@ -199,6 +199,42 @@ describe('JumpToComponent: Jump to… (docs/UI-REDESIGN.md §9, stage 11)', () =
     expect(options()[0]).toEqual(expect.objectContaining({ kind: 'Help topic' }));
     await press('Enter');
     expect(url()).toBe('/help/good-to-know');
+  });
+
+  it('opens the places that were Settings’ connections, and Backups, by their old names too', async () => {
+    asDesktop();
+    const el = await open();
+    /** The page of that title among the results: [its place, the row]. */
+    const pageRow = (title: string) =>
+      [...el.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (o) =>
+          o.querySelector('.title')?.textContent?.trim() === title &&
+          o.querySelector('.kind')?.textContent?.trim() === 'Page',
+      );
+    for (const [query, title, within, path] of [
+      ['remote', 'Phone & devices', '', '/devices'],
+      ['hooks plugin', 'Sessions started elsewhere', '', '/elsewhere'],
+      ['chrome extension', 'Browser', '', '/browser'],
+      ['bridge', 'HTTP API', '', '/http-api'],
+      ['backup restore', 'Backups', '', '/backups'],
+      ['mcp', 'Claude Code tools', 'Settings', '/settings/tools'],
+    ]) {
+      TestBed.inject(JumpService).open();
+      await settle();
+      await type(query);
+      const row = pageRow(title);
+      expect(row, query).toBeDefined();
+      // A place of its own; Claude Code tools stays a page of Settings.
+      expect(row?.querySelector('.detail')?.textContent?.trim() ?? '', query).toBe(within);
+      row!.click();
+      await settle();
+      expect(url(), query).toBe(path);
+    }
+    // Settings no longer has a Connections section to jump to.
+    TestBed.inject(JumpService).open();
+    await settle();
+    await type('connections');
+    expect(options().filter((o) => o.kind === 'Setting')).toEqual([]);
   });
 
   it('says when nothing matches, and closes with Esc', async () => {

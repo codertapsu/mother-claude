@@ -24,7 +24,7 @@ import { UpdaterService } from '../../core/updater.service';
 import { IconComponent } from '../../shared/icon.component';
 import { PageHeadComponent } from '../../shared/page-head.component';
 import { UpdaterComponent } from '../../shared/updater.component';
-import { ConnectionsComponent } from './connections.component';
+import { SettingsPagesComponent } from './settings-pages.component';
 import { StartupSettingComponent } from './startup-setting.component';
 
 type PrefKey =
@@ -62,16 +62,17 @@ const INGRESS: Record<string, string> = {
   'bridge-loopback': 'This computer (API port)',
 };
 
-/** What is set once: notifications, theme, the *Connections* (what else
- * works with Mother Claude, each with its state and page), connection
- * details and about. How often plan usage is read is Accounts › Usage's. */
+/** What is set once: notifications, theme, Claude Code tools (a row with
+ * its state, opening its page), connection details and about. How often
+ * plan usage is read is Accounts › Usage's; what else works with Mother
+ * Claude (Phone & devices, Browser…) has places of its own. */
 @Component({
   selector: 'mc-settings',
   imports: [
     RouterLink,
-    ConnectionsComponent,
     IconComponent,
     PageHeadComponent,
+    SettingsPagesComponent,
     StartupSettingComponent,
     TPipe,
     UpdaterComponent,

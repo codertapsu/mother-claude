@@ -133,6 +133,19 @@ describe('BackupComponent', () => {
   const button = (el: HTMLElement, label: string) =>
     [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => text(b).startsWith(label));
 
+  it('is a place of its own: its name and what it is for, without the Accounts tabs', async () => {
+    asDesktop();
+    const el = await render();
+    expect(text(el.querySelector('mc-page-head h1'))).toBe('Backups');
+    expect(text(el.querySelector('mc-page-head .lede'))).toContain(
+      "Encrypted backups of each Claude account's data, in a folder you choose.",
+    );
+    expect(el.querySelector('mc-page-head a.how')?.getAttribute('href')).toBe('/help/backup');
+    expect(el.querySelector('mc-hub-tabs, mc-accounts-head')).toBeNull();
+    // The flow beside the head: this computer, the backups, the others.
+    expect(el.querySelector('.hero .flow-art')).not.toBeNull();
+  });
+
   // ───────────────────────────── Lanes: drag and drop
 
   const lane = (el: HTMLElement, name: string) =>

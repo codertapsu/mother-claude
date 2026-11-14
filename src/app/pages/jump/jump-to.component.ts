@@ -22,7 +22,7 @@ import { JumpItem, JumpKind, JumpService, rankJump, sessionKey } from '../../cor
 import { osLabel } from '../../core/machines';
 import { MachinesService } from '../../core/machines.service';
 import { SessionSummary } from '../../core/models';
-import { HELP_ENTRY, PAGE_TITLES, connections, sidebarPlaces } from '../../core/nav';
+import { HELP_ENTRY, PAGE_TITLES, SETTINGS_PAGES, sidebarPlaces } from '../../core/nav';
 import { tildePath } from '../../core/paths';
 import { PermissionsService } from '../../core/permissions.service';
 import { ProjectSettingsService, projectRef } from '../../core/project-settings';
@@ -45,13 +45,13 @@ const PAGE_WORDS: Readonly<Record<string, string>> = {
   '/computers/sync': 'machines sync',
   '/computers/activity': 'machines moves runs tasks',
   '/computers/options': 'machines folders roots',
+  '/devices': 'remote pair phone internet tunnel',
+  '/elsewhere': 'plugin hooks foreign vs code terminal',
+  '/browser': 'extension chrome',
+  '/http-api': 'bridge',
   '/accounts/usage': 'plan limits',
-  '/accounts/backups': 'backup restore pull',
   '/accounts/changes': 'undo moves copies deletes',
-  '/settings/devices': 'remote pair phone internet tunnel',
-  '/settings/elsewhere': 'plugin hooks foreign vs code terminal',
-  '/settings/browser': 'extension chrome',
-  '/settings/api': 'bridge http',
+  '/backups': 'backup restore pull',
   '/settings/tools': 'services mcp',
   '/new': 'start',
 };
@@ -72,7 +72,6 @@ const SETTINGS: readonly {
     icon: 'sun',
     words: 'theme language dark light accent background',
   },
-  { id: 'connections', label: 'Connections', icon: 'plug', words: '' },
   { id: 'connection', label: 'Connection', icon: 'wifi', words: 'reconnect unpair' },
   { id: 'home-screen', label: 'Home Screen app', icon: 'phone', words: 'ios', only: 'device' },
   { id: 'startup', label: 'Startup', icon: 'play', words: 'login', only: 'app' },
@@ -526,7 +525,7 @@ export class JumpToComponent {
     }));
   });
 
-  /** Every page of the map: the places, their tabs, Settings' connections,
+  /** Every page of the map: the places, their tabs, Settings' own pages,
    * New session and Help — the English names found too. */
   private readonly pageItems = computed<JumpItem[]>(() => {
     const desktop = this.auth.isDesktop();
@@ -546,7 +545,7 @@ export class JumpToComponent {
         if (t.path !== p.path) out.push(page(t.path, t.label, p.label, p.icon));
       }
     }
-    for (const c of connections(desktop)) out.push(page(c.path, c.label, 'Settings', c.icon));
+    for (const s of SETTINGS_PAGES) out.push(page(s.path, s.label, 'Settings', s.icon));
     out.push(page('/new', PAGE_TITLES['new'], 'Sessions', 'plus'));
     out.push(page(HELP_ENTRY.path, HELP_ENTRY.label, '', HELP_ENTRY.icon));
     return out;

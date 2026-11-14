@@ -39,7 +39,7 @@ import { IconComponent } from './icon.component';
                       | t: { computer: computer() }
                   "
                 >
-                  <a class="btn small" routerLink="/settings/elsewhere" (click)="done.emit()"
+                  <a class="btn small" routerLink="/elsewhere" (click)="done.emit()"
                     ><mc-icon name="plug" [size]="14" />
                     {{ 'Set up Sessions started elsewhere' | t }}</a
                   >

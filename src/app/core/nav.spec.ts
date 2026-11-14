@@ -1,14 +1,13 @@
 import { routePaths as pathsOf, routes } from '../app.routes';
 import { helpTopic } from '../pages/help/help-topics';
 import {
-  CONNECTIONS,
   HELP_ENTRY,
   LINK_ONLY,
   MORE_ENTRY,
   PLACES,
   REDIRECTED,
+  SETTINGS_PAGES,
   barPlaces,
-  connections,
   mapPaths,
   moreActive,
   moreEntries,
@@ -61,39 +60,65 @@ describe('the map (core/nav.ts)', () => {
   });
 
   it('points every Help topic at one that exists', () => {
-    for (const e of [...PLACES, HELP_ENTRY, ...CONNECTIONS]) {
+    for (const e of [...PLACES, HELP_ENTRY, ...SETTINGS_PAGES]) {
       if (e.help) expect(helpTopic(e.help), `${e.id}: ${e.help}`).toBeDefined();
     }
   });
 
-  it("keeps a place's tabs and connections inside it", () => {
+  it("keeps a place's tabs and Settings' own pages inside it", () => {
     for (const p of PLACES) {
       for (const t of tabsOf(p.id)) {
         expect(p.sections, `${p.id}: ${t.path}`).toContain(sectionOf(t.path));
       }
     }
     const settings = PLACES.find((p) => p.id === 'settings')!;
-    for (const c of CONNECTIONS) {
-      expect(settings.sections, c.id).toContain(sectionOf(c.path));
+    for (const page of SETTINGS_PAGES) {
+      expect(settings.sections, page.id).toContain(sectionOf(page.path));
     }
     expect(tabsOf('no-such-place')).toEqual([]);
   });
 
-  it('has six places: the work, then what you look after', () => {
-    for (const desktop of [true, false]) {
-      expect(sidebarPlaces(desktop).map((p) => p.label)).toEqual([
-        'Sessions',
-        'Inbox',
-        'Teams',
-        'Computers',
-        'Accounts',
-        'Settings',
-      ]);
-    }
-    expect(PLACES.map((p) => p.group)).toEqual(['work', 'work', 'work', 'care', 'care', 'care']);
+  it('has the work, then what you look after, each connection a place of its own', () => {
+    expect(sidebarPlaces(true).map((p) => [p.label, p.path])).toEqual([
+      ['Sessions', '/'],
+      ['Inbox', '/inbox'],
+      ['Teams', '/teams'],
+      ['Computers', '/computers'],
+      ['Phone & devices', '/devices'],
+      ['Sessions started elsewhere', '/elsewhere'],
+      ['Browser', '/browser'],
+      ['HTTP API', '/http-api'],
+      ['Accounts', '/accounts'],
+      ['Backups', '/backups'],
+      ['Settings', '/settings'],
+    ]);
+    // The plugin is installed from the desktop: a phone's sidebar leaves it
+    // out (its page still reads, for a link).
+    expect(sidebarPlaces(false).map((p) => p.id)).toEqual([
+      'sessions',
+      'inbox',
+      'teams',
+      'computers',
+      'devices',
+      'browser',
+      'http-api',
+      'accounts',
+      'backups',
+      'settings',
+    ]);
     // Computers keeps Machines' health dot; Agents is a tab of Sessions.
     expect(PLACES.find((p) => p.id === 'computers')).toEqual(
       expect.objectContaining({ path: '/computers', badge: 'machines' }),
+    );
+    // Each keeps the icon it had as a connection; Backups its Help's cloud.
+    expect(PLACES.map((p) => [p.id, p.icon])).toEqual(
+      expect.arrayContaining([
+        ['devices', 'phone'],
+        ['elsewhere', 'plug'],
+        ['browser', 'globe'],
+        ['http-api', 'code'],
+        ['backups', 'cloud'],
+      ]),
     );
   });
 
@@ -113,11 +138,10 @@ describe('the map (core/nav.ts)', () => {
       ['Capacity', '/teams/capacity'],
     ]);
     expect(tabsOf('teams')[0].exact).toBe(true);
-    // Accounts in four tabs (docs/UI-REDESIGN.md §6.6).
+    // Accounts in three tabs (docs/UI-REDESIGN.md §6.6): Backups is a place.
     expect(tabsOf('accounts').map((t) => [t.label, t.path])).toEqual([
       ['Accounts', '/accounts'],
       ['Usage', '/accounts/usage'],
-      ['Backups', '/accounts/backups'],
       ['Recent changes', '/accounts/changes'],
     ]);
     expect(tabsOf('accounts')[0].exact).toBe(true);
@@ -130,32 +154,48 @@ describe('the map (core/nav.ts)', () => {
     ]);
     expect(tabsOf('computers')[0].exact).toBe(true);
     expect(tabsOf('computers')[1].badge).toBe('sync');
-    for (const id of ['inbox', 'settings']) expect(tabsOf(id), id).toEqual([]);
+    for (const id of [
+      'inbox',
+      'devices',
+      'elsewhere',
+      'browser',
+      'http-api',
+      'backups',
+      'settings',
+    ]) {
+      expect(tabsOf(id), id).toEqual([]);
+    }
   });
 
   it("draws the phone's bar as the work, and More as the rest in the same order", () => {
     expect(barPlaces().map((p) => p.label)).toEqual(['Sessions', 'Inbox', 'Teams']);
-    for (const desktop of [true, false]) {
-      expect(moreEntries(desktop).map((p) => p.label)).toEqual([
-        'Computers',
-        'Accounts',
-        'Settings',
-        'Help',
-      ]);
-    }
+    expect(moreEntries(true).map((p) => p.label)).toEqual([
+      'Computers',
+      'Phone & devices',
+      'Sessions started elsewhere',
+      'Browser',
+      'HTTP API',
+      'Accounts',
+      'Backups',
+      'Settings',
+      'Help',
+    ]);
+    expect(moreEntries(false).map((p) => p.id)).toEqual([
+      'computers',
+      'devices',
+      'browser',
+      'http-api',
+      'accounts',
+      'backups',
+      'settings',
+      'help',
+    ]);
   });
 
-  it("lists Settings' connections, the desktop's own only there", () => {
-    // Each a page of Settings (docs/UI-REDESIGN.md §6.7).
-    expect(connections(true).map((c) => [c.label, c.path, c.fragment ?? ''])).toEqual([
-      ['Phone & devices', '/settings/devices', ''],
-      ['Sessions started elsewhere', '/settings/elsewhere', ''],
-      ['Browser', '/settings/browser', ''],
-      ['HTTP API', '/settings/api', ''],
-      ['Claude Code tools', '/settings/tools', ''],
+  it("lists Settings' own pages: Claude Code tools", () => {
+    expect(SETTINGS_PAGES.map((p) => [p.label, p.path])).toEqual([
+      ['Claude Code tools', '/settings/tools'],
     ]);
-    // A phone reads Phone & devices (itself, the list) too.
-    expect(connections(false).map((c) => c.id)).toEqual(['devices', 'browser', 'api', 'tools']);
   });
 
   it("titles the phone's top bar by the place, or the page's own name", () => {
@@ -166,9 +206,14 @@ describe('the map (core/nav.ts)', () => {
     expect(titleOf('teams')).toBe('Teams');
     expect(titleOf('accounts')).toBe('Accounts');
     expect(titleOf('computers')).toBe('Computers');
+    // Settings' own pages (Claude Code tools) are Settings'.
     expect(titleOf('settings')).toBe('Settings');
-    // Settings' connections are its pages: the top bar names Settings.
-    expect(titleOf('settings')).toBe('Settings');
+    // What used to be Settings' connections, and Backups, name themselves.
+    expect(titleOf('devices')).toBe('Phone & devices');
+    expect(titleOf('elsewhere')).toBe('Sessions started elsewhere');
+    expect(titleOf('browser')).toBe('Browser');
+    expect(titleOf('http-api')).toBe('HTTP API');
+    expect(titleOf('backups')).toBe('Backups');
     expect(titleOf('new')).toBe('New session');
     expect(titleOf('help')).toBe('Help');
     expect(titleOf('session')).toBe('Session');
@@ -179,7 +224,19 @@ describe('the map (core/nav.ts)', () => {
   });
 
   it("marks the phone's More tab on the pages of what it lists", () => {
-    for (const s of ['more', 'computers', 'accounts', 'settings', 'onboarding', 'help']) {
+    for (const s of [
+      'more',
+      'computers',
+      'devices',
+      'elsewhere',
+      'browser',
+      'http-api',
+      'accounts',
+      'backups',
+      'settings',
+      'onboarding',
+      'help',
+    ]) {
       expect(moreActive(s), s).toBe(true);
     }
     for (const s of ['', 'inbox', 'agents', 'projects', 'teams', 'new', 'session', 'pair']) {

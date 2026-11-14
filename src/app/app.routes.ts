@@ -27,8 +27,8 @@ export const pairedGuard: CanActivateFn = () => {
 export const remoteRedirect: RedirectFunction = ({ queryParams, fragment }) => {
   const router = inject(Router);
   return fragment === 'foreign'
-    ? router.createUrlTree(['/settings/elsewhere'], { queryParams })
-    : router.createUrlTree(['/settings/devices'], { queryParams, fragment: fragment ?? undefined });
+    ? router.createUrlTree(['/elsewhere'], { queryParams })
+    : router.createUrlTree(['/devices'], { queryParams, fragment: fragment ?? undefined });
 };
 
 /** Reachable without pairing. */
@@ -130,32 +130,33 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/settings/settings.component').then((m) => m.SettingsComponent),
   },
-  // Settings' connections (docs/UI-REDESIGN.md §6.7), each a page of its
-  // own: phones and internet access, the plugin for sessions started
-  // elsewhere, the browser extension (docs/BROWSER.md), the HTTP API
-  // (`?server=`), Claude Code tools (docs/MCP.md).
-  {
-    path: 'settings/devices',
-    loadComponent: () => import('./pages/remote/remote.component').then((m) => m.RemoteComponent),
-  },
-  {
-    path: 'settings/elsewhere',
-    loadComponent: () =>
-      import('./pages/settings/elsewhere-page.component').then((m) => m.ElsewherePageComponent),
-  },
-  {
-    path: 'settings/browser',
-    loadComponent: () =>
-      import('./pages/browser/browser.component').then((m) => m.BrowserComponent),
-  },
-  {
-    path: 'settings/api',
-    loadComponent: () => import('./pages/bridge/bridge.component').then((m) => m.BridgeComponent),
-  },
+  // Settings' own page: Claude Code tools (docs/MCP.md).
   {
     path: 'settings/tools',
     loadComponent: () =>
       import('./pages/settings/tools-page.component').then((m) => m.ToolsPageComponent),
+  },
+  // What works with Mother Claude, each a place of its own
+  // (docs/UI-REDESIGN.md §11, 2026-11-14): phones and internet access, the
+  // plugin for sessions started elsewhere, the browser extension
+  // (docs/BROWSER.md), the HTTP API (`?server=`).
+  {
+    path: 'devices',
+    loadComponent: () => import('./pages/remote/remote.component').then((m) => m.RemoteComponent),
+  },
+  {
+    path: 'elsewhere',
+    loadComponent: () =>
+      import('./pages/settings/elsewhere-page.component').then((m) => m.ElsewherePageComponent),
+  },
+  {
+    path: 'browser',
+    loadComponent: () =>
+      import('./pages/browser/browser.component').then((m) => m.BrowserComponent),
+  },
+  {
+    path: 'http-api',
+    loadComponent: () => import('./pages/bridge/bridge.component').then((m) => m.BridgeComponent),
   },
   // Accounts: the Claude accounts. A paired phone renames them, sets the
   // defaults and copy permissions and moves data; adding, signing in and
@@ -171,29 +172,34 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/accounts/usage-page.component').then((m) => m.UsagePageComponent),
   },
-  // Backups: a paired phone does everything but the passphrase
-  // (docs/BACKUP.md).
-  {
-    path: 'accounts/backups',
-    loadComponent: () => import('./pages/backup/backup.component').then((m) => m.BackupComponent),
-  },
   // Every data job, with Undo while it is possible.
   {
     path: 'accounts/changes',
     loadComponent: () =>
       import('./pages/accounts/changes-page.component').then((m) => m.ChangesPageComponent),
   },
-  // Backup & sync is Accounts › Backups now (the query and fragment kept).
-  { path: 'backup', redirectTo: 'accounts/backups' },
+  // Backups: a paired phone does everything but the passphrase
+  // (docs/BACKUP.md).
+  {
+    path: 'backups',
+    loadComponent: () => import('./pages/backup/backup.component').then((m) => m.BackupComponent),
+  },
   {
     path: 'more',
     loadComponent: () => import('./pages/more/more.component').then((m) => m.MoreComponent),
   },
-  // Remote, Browser, API and Services are Settings' connections now: the
-  // query (`/api?server=`) and the fragment kept. Remote was two places.
+  // Places of their own since 2026-11-14 (docs/UI-REDESIGN.md §11): Settings'
+  // connections, and Backups (Backup & sync, then Accounts › Backups) —
+  // the query (`/api?server=`) and the fragment kept. Remote was two
+  // places; Services is Settings › Claude Code tools.
+  { path: 'settings/devices', redirectTo: 'devices' },
+  { path: 'settings/elsewhere', redirectTo: 'elsewhere' },
+  { path: 'settings/browser', redirectTo: 'browser' },
+  { path: 'settings/api', redirectTo: 'http-api' },
+  { path: 'accounts/backups', redirectTo: 'backups' },
+  { path: 'backup', redirectTo: 'backups' },
   { path: 'remote', redirectTo: remoteRedirect },
-  { path: 'browser', redirectTo: 'settings/browser' },
-  { path: 'api', redirectTo: 'settings/api' },
+  { path: 'api', redirectTo: 'http-api' },
   { path: 'services', redirectTo: 'settings/tools' },
   // Teams of sessions (docs/TEAMS.md): the teams, the templates they start
   // from, Capacity (role sessions, budgets, models and costs,

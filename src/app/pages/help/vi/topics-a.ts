@@ -979,7 +979,7 @@ const TOPICS: HelpTopicSource[] = [
         notes: [
           'Mã **Cùng Wi-Fi** chỉ dùng được trong mạng của chính bạn. Chỉ ghép nối trên mạng mà bạn kiểm soát.',
         ],
-        links: [{ label: 'Mở Điện thoại & thiết bị', path: '/settings/devices' }],
+        links: [{ label: 'Mở Điện thoại & thiết bị', path: '/devices' }],
       },
       {
         heading: 'Tin cậy chứng chỉ của máy tính',
@@ -1102,7 +1102,7 @@ const TOPICS: HelpTopicSource[] = [
         tips: [
           'Mother Claude tự tìm địa chỉ của ngrok, Cloudflare quick tunnel và Tailscale. Với đường hầm khác, gõ địa chỉ `https://` của nó vào **Hoặc tự nhập**.',
         ],
-        links: [{ label: 'Mở Điện thoại & thiết bị', path: '/settings/devices' }],
+        links: [{ label: 'Mở Điện thoại & thiết bị', path: '/devices' }],
       },
       {
         heading: 'Ghép nối điện thoại qua internet',
@@ -1223,7 +1223,7 @@ const TOPICS: HelpTopicSource[] = [
         notes: [
           '**Cài đặt** bị làm mờ khi không tìm thấy lệnh `claude` của Claude Code. Hãy cài Claude Code, hoặc mở ứng dụng từ một shell mà lệnh `claude` chạy được.',
         ],
-        links: [{ label: 'Mở Phiên bắt đầu ở nơi khác', path: '/settings/elsewhere' }],
+        links: [{ label: 'Mở Phiên bắt đầu ở nơi khác', path: '/elsewhere' }],
       },
       {
         heading: 'Một bảng cho mọi tài khoản',

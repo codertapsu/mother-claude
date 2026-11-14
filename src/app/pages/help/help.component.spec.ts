@@ -4,7 +4,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 
 import { routePaths, routes } from '../../app.routes';
 import { AuthService } from '../../core/auth.service';
-import { CONNECTIONS, PLACES } from '../../core/nav';
+import { PLACES, SETTINGS_PAGES } from '../../core/nav';
 import { HelpComponent } from './help.component';
 import { inlineRuns, plainText } from './help-text';
 import { HELP_GROUPS, HELP_TOPICS, helpTopic } from './help-topics';
@@ -59,17 +59,23 @@ describe('HelpComponent', () => {
       'Troubleshooting',
     ]);
     // Each place's own topic is in its group (the Inbox's with the
-    // sessions), and Settings' connections are Settings and connections.
+    // sessions); the connections, Settings and its own pages are Settings
+    // and connections, Backups is with the accounts' data.
     const groupOf = (id: string | undefined) => helpTopic(id)?.group;
     expect(PLACES.map((p) => [p.id, groupOf(p.help)])).toEqual([
       ['sessions', 'sessions'],
       ['inbox', 'sessions'],
       ['teams', 'teams'],
       ['computers', 'machines'],
+      ['devices', 'settings'],
+      ['elsewhere', 'settings'],
+      ['browser', 'settings'],
+      ['http-api', 'settings'],
       ['accounts', 'data'],
+      ['backups', 'data'],
       ['settings', 'settings'],
     ]);
-    for (const c of CONNECTIONS) expect(groupOf(c.help), c.id).toBe('settings');
+    for (const p of SETTINGS_PAGES) expect(groupOf(p.help), p.id).toBe('settings');
     await harness.navigateByUrl('/help', HelpComponent);
     const idsOf = (group: string) =>
       [
@@ -215,7 +221,7 @@ describe('HelpComponent', () => {
     const links = topic.sections.flatMap((s) => s.links ?? []);
     const buttons = all('.links a');
     expect(buttons.map(text)).toEqual(links.map((l) => l.label));
-    expect(buttons[0].getAttribute('href')).toBe('/accounts/backups');
+    expect(buttons[0].getAttribute('href')).toBe('/backups');
 
     const notes = topic.sections.flatMap((s) => s.notes ?? []);
     expect(all('.callout[data-tone="amber"]').length).toBe(notes.length);

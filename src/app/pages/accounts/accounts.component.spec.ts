@@ -174,13 +174,13 @@ describe('AccountsComponent', () => {
     serveAccounts(backend, buildAccounts(Date.now(), true));
     const el = await render();
     const rows = [...el.querySelectorAll('.acct')];
-    // One line each, to the one table in Settings › Sessions started
-    // elsewhere; a token account uses the Default's directory.
+    // One line each, to the one table in Sessions started elsewhere; a
+    // token account uses the Default's directory.
     const line = (row: Element) => row.querySelector('.elsewhere');
     expect(text(line(rows[0]))).toBe('Sessions started elsewhere: on ›');
     expect(text(line(rows[1]))).toBe('Sessions started elsewhere: off ›');
     for (const row of [rows[0], rows[1]]) {
-      expect(line(row)?.querySelector('a')?.getAttribute('href')).toBe('/settings/elsewhere');
+      expect(line(row)?.querySelector('a')?.getAttribute('href')).toBe('/elsewhere');
     }
     expect(line(rows[2])).toBeNull();
     expect(rows[1].querySelector('.elsewhere button')).toBeNull();

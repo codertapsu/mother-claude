@@ -118,7 +118,7 @@ describe('McpPanelComponent', () => {
     const hint = el.querySelector('.hint') as HTMLElement;
     expect(text(hint)).toContain("Update the plugin to give sessions Mother Claude's tools");
     expect(text(hint)).toContain('installed: v0.6.2, this app: v0.7.0+mcp.1');
-    expect(hint.querySelector('a')?.getAttribute('href')).toBe('/settings/elsewhere');
+    expect(hint.querySelector('a')?.getAttribute('href')).toBe('/elsewhere');
   });
 
   it('asks to install a missing plugin, and says nothing when it is current', async () => {

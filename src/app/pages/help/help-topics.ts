@@ -977,7 +977,7 @@ const TOPICS: HelpTopicSource[] = [
         notes: [
           'A **Same Wi-Fi** code works only on your own network. Pair only on a network you control.',
         ],
-        links: [{ label: 'Open Phone & devices', path: '/settings/devices' }],
+        links: [{ label: 'Open Phone & devices', path: '/devices' }],
       },
       {
         heading: "Trust your computer's certificate",
@@ -1101,7 +1101,7 @@ const TOPICS: HelpTopicSource[] = [
         tips: [
           'Mother Claude finds the address of ngrok, Cloudflare quick tunnels and Tailscale by itself. For any other tunnel, type its `https://` address under **Or enter it yourself**.',
         ],
-        links: [{ label: 'Open Phone & devices', path: '/settings/devices' }],
+        links: [{ label: 'Open Phone & devices', path: '/devices' }],
       },
       {
         heading: 'Pair a phone through the internet',
@@ -1225,7 +1225,7 @@ const TOPICS: HelpTopicSource[] = [
         notes: [
           "**Install** is greyed out when Claude Code's `claude` command is not found. Install Claude Code, or start the app from a shell where `claude` works.",
         ],
-        links: [{ label: 'Open Sessions started elsewhere', path: '/settings/elsewhere' }],
+        links: [{ label: 'Open Sessions started elsewhere', path: '/elsewhere' }],
       },
       {
         heading: 'One table for every account',
@@ -2577,7 +2577,7 @@ const TOPICS: HelpTopicSource[] = [
           "A token account has no line: its sessions use the Default's plugin.",
         ],
         links: [
-          { label: 'Open Sessions started elsewhere', path: '/settings/elsewhere' },
+          { label: 'Open Sessions started elsewhere', path: '/elsewhere' },
           { label: 'See Sessions started elsewhere', path: '/help/foreign-sessions' },
         ],
       },
@@ -2828,7 +2828,7 @@ const TOPICS: HelpTopicSource[] = [
           'iCloud Drive: right-click the folder and choose **Keep Downloaded**, so pulls and restores never wait. OneDrive: **Always keep on this device**. Google Drive: use a folder inside My Drive.',
           'Later, the folder, the passphrase and the schedule are under **Settings** on the same page. To stop backing up, empty the folder and save.',
         ],
-        links: [{ label: 'Open Backups', path: '/accounts/backups' }],
+        links: [{ label: 'Open Backups', path: '/backups' }],
       },
       {
         heading: 'Your backups at a glance',
@@ -3052,7 +3052,7 @@ const TOPICS: HelpTopicSource[] = [
           'When the panel says **Connected**, press **Done** in Mother Claude.',
         ],
         notes: ['Pairing is done in the desktop app, or on a phone allowed dangerous actions.'],
-        links: [{ label: 'Open Browser', path: '/settings/browser' }],
+        links: [{ label: 'Open Browser', path: '/browser' }],
       },
       {
         heading: 'Choose what sessions may do on a site',
@@ -3426,7 +3426,7 @@ const TOPICS: HelpTopicSource[] = [
           'The page shows how many **Tools** there are, **Sessions connected (last 15 min)**, whether **Sessions Mother Claude starts** get the tools, the plugin, and **Last calls**.',
           'When the plugin is not installed, or is older than this app, a line says so, with a link to **Sessions started elsewhere**.',
         ],
-        links: [{ label: 'Open Sessions started elsewhere', path: '/settings/elsewhere' }],
+        links: [{ label: 'Open Sessions started elsewhere', path: '/elsewhere' }],
       },
       {
         heading: 'Approvals',
@@ -3477,7 +3477,7 @@ const TOPICS: HelpTopicSource[] = [
           'To apply a change later, press **Restart with these settings**. **Switch conversation** changes only the conversation.',
           '**Stop** closes the port; conversations already running carry on.',
         ],
-        links: [{ label: 'Open HTTP API', path: '/settings/api' }],
+        links: [{ label: 'Open HTTP API', path: '/http-api' }],
       },
       {
         heading: 'Try it',

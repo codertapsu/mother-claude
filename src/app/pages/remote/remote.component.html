@@ -1,10 +1,6 @@
 <div class="page">
-  <a class="btn ghost small back" routerLink="/settings">
-    <mc-icon name="back" [size]="15" /> {{ 'Settings' | t }}
-  </a>
   <mc-page-head
     [heading]="'Phone & devices' | t"
-    [named]="true"
     [lede]="
       'Pair your phone and other devices, and reach Mother Claude from anywhere: on your local network, or over the internet through a tunnel.'
         | t
@@ -253,7 +249,7 @@
                 @if (serverOf(t); as srv) {
                   <a
                     class="small api-server"
-                    routerLink="/settings/api"
+                    routerLink="/http-api"
                     [queryParams]="{ server: srv.id }"
                     >{{ 'API server {name}' | t: { name: srv.name } }}</a
                   >
@@ -366,7 +362,7 @@
           @for (srv of exposedServers(); track srv.id) {
             <p class="notice error small" role="alert">
               {{ 'A tunnel points at the API server' | t }}
-              <a routerLink="/settings/api" [queryParams]="{ server: srv.id }">{{ srv.name }}</a
+              <a routerLink="/http-api" [queryParams]="{ server: srv.id }">{{ srv.name }}</a
               >{{ srv.port ? ' ' + ('(port {port})' | t: { port: srv.port }) : ''
               }}{{
                 ': its tokenless access is switched off until that tunnel stops. Stop it unless you meant to publish that API.'
@@ -405,7 +401,7 @@
                         }
                 }}
               }
-              <a routerLink="/settings/api">{{ 'API settings' | t }}</a>
+              <a routerLink="/http-api">{{ 'API settings' | t }}</a>
             </p>
           }
         } @else {

@@ -167,9 +167,7 @@ function entryKey(e: Entry): string {
                     | t
                 }}
                 @if (isDesktop()) {
-                  (<a routerLink="/settings/elsewhere">{{
-                    'Settings › Sessions started elsewhere' | t
-                  }}</a
+                  (<a routerLink="/elsewhere">{{ 'Settings › Sessions started elsewhere' | t }}</a
                   >).
                 } @else {
                   {{

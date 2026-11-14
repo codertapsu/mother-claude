@@ -1,13 +1,14 @@
 import type { IconName } from '../shared/icon.component';
 
 /**
- * The app's map (docs/UI-REDESIGN.md §6.1, §10.1): six places — Sessions,
- * Inbox and Teams for the work, Computers, Accounts and Settings for what
- * you look after — with their tabs, Settings' connections, and Help. The
- * desktop sidebar, the phone's bottom bar and its More list, the phone's
- * top-bar title and a place's tabs (`mc-hub-tabs`) all read it; nothing
- * else names the places. Routes and this map move together; an old route
- * redirects to where its page is now ({@link REDIRECTED}).
+ * The app's map (docs/UI-REDESIGN.md §6.1, §10.1, §11): the places —
+ * Sessions, Inbox and Teams for the work; Computers, Phone & devices,
+ * Sessions started elsewhere, Browser, HTTP API, Accounts, Backups and
+ * Settings for what you look after — with their tabs, Settings' own pages,
+ * and Help. The desktop sidebar, the phone's bottom bar and its More list,
+ * the phone's top-bar title and a place's tabs (`mc-hub-tabs`) all read
+ * it; nothing else names the places. Routes and this map move together;
+ * an old route redirects to where its page is now ({@link REDIRECTED}).
  *
  * One map for the desktop and the phone: the sidebar lists the work, a
  * line, then what you look after; the phone's bar shows the work and
@@ -56,19 +57,14 @@ export interface NavTab {
   exact?: boolean;
 }
 
-/** One of Settings' *Connections*: what else works with Mother Claude,
- * each on a page of its own. */
-export interface NavConnection {
-  id: 'devices' | 'elsewhere' | 'browser' | 'api' | 'tools';
+/** A page of Settings that a row of Settings opens, saying how it stands. */
+export interface NavSettingsPage {
+  id: 'tools';
   /** Its route, as `routerLink` takes it. */
   path: string;
-  /** The part of the page it opens at. */
-  fragment?: string;
   /** Its name (English). */
   label: string;
   icon: IconName;
-  /** Only the desktop app lists it. */
-  desktopOnly?: boolean;
   /** The Help topic that explains it. */
   help: string;
 }
@@ -143,6 +139,45 @@ export const PLACES: readonly NavPlace[] = [
       { path: '/computers/options', label: 'Options' },
     ],
   },
+  // A phone reads it: itself, and the devices paired (read only).
+  {
+    id: 'devices',
+    path: '/devices',
+    label: 'Phone & devices',
+    icon: 'phone',
+    group: 'care',
+    help: 'phone',
+    sections: ['devices'],
+  },
+  {
+    id: 'elsewhere',
+    path: '/elsewhere',
+    label: 'Sessions started elsewhere',
+    icon: 'plug',
+    desktopOnly: true,
+    group: 'care',
+    help: 'foreign-sessions',
+    sections: ['elsewhere'],
+  },
+  {
+    id: 'browser',
+    path: '/browser',
+    label: 'Browser',
+    icon: 'globe',
+    group: 'care',
+    help: 'browser',
+    sections: ['browser'],
+  },
+  // `?server=` opens one of the API servers.
+  {
+    id: 'http-api',
+    path: '/http-api',
+    label: 'HTTP API',
+    icon: 'code',
+    group: 'care',
+    help: 'api',
+    sections: ['http-api'],
+  },
   {
     id: 'accounts',
     path: '/accounts',
@@ -154,9 +189,17 @@ export const PLACES: readonly NavPlace[] = [
     tabs: [
       { path: '/accounts', label: 'Accounts', exact: true },
       { path: '/accounts/usage', label: 'Usage' },
-      { path: '/accounts/backups', label: 'Backups' },
       { path: '/accounts/changes', label: 'Recent changes' },
     ],
+  },
+  {
+    id: 'backups',
+    path: '/backups',
+    label: 'Backups',
+    icon: 'cloud',
+    group: 'care',
+    help: 'backup',
+    sections: ['backups'],
   },
   {
     id: 'settings',
@@ -165,32 +208,17 @@ export const PLACES: readonly NavPlace[] = [
     icon: 'settings',
     group: 'care',
     help: 'settings',
-    // Its connections' pages (`/settings/…`), and the first run's macOS
-    // permissions.
+    // Its own pages (`/settings/…`), and the first run's macOS permissions.
     sections: ['settings', 'onboarding'],
   },
 ];
 
-/** Settings' *Connections*, in their order (docs/UI-REDESIGN.md §6.7). */
-export const CONNECTIONS: readonly NavConnection[] = [
-  // A phone reads it: itself, and the devices paired (read only).
-  {
-    id: 'devices',
-    path: '/settings/devices',
-    label: 'Phone & devices',
-    icon: 'phone',
-    help: 'phone',
-  },
-  {
-    id: 'elsewhere',
-    path: '/settings/elsewhere',
-    label: 'Sessions started elsewhere',
-    icon: 'plug',
-    desktopOnly: true,
-    help: 'foreign-sessions',
-  },
-  { id: 'browser', path: '/settings/browser', label: 'Browser', icon: 'globe', help: 'browser' },
-  { id: 'api', path: '/settings/api', label: 'HTTP API', icon: 'code', help: 'api' },
+/**
+ * Settings' own pages, each a row of Settings (docs/UI-REDESIGN.md §6.7).
+ * Phone & devices, Sessions started elsewhere, Browser and HTTP API were
+ * its *Connections* too until they became places (§11, 2026-11-14).
+ */
+export const SETTINGS_PAGES: readonly NavSettingsPage[] = [
   {
     id: 'tools',
     path: '/settings/tools',
@@ -250,18 +278,24 @@ export const LINK_ONLY: readonly string[] = [
 
 /**
  * Old routes that redirect to where their page is now (docs/UI-REDESIGN.md
- * §10.1, §10.3), with the rest of the path, the query and the fragment —
- * links from before the redesign keep working. Redirects stay for good.
+ * §10.1, §10.3, §11), with the rest of the path, the query and the
+ * fragment — links from before the redesign keep working. Redirects stay
+ * for good.
  */
 export const REDIRECTED: readonly string[] = [
   'good-to-know',
   'machines',
   'backup',
   'remote',
-  'browser',
   'api',
   'services',
   'capacity',
+  // Settings' connections and Accounts' Backups tab, until 2026-11-14.
+  'settings/devices',
+  'settings/elsewhere',
+  'settings/browser',
+  'settings/api',
+  'accounts/backups',
 ];
 
 /** The first segment of a URL's path (`/teams/tm_1?x#y` → `teams`). */
@@ -283,11 +317,6 @@ export function barPlaces(): NavPlace[] {
 /** More's rows, in order: what you look after, then Help. */
 export function moreEntries(desktop: boolean): NavEntry[] {
   return [...PLACES.filter((p) => p.group === 'care' && (!p.desktopOnly || desktop)), HELP_ENTRY];
-}
-
-/** Settings' connections this client may open. */
-export function connections(desktop: boolean): NavConnection[] {
-  return CONNECTIONS.filter((c) => !c.desktopOnly || desktop);
 }
 
 /** The place (or Help) a section belongs to, if any. */
@@ -316,7 +345,7 @@ export function mapPaths(): string[] {
   const paths = [
     ...[...PLACES, HELP_ENTRY, MORE_ENTRY].map((e) => e.path),
     ...PLACES.flatMap((p) => (p.tabs ?? []).map((t) => t.path)),
-    ...CONNECTIONS.map((c) => c.path),
+    ...SETTINGS_PAGES.map((p) => p.path),
   ];
   return [...new Set(paths)].map((path) => path.replace(/^\//, ''));
 }

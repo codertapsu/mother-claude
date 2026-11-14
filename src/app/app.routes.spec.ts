@@ -76,23 +76,58 @@ describe('old routes (docs/UI-REDESIGN.md §10.1)', () => {
     expect(await land('/machines/setup?step=2#rail')).toBe('/computers/setup?step=2#rail');
   });
 
-  it('sends Backup & sync to Accounts › Backups, with the query and the fragment', async () => {
-    expect(await land('/backup')).toBe('/accounts/backups');
-    expect(await land('/backup?account=acc_1#storage')).toBe(
-      '/accounts/backups?account=acc_1#storage',
-    );
+  it('sends Backup & sync to Backups, with the query and the fragment', async () => {
+    expect(await land('/backup')).toBe('/backups');
+    expect(await land('/backup?account=acc_1#storage')).toBe('/backups?account=acc_1#storage');
   });
 
   it('splits Remote: its #foreign card is Sessions started elsewhere, the rest Phone & devices', async () => {
-    expect(await land('/remote#foreign')).toBe('/settings/elsewhere');
-    expect(await land('/remote')).toBe('/settings/devices');
-    expect(await land('/remote?x=1#internet')).toBe('/settings/devices?x=1#internet');
+    expect(await land('/remote#foreign')).toBe('/elsewhere');
+    expect(await land('/remote?x=1#foreign')).toBe('/elsewhere?x=1');
+    expect(await land('/remote')).toBe('/devices');
+    expect(await land('/remote?x=1#internet')).toBe('/devices?x=1#internet');
   });
 
-  it("sends Browser, API and Services to Settings' connections, the query kept", async () => {
-    expect(await land('/browser')).toBe('/settings/browser');
-    expect(await land('/api?server=work')).toBe('/settings/api?server=work');
+  it('sends API to HTTP API and Services to Settings › Claude Code tools, the query kept', async () => {
+    expect(await land('/api?server=work')).toBe('/http-api?server=work');
+    expect(await land('/api?server=work#tokens')).toBe('/http-api?server=work#tokens');
     expect(await land('/services')).toBe('/settings/tools');
+  });
+
+  it("sends Settings' connections and Accounts › Backups to their own places, the query and the fragment kept", async () => {
+    for (const [from, to] of [
+      ['/settings/devices', '/devices'],
+      ['/settings/devices?x=1#internet', '/devices?x=1#internet'],
+      ['/settings/elsewhere', '/elsewhere'],
+      ['/settings/elsewhere?account=acc_1#plugins', '/elsewhere?account=acc_1#plugins'],
+      ['/settings/browser', '/browser'],
+      ['/settings/browser?site=github.com#approvals', '/browser?site=github.com#approvals'],
+      ['/settings/api', '/http-api'],
+      ['/settings/api?server=work#tokens', '/http-api?server=work#tokens'],
+      ['/accounts/backups', '/backups'],
+      ['/accounts/backups?account=acc_1#storage', '/backups?account=acc_1#storage'],
+    ]) {
+      expect(await land(from), from).toBe(to);
+    }
+  });
+
+  it('opens the places of their own where they are, Settings › Claude Code tools too', async () => {
+    for (const url of [
+      '/devices',
+      '/devices#internet',
+      '/elsewhere',
+      '/browser',
+      '/browser?x=1#approvals',
+      '/http-api',
+      '/http-api?server=work',
+      '/backups',
+      '/backups?account=acc_1#storage',
+      '/settings',
+      '/settings#updates',
+      '/settings/tools',
+    ]) {
+      expect(await land(url), url).toBe(url);
+    }
   });
 
   it('sends Capacity to Teams › Capacity, with its section and the fragment', async () => {
@@ -137,7 +172,7 @@ describe('old routes (docs/UI-REDESIGN.md §10.1)', () => {
     }
     // The places beside it are not the layout's: they still land.
     expect(await land('/new?machine=m1')).toBe('/new?machine=m1');
-    expect(await land('/settings/api?server=work')).toBe('/settings/api?server=work');
+    expect(await land('/http-api?server=work')).toBe('/http-api?server=work');
     expect(await land('/nowhere')).toBe('/');
   });
 

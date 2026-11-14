@@ -13,9 +13,9 @@ import { MOCK_ACCOUNT_WORK, buildAccounts } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { ElsewherePageComponent } from './elsewhere-page.component';
 
-/** Settings › Sessions started elsewhere (docs/UI-REDESIGN.md §6.7): the
- * plugin in every config directory, in one table. */
-describe('ElsewherePageComponent: Settings › Sessions started elsewhere', () => {
+/** Sessions started elsewhere (docs/UI-REDESIGN.md §6.7, §11): the plugin in
+ * every config directory, in one table. */
+describe('ElsewherePageComponent: Sessions started elsewhere', () => {
   let backend: FakeBackend;
   let fixture: ComponentFixture<ElsewherePageComponent>;
 

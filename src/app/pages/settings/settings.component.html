@@ -2,7 +2,7 @@
   <mc-page-head
     [heading]="'Settings' | t"
     [lede]="
-      'What you set once: this device’s notifications, look and connection, and what else works with Mother Claude.'
+      'What you set once: this device’s notifications, look and connection, and Mother Claude’s tools for Claude Code.'
         | t
     "
     help="settings"
@@ -201,8 +201,8 @@
     </div>
   </section>
 
-  <!-- ─────────────── Connections: what else works with Mother Claude ─────────────── -->
-  <mc-settings-connections />
+  <!-- ─────────────── Claude Code: Settings' own pages ─────────────── -->
+  <mc-settings-pages />
 
   <!-- ─────────────── Connection ─────────────── -->
   <h2 id="connection">{{ 'Connection' | t }}</h2>
@@ -253,7 +253,7 @@
           </button>
         }
         @if (isDesktop()) {
-          <a class="btn small" routerLink="/settings/devices"
+          <a class="btn small" routerLink="/devices"
             ><mc-icon name="qr" [size]="14" /> {{ 'Pair a phone' | t }}</a
           >
         }

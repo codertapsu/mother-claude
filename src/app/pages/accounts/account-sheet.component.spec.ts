@@ -57,7 +57,7 @@ describe('AccountSheetComponent removal', () => {
     expect(text(el.querySelector('.error-text'))).toBe(
       'The API is running with Work as the account its new conversations start under. Stop the API, or start it again with another account, then remove Work.',
     );
-    const link = el.querySelector('a[href="/settings/api"]');
+    const link = el.querySelector('a[href="/http-api"]');
     expect(text(link)).toBe('Open Settings › HTTP API');
   });
 
@@ -71,7 +71,7 @@ describe('AccountSheetComponent removal', () => {
     expect(text(el.querySelector('.error-text'))).toBe(
       'The API server Work API is running under Work. Stop it, or start it with another account, then remove Work.',
     );
-    const link = el.querySelector('a[href="/settings/api?server=work"]');
+    const link = el.querySelector('a[href="/http-api?server=work"]');
     expect(text(link)).toBe('Open Settings › HTTP API');
   });
 
@@ -83,6 +83,6 @@ describe('AccountSheetComponent removal', () => {
     expect(text(el.querySelector('.error-text'))).toBe(
       '2 session(s) Mother Claude started still run under this account. Stop them first.',
     );
-    expect(el.querySelector('a[href="/settings/api"]')).toBeNull();
+    expect(el.querySelector('a[href="/http-api"]')).toBeNull();
   });
 });

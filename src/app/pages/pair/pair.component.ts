@@ -75,7 +75,7 @@ function groupCode(code: string): string {
             <strong>{{ 'Settings › Phone & devices' | t }}</strong
             >{{ ", choose LAN or Internet, and scan the QR code with the phone's camera." | t }}
           </p>
-          <a class="btn primary" routerLink="/settings/devices"
+          <a class="btn primary" routerLink="/devices"
             ><mc-icon name="qr" /> {{ 'Open Phone & devices' | t }}</a
           >
         </div>

@@ -1,13 +1,14 @@
 <div class="page backup-page">
-  <mc-accounts-head />
   <header class="hero">
     <div class="hero-text">
-      <p class="lede">
-        {{
-          "Encrypted backups of each Claude account's data, in a folder you choose. The same folder carries your conversations to your other computers: back up on one, pull on the other."
+      <mc-page-head
+        [heading]="'Backups' | t"
+        [lede]="
+          'Encrypted backups of each Claude account\'s data, in a folder you choose. The same folder carries your conversations to your other computers: back up on one, pull on the other.'
             | t
-        }}
-      </p>
+        "
+        help="backup"
+      />
     </div>
     <div class="flow-art" aria-hidden="true">
       <span class="node"><mc-icon name="monitor" [size]="20" /></span>

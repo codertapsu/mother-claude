@@ -14,7 +14,7 @@ export interface HelpGroup {
 /** A button to the page a section is about ("Open Backups"). */
 export interface HelpLink {
   label: string;
-  /** A route path: `/accounts/backups`, or `/help/<topic>` for another topic. */
+  /** A route path: `/backups`, or `/help/<topic>` for another topic. */
   path: string;
   fragment?: string;
 }

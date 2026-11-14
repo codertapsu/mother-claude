@@ -4,6 +4,7 @@ import { provideRouter } from '@angular/router';
 import { MachinesService } from '../../core/machines.service';
 import {
   FakeBackend,
+  asDesktop,
   flush,
   serveAccounts,
   useFakeServer,
@@ -67,19 +68,52 @@ describe('MoreComponent', () => {
     const el = await render();
     expect(rows(el).map((r) => text(r.querySelector('.label')))).toEqual([
       'Computers',
+      'Phone & devices',
+      'Browser',
+      'HTTP API',
       'Accounts',
+      'Backups',
       'Settings',
       'Help',
     ]);
     expect(rows(el).map((r) => r.getAttribute('href'))).toEqual([
       '/computers',
+      '/devices',
+      '/browser',
+      '/http-api',
       '/accounts',
+      '/backups',
       '/settings',
       '/help',
     ]);
     expect(line(el, 'Help')).toBe('How to use every feature, step by step');
     // A phone reads Machines' summary here (the desktop's shell keeps it).
     expect(backend.calls).toContain('GET /machines');
+  });
+
+  it('says what each place that was a connection, and Backups, is for', async () => {
+    const el = await render();
+    // A phone reads itself and the devices paired there.
+    expect(line(el, 'Phone & devices')).toBe('This device and the others paired');
+    expect(line(el, 'Browser')).toBe('Sessions in your browser: site modes, approvals');
+    expect(line(el, 'HTTP API')).toBe('Drive Claude from scripts and tools');
+    expect(line(el, 'Backups')).toBe(
+      'Back up, restore and carry conversations to another computer',
+    );
+    // Nothing is read for them.
+    for (const call of ['GET /devices', 'GET /browser', 'GET /bridge', 'GET /backup']) {
+      expect(backend.calls).not.toContain(call);
+    }
+  });
+
+  it('gives the desktop Sessions started elsewhere too, and pairing on Phone & devices', async () => {
+    asDesktop();
+    const el = await render();
+    expect(rows(el).map((r) => r.getAttribute('href'))).toContain('/elsewhere');
+    expect(line(el, 'Sessions started elsewhere')).toBe(
+      'Answer VS Code and terminal sessions from here',
+    );
+    expect(line(el, 'Phone & devices')).toBe('Pair a phone, internet access, the paired devices');
   });
 
   it('says which computers are online and what needs fixing, with the red dot', async () => {

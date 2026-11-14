@@ -11,7 +11,7 @@ import { isStillPending } from './core/pair-requests.service';
 import { FakeBackend, asDesktop, flush, useFakeServer } from './core/mock/fake-server.testing';
 import { setActiveMock } from './core/mock/mock-api';
 import { SessionSummary } from './core/models';
-import { PLACES } from './core/nav';
+import { PLACES, sidebarPlaces } from './core/nav';
 import { RealtimeService } from './core/realtime.service';
 import { UpdaterService } from './core/updater.service';
 import { machinesView, peer } from './pages/machines/machines.testing';
@@ -84,24 +84,45 @@ describe('AppComponent: the navigation, from the map', () => {
 
   it('draws the sidebar: the work, a line, what you look after, and Help at the foot', async () => {
     await render();
-    expect(sideLinks().map((a) => text(a))).toEqual(PLACES.map((p) => p.label));
+    expect(sideLinks().map((a) => text(a))).toEqual(sidebarPlaces(false).map((p) => p.label));
     expect(sideLinks().map((a) => a.getAttribute('href'))).toEqual([
       '/',
       '/inbox',
       '/teams',
       '/computers',
+      '/devices',
+      '/browser',
+      '/http-api',
       '/accounts',
+      '/backups',
       '/settings',
     ]);
     // One line, between Teams and Computers; no group headings.
     const nav = el().querySelector('aside .side-nav')!;
     const kids = [...nav.children].map((c) => (c.classList.contains('nav-sep') ? '—' : text(c)));
-    expect(kids).toEqual(['Sessions', 'Inbox', 'Teams', '—', 'Computers', 'Accounts', 'Settings']);
+    expect(kids).toEqual([
+      'Sessions',
+      'Inbox',
+      'Teams',
+      '—',
+      'Computers',
+      'Phone & devices',
+      'Browser',
+      'HTTP API',
+      'Accounts',
+      'Backups',
+      'Settings',
+    ]);
     expect(el().querySelector('.nav-group')).toBeNull();
     expect(text(el().querySelector('aside .help-link'))).toBe('Help');
+    // The plugin for sessions started elsewhere is the desktop app's.
+    asDesktop();
+    await settle();
+    expect(sideLinks().map((a) => text(a))).toEqual(PLACES.map((p) => p.label));
+    expect(sideLinks()[5].getAttribute('href')).toBe('/elsewhere');
   });
 
-  it("marks the place of the page shown, its tabs' and connections' pages too", async () => {
+  it("marks the place of the page shown, its tabs' and its own pages too", async () => {
     await render('/agents');
     expect(current(sideLinks())).toEqual(['Sessions']);
     for (const [url, place] of [
@@ -113,8 +134,11 @@ describe('AppComponent: the navigation, from the map', () => {
       ['/teams/capacity', 'Teams'],
       ['/teams/tm_0123456789ab', 'Teams'],
       ['/computers/setup', 'Computers'],
-      ['/accounts/backups', 'Accounts'],
-      ['/settings/devices', 'Settings'],
+      ['/devices', 'Phone & devices'],
+      ['/browser', 'Browser'],
+      ['/http-api?server=work', 'HTTP API'],
+      ['/accounts/changes', 'Accounts'],
+      ['/backups', 'Backups'],
       ['/settings/tools', 'Settings'],
     ]) {
       await go(url);
@@ -137,9 +161,12 @@ describe('AppComponent: the navigation, from the map', () => {
     expect(current(barLinks())).toEqual(['Teams']);
     for (const url of [
       '/computers/options',
+      '/devices',
+      '/http-api',
       '/accounts/usage',
+      '/backups',
       '/settings',
-      '/settings/api',
+      '/settings/tools',
       '/help',
       '/more',
     ]) {
@@ -162,7 +189,15 @@ describe('AppComponent: the navigation, from the map', () => {
     expect(title()).toBe('Computers');
     await go('/accounts/changes');
     expect(title()).toBe('Accounts');
-    await go('/settings/devices');
+    await go('/devices');
+    expect(title()).toBe('Phone & devices');
+    await go('/elsewhere');
+    expect(title()).toBe('Sessions started elsewhere');
+    await go('/http-api?server=work');
+    expect(title()).toBe('HTTP API');
+    await go('/backups');
+    expect(title()).toBe('Backups');
+    await go('/settings/tools');
     expect(title()).toBe('Settings');
   });
 

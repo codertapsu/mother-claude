@@ -105,8 +105,7 @@ interface ProjectRow {
  * data…* on each account, from the desktop or a paired phone (§13.9). On
  * the desktop only: adding, signing in (a browser login or a token),
  * re-checking and removing them; each one's plugin for sessions started
- * elsewhere in a line, to the table in Settings › Sessions started
- * elsewhere.
+ * elsewhere in a line, to the table in Sessions started elsewhere.
  */
 @Component({
   selector: 'mc-accounts',

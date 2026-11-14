@@ -1,5 +1,4 @@
 import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
-import { RouterLink } from '@angular/router';
 
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
@@ -9,7 +8,6 @@ import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { AccountView, ForeignControlStatus } from '../../core/models';
 import { RealtimeService } from '../../core/realtime.service';
-import { IconComponent } from '../../shared/icon.component';
 import { PageHeadComponent } from '../../shared/page-head.component';
 import { RelativeTimePipe } from '../../shared/time.pipes';
 import { shortPath } from '../../shared/util';
@@ -32,7 +30,8 @@ interface Row {
 }
 
 /**
- * *Settings › Sessions started elsewhere* (docs/UI-REDESIGN.md §6.7): the
+ * *Sessions started elsewhere* (docs/UI-REDESIGN.md §6.7), a place of its
+ * own since 2026-11-14 (§11; Settings' before): the
  * Mother Claude plugin that lets you answer the sessions you start in a
  * terminal, VS Code or JetBrains from here — approve them, answer their
  * questions, send them messages, interrupt them — in every config
@@ -44,12 +43,9 @@ interface Row {
  */
 @Component({
   selector: 'mc-settings-elsewhere',
-  imports: [IconComponent, PageHeadComponent, RelativeTimePipe, RouterLink, TPipe],
+  imports: [PageHeadComponent, RelativeTimePipe, TPipe],
   template: `
     <div class="page narrow">
-      <a class="btn ghost small back" routerLink="/settings">
-        <mc-icon name="back" [size]="15" /> {{ 'Settings' | t }}
-      </a>
       <mc-page-head
         [heading]="'Sessions started elsewhere' | t"
         [lede]="
@@ -184,9 +180,6 @@ interface Row {
   `,
   styles: [
     `
-      .back {
-        margin-bottom: 0.4rem;
-      }
       .how {
         margin: 0 0 0.75rem;
       }

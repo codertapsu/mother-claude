@@ -48,11 +48,11 @@
             <mc-identity-warning [account]="r.a" (started)="managing.set(r.a.id)" />
             <span class="muted small">{{ liveText(r.live) }}</span>
             @if (r.hooks) {
-              <!-- The Mother Claude plugin, in one line: Settings › Sessions
-                   started elsewhere holds it for every directory. -->
+              <!-- The Mother Claude plugin, in one line: Sessions started elsewhere
+                   holds it for every directory. -->
               <span class="small elsewhere">
                 @if (isDesktop()) {
-                  <a routerLink="/settings/elsewhere">{{ r.hooks }} ›</a>
+                  <a routerLink="/elsewhere">{{ r.hooks }} ›</a>
                 } @else {
                   <span class="muted">{{ r.hooks }}</span>
                 }

@@ -138,7 +138,7 @@ export class NoticeService {
     const action = d.bridge
       ? {
           label: tr('Open Settings › HTTP API'),
-          run: () => void this.router.navigate(['/settings/api']),
+          run: () => void this.router.navigate(['/http-api']),
         }
       : retry && d.retry
         ? { label: tr('Retry'), run: retry }

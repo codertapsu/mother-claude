@@ -1442,7 +1442,7 @@ export interface PairPendingStatus {
   message?: string;
 }
 
-/** One recent action of a device (Settings › Phone & devices). */
+/** One recent action of a device (Phone & devices). */
 export interface DeviceAction {
   at: number;
   /** e.g. `POST /api/sessions/{id}/respond`. */

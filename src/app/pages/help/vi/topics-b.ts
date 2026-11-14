@@ -129,7 +129,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Tài khoản token không có dòng này: các phiên của nó dùng plugin của tài khoản Mặc định.',
         ],
         links: [
-          { label: 'Mở Phiên bắt đầu ở nơi khác', path: '/settings/elsewhere' },
+          { label: 'Mở Phiên bắt đầu ở nơi khác', path: '/elsewhere' },
           { label: 'Xem “Phiên bắt đầu ở nơi khác”', path: '/help/foreign-sessions' },
         ],
       },
@@ -379,7 +379,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'iCloud Drive: nhấp chuột phải vào thư mục và chọn **Keep Downloaded** (luôn giữ bản tải về), để kéo về và khôi phục không bao giờ phải chờ. OneDrive: **Always keep on this device** (luôn giữ trên thiết bị này). Google Drive: dùng một thư mục trong My Drive (Drive của tôi).',
           'Về sau, thư mục, cụm mật khẩu và lịch nằm ở mục **Cài đặt** trên cùng trang này. Để ngừng sao lưu, hãy xóa trống ô thư mục rồi lưu.',
         ],
-        links: [{ label: 'Mở Bản sao lưu', path: '/accounts/backups' }],
+        links: [{ label: 'Mở Bản sao lưu', path: '/backups' }],
       },
       {
         heading: 'Tổng quan bản sao lưu',
@@ -619,7 +619,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         notes: [
           'Việc ghép nối làm trong ứng dụng máy tính, hoặc trên điện thoại được phép làm thao tác nguy hiểm.',
         ],
-        links: [{ label: 'Mở Trình duyệt', path: '/settings/browser' }],
+        links: [{ label: 'Mở Trình duyệt', path: '/browser' }],
       },
       {
         heading: 'Chọn những gì phiên được làm trên một trang',
@@ -993,7 +993,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Trang này hiện số **Công cụ**, **Phiên đã kết nối (15 phút qua)**, việc **Phiên do Mother Claude khởi chạy** có công cụ hay không, plugin, và **Lệnh gọi gần đây**.',
           'Khi plugin chưa được cài, hoặc cũ hơn ứng dụng này, một dòng sẽ báo điều đó, kèm liên kết tới **Phiên bắt đầu ở nơi khác**.',
         ],
-        links: [{ label: 'Mở Phiên bắt đầu ở nơi khác', path: '/settings/elsewhere' }],
+        links: [{ label: 'Mở Phiên bắt đầu ở nơi khác', path: '/elsewhere' }],
       },
       {
         heading: 'Yêu cầu duyệt',
@@ -1043,7 +1043,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Để áp dụng thay đổi về sau, nhấn **Khởi động lại với cài đặt này**. **Đổi cuộc trò chuyện** chỉ đổi cuộc trò chuyện.',
           '**Dừng** sẽ đóng cổng; các cuộc trò chuyện đang chạy vẫn tiếp tục.',
         ],
-        links: [{ label: 'Mở HTTP API', path: '/settings/api' }],
+        links: [{ label: 'Mở HTTP API', path: '/http-api' }],
       },
       {
         heading: 'Dùng thử',

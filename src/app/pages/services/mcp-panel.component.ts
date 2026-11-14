@@ -91,8 +91,7 @@ const POLL_MS = 5000;
           <p class="notice warn hint">
             <mc-icon name="plug" [size]="14" />
             <span
-              >{{ h }}
-              <a routerLink="/settings/elsewhere">{{ 'Sessions started elsewhere' | t }}</a></span
+              >{{ h }} <a routerLink="/elsewhere">{{ 'Sessions started elsewhere' | t }}</a></span
             >
           </p>
         }

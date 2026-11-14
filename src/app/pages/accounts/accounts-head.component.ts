@@ -10,7 +10,8 @@ import { AccountAddSheetComponent } from './account-add-sheet.component';
 /**
  * The head of every Accounts page (docs/UI-REDESIGN.md §6.6): the name,
  * *Add account* on the desktop, one sentence with *How it works ›*, and the
- * tabs — Accounts · Usage · Backups · Recent changes.
+ * tabs — Accounts · Usage · Recent changes. Backups is a place of its own
+ * (§11, 2026-11-14).
  */
 @Component({
   selector: 'mc-accounts-head',
@@ -19,10 +20,7 @@ import { AccountAddSheetComponent } from './account-add-sheet.component';
   template: `
     <mc-page-head
       [heading]="'Accounts' | t"
-      [lede]="
-        'Your Claude accounts, how much of each plan is left, their backups, and what you can undo.'
-          | t
-      "
+      [lede]="'Your Claude accounts, how much of each plan is left, and what you can undo.' | t"
       help="accounts"
     >
       @if (isDesktop()) {

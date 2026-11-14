@@ -54,7 +54,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 /**
- * *Settings › Phone & devices* (docs/UI-REDESIGN.md §6.7): on the desktop,
+ * *Phone & devices* (docs/UI-REDESIGN.md §6.7, §11): on the desktop,
  * everything about reaching Mother Claude from other devices — pairing QR
  * codes (LAN or internet), internet access through a tunnel (detection +
  * copyable commands), the paired devices with what each may do. A device

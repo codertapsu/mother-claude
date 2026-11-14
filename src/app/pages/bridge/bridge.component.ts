@@ -9,7 +9,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { AccountsService } from '../../core/accounts.service';
@@ -90,17 +90,12 @@ interface ClaudeLine {
     ConversationFilesComponent,
     IconComponent,
     PageHeadComponent,
-    RouterLink,
     TPipe,
   ],
   template: `
     <div class="page narrow">
-      <a class="btn ghost small back" routerLink="/settings">
-        <mc-icon name="back" [size]="15" /> {{ 'Settings' | t }}
-      </a>
       <mc-page-head
         [heading]="'HTTP API' | t"
-        [named]="true"
         [lede]="
           'A local HTTP API for Claude on this computer — conversations, turns, live streams, tool approvals and images — off until you start it.'
             | t
@@ -550,9 +545,6 @@ interface ClaudeLine {
   `,
   styles: [
     `
-      .back {
-        margin-bottom: 0.4rem;
-      }
       h2 {
         margin: 26px 0 4px;
         font-size: 0.85rem;

@@ -543,7 +543,7 @@
   "Rate limits teams hit": "Giới hạn tốc độ mà các nhóm gặp",
   "Teams › Capacity": "Nhóm › Công suất",
   "says which role sessions wait for a window.": "cho biết những phiên vai trò nào đang chờ một khung thời gian.",
-  "Your Claude accounts, how much of each plan is left, their backups, and what you can undo.": "Các tài khoản Claude của bạn, mỗi gói còn lại bao nhiêu, các bản sao lưu của chúng, và những gì bạn có thể hoàn tác.",
+  "Your Claude accounts, how much of each plan is left, and what you can undo.": "Các tài khoản Claude của bạn, mỗi gói còn lại bao nhiêu, và những gì bạn có thể hoàn tác.",
   "Undo is possible for 7 days": "Có thể hoàn tác trong 7 ngày",
   "No change yet": "Chưa có thay đổi nào",
   "Moves and copies between accounts, backups, restores, pulls and deletes show here, with Undo while it is possible.": "Các lần chuyển và sao chép giữa các tài khoản, sao lưu, khôi phục, kéo về và xóa sẽ hiện ở đây, kèm Hoàn tác khi còn có thể.",
