@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
@@ -6,7 +7,7 @@ import { AuthService } from '../../core/auth.service';
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { MachinesService } from '../../core/machines.service';
-import { NavEntry, moreEntries } from '../../core/nav';
+import { HELP_ENTRY, NavGroupPlaces, moreGroups } from '../../core/nav';
 import { NavBadges } from '../../core/nav-badges';
 import { NowService } from '../../core/now.service';
 import { primaryWindows, windowPct } from '../../core/plan-usage';
@@ -18,45 +19,63 @@ import { IconComponent } from '../../shared/icon.component';
 import { PageHeadComponent } from '../../shared/page-head.component';
 
 /**
- * The phone's "More" tab: what you look after — Computers, Phone &
- * devices, Sessions started elsewhere (the desktop's), Browser, HTTP API,
- * Accounts, Backups, Settings — and Help, from the map (core/nav.ts), each
- * with one line: how it stands where this device already knows it (which
- * computers are online and what needs fixing, how much of each account's
- * plan is used, the notifications and the theme), else what it is for.
- * Only what this device already knows (and Machines' summary) is read.
+ * The phone's "More" tab: the sidebar's groups after the work, under the
+ * same headings — Connections (Computers, Phone & devices, Sessions
+ * started elsewhere on the desktop, Browser, HTTP API) and Manage
+ * (Accounts, Backups, Settings) — then Help, from the map (core/nav.ts),
+ * each with one line: how it stands where this device already knows it
+ * (which computers are online and what needs fixing, how much of each
+ * account's plan is used, the notifications and the theme), else what it
+ * is for. Only what this device already knows (and Machines' summary) is
+ * read.
  */
 @Component({
   selector: 'mc-more',
-  imports: [RouterLink, IconComponent, PageHeadComponent, TPipe],
+  imports: [NgTemplateOutlet, RouterLink, IconComponent, PageHeadComponent, TPipe],
   template: `
     <div class="page narrow">
       <mc-page-head [heading]="'More' | t" />
-      <div class="card list">
-        @for (e of entries(); track e.id) {
-          <a class="list-row entry" [routerLink]="e.path" [attr.aria-label]="badges.label(e)">
-            <span class="ico"><mc-icon [name]="e.icon" /></span>
-            <span class="text">
-              <span class="label">{{ e.label | t }}</span>
-              @if (line(e.id); as l) {
-                <span class="muted small state">{{ l }}</span>
-              }
-            </span>
-            @if (badges.dot(e.badge)) {
-              <span class="count-badge dot" aria-hidden="true"></span>
-            }
-            <mc-icon name="chevronRight" [size]="16" />
-          </a>
-        }
+      @for (g of groups(); track g.id) {
+        <h2 [id]="'more-' + g.id">{{ g.label | t }}</h2>
+        <div class="card list" role="group" [attr.aria-labelledby]="'more-' + g.id">
+          @for (e of g.places; track e.id) {
+            <ng-container *ngTemplateOutlet="row; context: { $implicit: e }" />
+          }
+        </div>
+      }
+      <div class="card list help">
+        <ng-container *ngTemplateOutlet="row; context: { $implicit: help }" />
       </div>
       <p class="muted small conn">{{ 'Live updates: {state}' | t: { state: connLabel() } }}</p>
     </div>
+
+    <ng-template #row let-e>
+      <a class="list-row entry" [routerLink]="e.path" [attr.aria-label]="badges.label(e)">
+        <span class="ico"><mc-icon [name]="e.icon" /></span>
+        <span class="text">
+          <span class="label">{{ e.label | t }}</span>
+          @if (line(e.id); as l) {
+            <span class="muted small state">{{ l }}</span>
+          }
+        </span>
+        @if (badges.dot(e.badge)) {
+          <span class="count-badge dot" aria-hidden="true"></span>
+        }
+        <mc-icon name="chevronRight" [size]="16" />
+      </a>
+    </ng-template>
   `,
   styles: [
     `
+      h2:first-of-type {
+        margin-top: 0.25rem;
+      }
       .list {
         padding-top: 0;
         padding-bottom: 0;
+      }
+      .help {
+        margin-top: 1rem;
       }
       .entry {
         color: var(--text);
@@ -109,7 +128,9 @@ export class MoreComponent {
   protected readonly badges = inject(NavBadges);
 
   protected readonly connLabel = computed(() => connectionLabel(this.realtime.connection()));
-  protected readonly entries = computed<NavEntry[]>(() => moreEntries(this.auth.isDesktop()));
+  /** The sidebar's groups after the work, then Help on its own. */
+  protected readonly groups = computed<NavGroupPlaces[]>(() => moreGroups(this.auth.isDesktop()));
+  protected readonly help = HELP_ENTRY;
 
   /** Computers: which are online, and what needs fixing. */
   private readonly computersLine = computed(() => {

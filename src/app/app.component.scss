@@ -278,6 +278,7 @@
     flex-direction: column;
     gap: 1rem;
     padding: 1.1rem 0.75rem 0.9rem;
+    overflow-y: auto;
     background: var(--panel);
     border-right: 1px solid var(--border);
   }
@@ -317,12 +318,46 @@
     border-radius: 0.3rem;
     padding: 0.05rem 0.3rem;
   }
+  /* The places, in their groups. A window too short for them all scrolls
+     them between Jump to… and the foot (which stay), with a shade at an
+     edge that has more: the panel-coloured covers move with the content
+     and hide the shades at either end. The padding keeps focus rings in. */
   .side-nav {
+    --nav-shade: color-mix(in srgb, var(--text) 16%, transparent);
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    /* A few places always show; shorter still, the whole sidebar scrolls. */
+    min-height: 7.5rem;
+    margin: -0.25rem -0.35rem;
+    padding: 0.25rem 0.35rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    background:
+      linear-gradient(var(--panel) 30%, transparent) top / 100% 1.25rem no-repeat local,
+      linear-gradient(transparent, var(--panel) 70%) bottom / 100% 1.25rem no-repeat local,
+      radial-gradient(farthest-side at 50% 0, var(--nav-shade), transparent) top / 100% 0.5rem
+        no-repeat,
+      radial-gradient(farthest-side at 50% 100%, var(--nav-shade), transparent) bottom / 100% 0.5rem
+        no-repeat;
+  }
+  .nav-group {
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
-    flex: 1;
-    overflow-y: auto;
+  }
+  /* A group's name: small and muted, above its places. */
+  .nav-heading {
+    padding: 0.15rem 0.65rem 0.3rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .side-nav a {
     display: flex;
@@ -347,14 +382,18 @@
   .side-nav a.active mc-icon {
     color: var(--accent-text);
   }
+  /* A long name (Sessions started elsewhere) wraps onto a second line. */
   .side-nav .label {
     flex: 1;
+    min-width: 0;
+    padding: 0.3rem 0;
+    line-height: 1.25;
   }
-  /* The line between the work and what you look after. */
+  /* The line between two groups. */
   .nav-sep {
     flex: 0 0 auto;
     height: 1px;
-    margin: 0.55rem 0.65rem;
+    margin: 0.6rem 0.65rem 0.5rem;
     background: var(--border);
   }
   .side-foot {

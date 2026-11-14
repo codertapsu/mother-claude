@@ -1,9 +1,12 @@
 import { routePaths as pathsOf, routes } from '../app.routes';
+import { VI } from '../i18n/vi';
 import { helpTopic } from '../pages/help/help-topics';
 import {
   HELP_ENTRY,
   LINK_ONLY,
   MORE_ENTRY,
+  NAV_GROUPS,
+  PAGE_TITLES,
   PLACES,
   REDIRECTED,
   SETTINGS_PAGES,
@@ -11,8 +14,10 @@ import {
   mapPaths,
   moreActive,
   moreEntries,
+  moreGroups,
   placeOf,
   sectionOf,
+  sidebarGroups,
   sidebarPlaces,
   tabsOf,
   titleOf,
@@ -78,7 +83,56 @@ describe('the map (core/nav.ts)', () => {
     expect(tabsOf('no-such-place')).toEqual([]);
   });
 
-  it('has the work, then what you look after, each connection a place of its own', () => {
+  it('groups the places for a first look: Work, Connections, Manage', () => {
+    const groups = (desktop: boolean) =>
+      sidebarGroups(desktop).map((g) => [g.label, g.places.map((p) => p.label)]);
+    expect(groups(true)).toEqual([
+      ['Work', ['Sessions', 'Inbox', 'Teams']],
+      [
+        'Connections',
+        ['Computers', 'Phone & devices', 'Sessions started elsewhere', 'Browser', 'HTTP API'],
+      ],
+      ['Manage', ['Accounts', 'Backups', 'Settings']],
+    ]);
+    // A phone's leave out the desktop's own place (the plugin's).
+    expect(groups(false)[1]).toEqual([
+      'Connections',
+      ['Computers', 'Phone & devices', 'Browser', 'HTTP API'],
+    ]);
+    expect(NAV_GROUPS.map((g) => g.id)).toEqual(['work', 'connections', 'manage']);
+    // Every place is in a group the sidebar draws, and the flat list is the
+    // groups' places in order (a place listed out of order still shows in
+    // its own group).
+    for (const p of PLACES) {
+      expect(
+        NAV_GROUPS.map((g) => g.id),
+        p.id,
+      ).toContain(p.group);
+    }
+    for (const desktop of [true, false]) {
+      expect(sidebarPlaces(desktop)).toEqual(sidebarGroups(desktop).flatMap((g) => g.places));
+    }
+  });
+
+  it('names every place, tab, group and page in Vietnamese too', () => {
+    const labels = [
+      ...NAV_GROUPS.map((g) => g.label),
+      ...PLACES.flatMap((p) => [p.label, ...(p.tabs ?? []).map((t) => t.label)]),
+      ...SETTINGS_PAGES.map((p) => p.label),
+      HELP_ENTRY.label,
+      MORE_ENTRY.label,
+      ...Object.values(PAGE_TITLES),
+    ];
+    // Shown through `tr(label)`, out of the i18n check's sight.
+    for (const label of labels) expect(VI[label], label).toBeTruthy();
+    expect(['Work', 'Connections', 'Manage'].map((l) => VI[l])).toEqual([
+      'Công việc',
+      'Kết nối',
+      'Quản lý',
+    ]);
+  });
+
+  it('has the work, then the connections, then what you manage, each a place of its own', () => {
     expect(sidebarPlaces(true).map((p) => [p.label, p.path])).toEqual([
       ['Sessions', '/'],
       ['Inbox', '/inbox'],
@@ -167,8 +221,12 @@ describe('the map (core/nav.ts)', () => {
     }
   });
 
-  it("draws the phone's bar as the work, and More as the rest in the same order", () => {
+  it("draws the phone's bar as the work, and More as the rest in the same groups", () => {
     expect(barPlaces().map((p) => p.label)).toEqual(['Sessions', 'Inbox', 'Teams']);
+    for (const desktop of [true, false]) {
+      expect(moreGroups(desktop)).toEqual(sidebarGroups(desktop).slice(1));
+    }
+    expect(moreGroups(true).map((g) => g.label)).toEqual(['Connections', 'Manage']);
     expect(moreEntries(true).map((p) => p.label)).toEqual([
       'Computers',
       'Phone & devices',

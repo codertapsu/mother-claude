@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { page } from 'vitest/browser';
 
 import { AppComponent } from './app.component';
 import { JumpService, applePlatform, jumpShortcut } from './core/jump';
@@ -82,7 +83,7 @@ describe('AppComponent: the navigation, from the map', () => {
       TestBed.inject(RealtimeService) as unknown as { replaceStore(l: unknown[]): void }
     ).replaceStore(list);
 
-  it('draws the sidebar: the work, a line, what you look after, and Help at the foot', async () => {
+  it('draws the sidebar in three groups, each under its heading, and Help at the foot', async () => {
     await render();
     expect(sideLinks().map((a) => text(a))).toEqual(sidebarPlaces(false).map((p) => p.label));
     expect(sideLinks().map((a) => a.getAttribute('href'))).toEqual([
@@ -97,29 +98,77 @@ describe('AppComponent: the navigation, from the map', () => {
       '/backups',
       '/settings',
     ]);
-    // One line, between Teams and Computers; no group headings.
+    // A line between two groups; each group names itself (for screen
+    // readers too) above its places.
     const nav = el().querySelector('aside .side-nav')!;
-    const kids = [...nav.children].map((c) => (c.classList.contains('nav-sep') ? '—' : text(c)));
+    const kids = [...nav.children].map((c) =>
+      c.classList.contains('nav-sep')
+        ? '—'
+        : [
+            text(c.querySelector('.nav-heading')),
+            ...[...c.querySelectorAll('a')].map((a) => text(a)),
+          ],
+    );
     expect(kids).toEqual([
-      'Sessions',
-      'Inbox',
-      'Teams',
+      ['Work', 'Sessions', 'Inbox', 'Teams'],
       '—',
-      'Computers',
-      'Phone & devices',
-      'Browser',
-      'HTTP API',
-      'Accounts',
-      'Backups',
-      'Settings',
+      ['Connections', 'Computers', 'Phone & devices', 'Browser', 'HTTP API'],
+      '—',
+      ['Manage', 'Accounts', 'Backups', 'Settings'],
     ]);
-    expect(el().querySelector('.nav-group')).toBeNull();
+    for (const group of nav.querySelectorAll('.nav-group')) {
+      expect(group.getAttribute('role')).toBe('group');
+      const heading = group.querySelector('.nav-heading')!;
+      expect(group.getAttribute('aria-labelledby')).toBe(heading.id);
+    }
+    expect(nav.querySelector('.nav-sep')?.getAttribute('aria-hidden')).toBe('true');
     expect(text(el().querySelector('aside .help-link'))).toBe('Help');
     // The plugin for sessions started elsewhere is the desktop app's.
     asDesktop();
     await settle();
     expect(sideLinks().map((a) => text(a))).toEqual(PLACES.map((p) => p.label));
     expect(sideLinks()[5].getAttribute('href')).toBe('/elsewhere');
+    expect(text(nav.querySelectorAll('.nav-group')[1])).toContain('Sessions started elsewhere');
+  });
+
+  it('scrolls the places on a short laptop screen, never clipping them or the foot', async () => {
+    const before = { width: window.innerWidth, height: window.innerHeight };
+    try {
+      await page.viewport(1280, 1400);
+      await render();
+      const side = el().querySelector<HTMLElement>('aside.sidebar')!;
+      const nav = side.querySelector<HTMLElement>('.side-nav')!;
+      const scrolls = (e: HTMLElement) => e.scrollHeight > e.clientHeight + 1;
+      expect(getComputedStyle(side).display).toBe('flex');
+      // Tall enough: nothing scrolls.
+      expect(scrolls(nav)).toBe(false);
+      expect(scrolls(side)).toBe(false);
+
+      // Short: the places scroll between Jump to… and the foot, which stay.
+      await page.viewport(1280, 460);
+      await settle();
+      expect(scrolls(nav)).toBe(true);
+      expect(scrolls(side)).toBe(false);
+      const jump = side.querySelector('.jump-btn')!.getBoundingClientRect();
+      const foot = side.querySelector('.side-foot')!.getBoundingClientRect();
+      const box = nav.getBoundingClientRect();
+      expect(box.top).toBeGreaterThanOrEqual(jump.bottom - 1);
+      expect(box.bottom).toBeLessThanOrEqual(foot.top + 1);
+      expect(foot.bottom).toBeLessThanOrEqual(window.innerHeight + 1);
+      // The last place is there, scrolled to.
+      nav.scrollTop = nav.scrollHeight;
+      const last = sideLinks().at(-1)!.getBoundingClientRect();
+      expect(last.bottom).toBeLessThanOrEqual(box.bottom + 1);
+
+      // Shorter than even a few places and the foot: the whole sidebar
+      // scrolls instead of cutting the foot off.
+      await page.viewport(1280, 260);
+      await settle();
+      expect(nav.clientHeight).toBeGreaterThan(100);
+      expect(scrolls(side)).toBe(true);
+    } finally {
+      await page.viewport(before.width, before.height);
+    }
   });
 
   it("marks the place of the page shown, its tabs' and its own pages too", async () => {

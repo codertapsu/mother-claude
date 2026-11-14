@@ -1,18 +1,19 @@
 import type { IconName } from '../shared/icon.component';
 
 /**
- * The app's map (docs/UI-REDESIGN.md §6.1, §10.1, §11): the places —
- * Sessions, Inbox and Teams for the work; Computers, Phone & devices,
- * Sessions started elsewhere, Browser, HTTP API, Accounts, Backups and
- * Settings for what you look after — with their tabs, Settings' own pages,
- * and Help. The desktop sidebar, the phone's bottom bar and its More list,
- * the phone's top-bar title and a place's tabs (`mc-hub-tabs`) all read
- * it; nothing else names the places. Routes and this map move together;
- * an old route redirects to where its page is now ({@link REDIRECTED}).
+ * The app's map (docs/UI-REDESIGN.md §6.1, §10.1, §11): the places in
+ * three groups — **Work**: Sessions, Inbox, Teams; **Connections**:
+ * Computers, Phone & devices, Sessions started elsewhere, Browser, HTTP
+ * API; **Manage**: Accounts, Backups, Settings — with their tabs,
+ * Settings' own pages, and Help. The desktop sidebar, the phone's bottom
+ * bar and its More list, the phone's top-bar title and a place's tabs
+ * (`mc-hub-tabs`) all read it; nothing else names the places. Routes and
+ * this map move together; an old route redirects to where its page is now
+ * ({@link REDIRECTED}).
  *
- * One map for the desktop and the phone: the sidebar lists the work, a
- * line, then what you look after; the phone's bar shows the work and
- * *More* the rest, in the same order, then Help.
+ * One map for the desktop and the phone: the sidebar lists each group
+ * under its small heading, a line between them; the phone's bar shows the
+ * work, and *More* the other groups in the same order, then Help.
  *
  * Labels are English, translated where they are shown (`tr(entry.label)`).
  */
@@ -69,9 +70,28 @@ export interface NavSettingsPage {
   help: string;
 }
 
-/** The sidebar's two groups, a line between them: the work, and what you
- * look after. The phone's bar shows the first, More the second. */
-export type NavGroup = 'work' | 'care';
+/** The sidebar's groups: the work, what works with Mother Claude, and what
+ * you manage. The phone's bar shows the first, More the others. */
+export type NavGroup = 'work' | 'connections' | 'manage';
+
+/** A group's heading (English). */
+export interface NavGroupInfo {
+  id: NavGroup;
+  label: string;
+}
+
+/** The groups in the sidebar's order, each under its heading (§11,
+ * 2026-11-14). */
+export const NAV_GROUPS: readonly NavGroupInfo[] = [
+  { id: 'work', label: 'Work' },
+  { id: 'connections', label: 'Connections' },
+  { id: 'manage', label: 'Manage' },
+];
+
+/** A group with the places of it a client may open, in order. */
+export interface NavGroupPlaces extends NavGroupInfo {
+  places: NavPlace[];
+}
 
 /** A place of the sidebar and of the phone's navigation. */
 export interface NavPlace extends NavEntry {
@@ -80,7 +100,7 @@ export interface NavPlace extends NavEntry {
   tabs?: readonly NavTab[];
 }
 
-/** The places, in the sidebar's order. */
+/** The places, each group's in the sidebar's order. */
 export const PLACES: readonly NavPlace[] = [
   {
     id: 'sessions',
@@ -128,7 +148,7 @@ export const PLACES: readonly NavPlace[] = [
     label: 'Computers',
     icon: 'monitor',
     badge: 'machines',
-    group: 'care',
+    group: 'connections',
     help: 'machines-setup',
     // Its setup (`/computers/setup`) too.
     sections: ['computers'],
@@ -145,7 +165,7 @@ export const PLACES: readonly NavPlace[] = [
     path: '/devices',
     label: 'Phone & devices',
     icon: 'phone',
-    group: 'care',
+    group: 'connections',
     help: 'phone',
     sections: ['devices'],
   },
@@ -155,7 +175,7 @@ export const PLACES: readonly NavPlace[] = [
     label: 'Sessions started elsewhere',
     icon: 'plug',
     desktopOnly: true,
-    group: 'care',
+    group: 'connections',
     help: 'foreign-sessions',
     sections: ['elsewhere'],
   },
@@ -164,7 +184,7 @@ export const PLACES: readonly NavPlace[] = [
     path: '/browser',
     label: 'Browser',
     icon: 'globe',
-    group: 'care',
+    group: 'connections',
     help: 'browser',
     sections: ['browser'],
   },
@@ -174,7 +194,7 @@ export const PLACES: readonly NavPlace[] = [
     path: '/http-api',
     label: 'HTTP API',
     icon: 'code',
-    group: 'care',
+    group: 'connections',
     help: 'api',
     sections: ['http-api'],
   },
@@ -183,7 +203,7 @@ export const PLACES: readonly NavPlace[] = [
     path: '/accounts',
     label: 'Accounts',
     icon: 'user',
-    group: 'care',
+    group: 'manage',
     help: 'accounts',
     sections: ['accounts'],
     tabs: [
@@ -197,7 +217,7 @@ export const PLACES: readonly NavPlace[] = [
     path: '/backups',
     label: 'Backups',
     icon: 'cloud',
-    group: 'care',
+    group: 'manage',
     help: 'backup',
     sections: ['backups'],
   },
@@ -206,7 +226,7 @@ export const PLACES: readonly NavPlace[] = [
     path: '/settings',
     label: 'Settings',
     icon: 'settings',
-    group: 'care',
+    group: 'manage',
     help: 'settings',
     // Its own pages (`/settings/…`), and the first run's macOS permissions.
     sections: ['settings', 'onboarding'],
@@ -304,9 +324,18 @@ export function sectionOf(url: string): string {
   return path.split('/')[0] ?? '';
 }
 
-/** The sidebar, in order: what this client may open. */
+/** The sidebar's groups in order, each with the places of it this client
+ * may open (a group with none is left out). */
+export function sidebarGroups(desktop: boolean): NavGroupPlaces[] {
+  return NAV_GROUPS.map((g) => ({
+    ...g,
+    places: PLACES.filter((p) => p.group === g.id && (!p.desktopOnly || desktop)),
+  })).filter((g) => g.places.length > 0);
+}
+
+/** The sidebar's places, in order: what this client may open. */
 export function sidebarPlaces(desktop: boolean): NavPlace[] {
-  return PLACES.filter((p) => !p.desktopOnly || desktop);
+  return sidebarGroups(desktop).flatMap((g) => g.places);
 }
 
 /** The tabs of the phone's bottom bar before More: the work. */
@@ -314,9 +343,14 @@ export function barPlaces(): NavPlace[] {
   return PLACES.filter((p) => p.group === 'work');
 }
 
-/** More's rows, in order: what you look after, then Help. */
+/** More's groups: the sidebar's after the work, in the same order. */
+export function moreGroups(desktop: boolean): NavGroupPlaces[] {
+  return sidebarGroups(desktop).filter((g) => g.id !== 'work');
+}
+
+/** More's rows, in order: its groups' places, then Help. */
 export function moreEntries(desktop: boolean): NavEntry[] {
-  return [...PLACES.filter((p) => p.group === 'care' && (!p.desktopOnly || desktop)), HELP_ENTRY];
+  return [...moreGroups(desktop).flatMap((g) => g.places), HELP_ENTRY];
 }
 
 /** The place (or Help) a section belongs to, if any. */

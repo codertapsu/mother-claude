@@ -20,24 +20,29 @@
         <kbd>{{ jumpKey }}</kbd>
       </button>
       <nav class="side-nav" [attr.aria-label]="'Primary' | t">
-        @for (item of sidebar(); track item.id; let i = $index) {
-          @if (i > 0 && item.group !== sidebar()[i - 1].group) {
+        @for (group of sidebar(); track group.id; let first = $first) {
+          @if (!first) {
             <span class="nav-sep" aria-hidden="true"></span>
           }
-          <a
-            [routerLink]="item.path"
-            [class.active]="isCurrent(item)"
-            [attr.aria-current]="isCurrent(item) ? 'page' : null"
-            [attr.aria-label]="badges.label(item)"
-          >
-            <mc-icon [name]="item.icon" />
-            <span class="label">{{ item.label | t }}</span>
-            @if (badges.count(item.badge); as n) {
-              <span class="count-badge" [class.soft]="item.badge === 'agents'">{{ n }}</span>
-            } @else if (badges.dot(item.badge)) {
-              <span class="count-badge dot" aria-hidden="true"></span>
+          <div class="nav-group" role="group" [attr.aria-labelledby]="'nav-group-' + group.id">
+            <span class="nav-heading" [id]="'nav-group-' + group.id">{{ group.label | t }}</span>
+            @for (item of group.places; track item.id) {
+              <a
+                [routerLink]="item.path"
+                [class.active]="isCurrent(item)"
+                [attr.aria-current]="isCurrent(item) ? 'page' : null"
+                [attr.aria-label]="badges.label(item)"
+              >
+                <mc-icon [name]="item.icon" />
+                <span class="label">{{ item.label | t }}</span>
+                @if (badges.count(item.badge); as n) {
+                  <span class="count-badge" [class.soft]="item.badge === 'agents'">{{ n }}</span>
+                } @else if (badges.dot(item.badge)) {
+                  <span class="count-badge dot" aria-hidden="true"></span>
+                }
+              </a>
             }
-          </a>
+          </div>
         }
       </nav>
       <div class="side-foot">

@@ -25,7 +25,7 @@ import {
   barPlaces,
   moreActive,
   sectionOf,
-  sidebarPlaces,
+  sidebarGroups,
   titleOf,
 } from './core/nav';
 import { NavBadges } from './core/nav-badges';
@@ -140,8 +140,9 @@ export class AppComponent {
     this.listDetail.split() ? listSection(this.listDetail.beside()) : this.section(),
   );
 
-  // The map (core/nav.ts): the sidebar, the phone's bar and its More tab.
-  protected readonly sidebar = computed(() => sidebarPlaces(this.isDesktop()));
+  // The map (core/nav.ts): the sidebar's groups, the phone's bar and its
+  // More tab.
+  protected readonly sidebar = computed(() => sidebarGroups(this.isDesktop()));
   protected readonly bar = barPlaces();
   protected readonly helpEntry = HELP_ENTRY;
   protected readonly moreEntry = MORE_ENTRY;

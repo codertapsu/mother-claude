@@ -91,6 +91,27 @@ describe('MoreComponent', () => {
     expect(backend.calls).toContain('GET /machines');
   });
 
+  it('groups them as the sidebar does, under the same headings, Help on its own', async () => {
+    const el = await render();
+    const cards = [...el.querySelectorAll<HTMLElement>('.card.list')];
+    expect(
+      cards.map((c) => [
+        text(
+          c.getAttribute('aria-labelledby')
+            ? el.querySelector(`#${c.getAttribute('aria-labelledby')}`)
+            : null,
+        ),
+        ...[...c.querySelectorAll('a.entry .label')].map((l) => text(l)),
+      ]),
+    ).toEqual([
+      ['Connections', 'Computers', 'Phone & devices', 'Browser', 'HTTP API'],
+      ['Manage', 'Accounts', 'Backups', 'Settings'],
+      ['', 'Help'],
+    ]);
+    expect([...el.querySelectorAll('h2')].map((h) => text(h))).toEqual(['Connections', 'Manage']);
+    expect(cards[0].getAttribute('role')).toBe('group');
+  });
+
   it('says what each place that was a connection, and Backups, is for', async () => {
     const el = await render();
     // A phone reads itself and the devices paired there.
