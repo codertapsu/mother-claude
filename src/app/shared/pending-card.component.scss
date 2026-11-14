@@ -172,6 +172,35 @@ p.qtext {
 .slabel {
   flex: 1;
 }
+/* Claude Code's own suggestions, under *Allow for…*: smaller, apart. */
+.cc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.cc p {
+  margin: 0;
+}
+.cc .suggestion {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  font-size: 0.8rem;
+}
+.cc .sdest {
+  text-align: left;
+}
+.once {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0.45rem 0 0;
+}
+.once mc-icon {
+  margin-top: 0.1rem;
+}
 .check {
   display: flex;
   align-items: center;

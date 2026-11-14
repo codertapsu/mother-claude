@@ -366,7 +366,36 @@
       }
 
       @default {
-        @if (panel() === 'always') {
+        @if (panel() === 'remember' && offer(); as g) {
+          <mc-remember-panel
+            [offer]="g"
+            [canDangerous]="canDangerous()"
+            [disabled]="busy() || offline() || allowBlocked()"
+            [host]="mctx()?.name() ?? null"
+            (chose)="remember($event)"
+            (cancelled)="closeRemember()"
+          >
+            @if (suggestions().length) {
+              <div class="cc">
+                <p class="muted small">{{ 'Or save it in Claude Code’s own settings:' | t }}</p>
+                @for (s of suggestions(); track s.index) {
+                  <button
+                    class="btn block small suggestion"
+                    type="button"
+                    [disabled]="busy() || offline() || suggestionBlocked(s)"
+                    (click)="allowAlways(s)"
+                  >
+                    <span class="slabel">{{ s.label }}</span>
+                    <span class="muted small sdest">{{ destination(s.destination) }}</span>
+                  </button>
+                }
+                @if (!canDangerous()) {
+                  <p class="muted small">{{ standingText() }}</p>
+                }
+              </div>
+            }
+          </mc-remember-panel>
+        } @else if (panel() === 'always') {
           <div class="panel">
             <p class="muted small">{{ 'Allow now, and remember it:' | t }}</p>
             @for (s of suggestions(); track s.index) {
@@ -376,7 +405,7 @@
                 [disabled]="busy() || offline() || suggestionBlocked(s)"
                 (click)="allowAlways(s)"
               >
-                <span class="slabel">{{ suggestionLabel(s) }}</span>
+                <span class="slabel">{{ s.label }}</span>
                 <span class="muted small sdest">{{ destination(s.destination) }}</span>
               </button>
             }
@@ -433,7 +462,16 @@
               }
               {{ 'Allow once' | t }}
             </button>
-            @if (showAlways()) {
+            @if (canRemember()) {
+              <button
+                class="btn"
+                type="button"
+                [disabled]="busy() || offline() || allowBlocked()"
+                (click)="openRemember()"
+              >
+                <mc-icon name="shield" [size]="15" /> {{ 'Allow for…' | t }}
+              </button>
+            } @else if (showAlways()) {
               <button
                 class="btn"
                 type="button"
@@ -462,6 +500,11 @@
           </div>
           @if (allowBlocked()) {
             <p class="muted small">{{ blockedText() }}</p>
+          } @else if (offer()?.blocked; as why) {
+            <p class="muted small once">
+              <mc-icon name="info" [size]="14" />
+              <span>{{ 'Can’t be remembered: {why}' | t: { why } }}</span>
+            </p>
           }
         }
       }

@@ -22,15 +22,18 @@ import { TPipe } from '../core/i18n/t.pipe';
 import { MachineContext } from '../core/machine-context';
 import { MachineScopes } from '../core/machine-scope';
 import {
+  GrantOffer,
   PendingItem,
   PendingRef,
   PermissionSuggestion,
   Question,
+  RememberChoice,
   RespondBody,
   SessionSummary,
 } from '../core/models';
 import { NoticeService } from '../core/notice.service';
 import { PendingService, isFullItem, resolutionText } from '../core/pending.service';
+import { rememberedText } from '../core/permission-rules';
 import { machineRunInput } from '../core/runs';
 import { machineTaskInput } from '../core/tasks';
 import { RealtimeService } from '../core/realtime.service';
@@ -44,6 +47,7 @@ import { IconComponent, IconName } from './icon.component';
 import { MachineRunActionComponent } from './machine-run-action.component';
 import { MachineTaskActionComponent } from './machine-task-action.component';
 import { renderMarkdown } from './markdown';
+import { RememberPanelComponent } from './remember-panel.component';
 import { SheetComponent } from './sheet.component';
 import { TimeAgoComponent } from './time-ago.component';
 import { ToolPreviewComponent } from './tool-preview.component';
@@ -56,7 +60,9 @@ export interface PendingResolution {
   alreadyDecided: boolean;
 }
 
-type Panel = 'main' | 'always' | 'feedback' | 'planFeedback';
+/** `remember`: *Allow for…* (Mother Claude keeps the answer); `always`:
+ * Claude Code's own suggestions, when Mother Claude offers nothing. */
+type Panel = 'main' | 'remember' | 'always' | 'feedback' | 'planFeedback';
 
 /** Where an "always" rule is saved, and what that means. English:
  * translated where they are read (`destination`). */
@@ -67,7 +73,6 @@ const DESTINATIONS: Record<string, string> = {
   userSettings: 'Saved in ~/.claude/settings.json (all your projects)',
   cliArg: 'This run only',
   browser: 'Saved in Mother Claude (Browser › Always allowed)',
-  machines: 'Saved in Mother Claude (Computers › Activity › Always allowed runs)',
 };
 
 interface SchemaField {
@@ -102,9 +107,18 @@ interface SchemaField {
  * Per-tool previews (Bash command, Edit diff, Write head, fetch URL, MCP
  * server · tool); an agent badge; dangerous items get a red border, the
  * reason, and Allow is never focused for you. In-flight answers disable the
- * buttons everywhere the same item is shown. Desktop shortcuts on a focused
- * card: A allow · Shift+A first "always" · D deny · F deny with feedback ·
- * J/K next/previous · 1–9 pick an option.
+ * buttons everywhere the same item is shown.
+ *
+ * A permission Mother Claude can remember (`grant`) has *Allow for…* beside
+ * *Allow once* (`mc-remember-panel`): this session, its project, the whole
+ * computer, or only what matches patterns — sent as `remember` — with
+ * Claude Code's own suggestions below it. Without an offer, *Always…*
+ * lists those suggestions as before; an offer `blocked` (a dangerous
+ * action) leaves *Allow once* only, and says why.
+ *
+ * Desktop shortcuts on a focused card: A allow · Shift+A *Allow for…* (or
+ * the first "always") · D deny · F deny with feedback · Esc back · J/K
+ * next/previous · 1–9 pick an option.
  */
 @Component({
   selector: 'mc-pending-card',
@@ -121,6 +135,7 @@ interface SchemaField {
     IconComponent,
     MachineRunActionComponent,
     MachineTaskActionComponent,
+    RememberPanelComponent,
     SheetComponent,
     TimeAgoComponent,
     ToolPreviewComponent,
@@ -303,10 +318,22 @@ export class PendingCardComponent {
   protected readonly isMachineTask = computed(
     () => this.isMachineRun() && this.toolName() === 'machine_task',
   );
-  /** Its "always allow …" is a standing grant: offered only to whoever may
-   * attach one (the dangerous right), never shown greyed out to others. */
+  /** What Mother Claude can remember of the answer (the server's offer). */
+  protected readonly offer = computed<GrantOffer | null>(() => this.full()?.grant ?? null);
+  /** *Allow for…*: an offer nothing blocks. */
+  protected readonly canRemember = computed(() => {
+    const o = this.offer();
+    return !!o && !o.blocked;
+  });
+  /** *Always…*: Claude Code's own suggestions, when Mother Claude offers
+   * nothing (with an offer they show under *Allow for…*; a blocked one
+   * allows once only). A run's is offered only to whoever may attach it
+   * (the dangerous right), never shown greyed out to others. */
   protected readonly showAlways = computed(
-    () => this.suggestions().length > 0 && (!this.isMachineRun() || this.canDangerous()),
+    () =>
+      !this.offer() &&
+      this.suggestions().length > 0 &&
+      (!this.isMachineRun() || this.canDangerous()),
   );
   /** The item's detail as the card shows it (a run's, in the language
    * shown). */
@@ -488,7 +515,29 @@ export class PendingCardComponent {
   allowAlways(s: PermissionSuggestion): Promise<void> {
     return this.respond(
       { decision: 'allow', suggestion: s.index },
-      tr('Allowed · {rule}', { rule: this.suggestionLabel(s) }),
+      tr('Allowed · {rule}', { rule: s.label }),
+    );
+  }
+
+  /** *Allow for…*: the choices (they take the focus). */
+  openRemember(): void {
+    if (this.canRemember() && !this.allowBlocked()) this.panel.set('remember');
+  }
+
+  /** Back from *Allow for…*, the focus on the card. */
+  closeRemember(): void {
+    this.panel.set('main');
+    this.host.focus();
+  }
+
+  /** Allow, and keep the answer as a permission. */
+  remember(choice: RememberChoice): Promise<void> {
+    const offer = this.offer();
+    if (!offer || offer.blocked) return Promise.resolve();
+    const host = this.mctx()?.name() ?? null;
+    return this.respond(
+      { decision: 'allow', remember: choice },
+      rememberedText(offer, choice.scope, choice.patterns, host),
     );
   }
 
@@ -512,17 +561,6 @@ export class PendingCardComponent {
     const known = DESTINATIONS[d ?? ''];
     if (known) return tr(known);
     return d ? tr('Saved to {place}', { place: d }) : tr('Saved to your settings');
-  }
-
-  /** A suggestion's label: a run's standing grant in the language shown
-   * (the server's English for the rest). */
-  suggestionLabel(s: PermissionSuggestion): string {
-    if (s.kind !== 'machineRunGrant') return s.label;
-    const raw = s.raw as { prefix?: unknown } | null | undefined;
-    const prefix = typeof raw?.prefix === 'string' ? raw.prefix : '';
-    const name = machineRunInput(this.full()?.input)?.machineName ?? '';
-    if (!prefix || !name) return s.label;
-    return tr('Always allow “{prefix}” on {name} for this project', { prefix, name });
   }
 
   suggestionBlocked(s: PermissionSuggestion): boolean {
@@ -655,6 +693,13 @@ export class PendingCardComponent {
 
   onKey(e: KeyboardEvent): void {
     if (this.compact() || this.settled() || e.metaKey || e.ctrlKey || e.altKey) return;
+    // Escape leaves an open panel (*Allow for…* goes back on its own).
+    if (e.key === 'Escape' && (this.panel() === 'always' || this.panel() === 'feedback')) {
+      e.preventDefault();
+      this.panel.set('main');
+      this.host.focus();
+      return;
+    }
     const t = e.target as HTMLElement | null;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     const kind = this.item().kind;
@@ -665,7 +710,8 @@ export class PendingCardComponent {
     else if (!this.canAct() || this.busy()) handled = false;
     else if (key === 'A' && e.shiftKey && kind === 'permission') {
       const s = this.firstAlways();
-      if (s && !this.allowBlocked()) void this.allowAlways(s);
+      if (this.canRemember()) this.openRemember();
+      else if (s && this.showAlways() && !this.allowBlocked()) void this.allowAlways(s);
     } else if (key === 'a' && !e.shiftKey) {
       if (kind === 'permission' && !this.allowBlocked()) void this.allowOnce();
       else if (kind === 'plan') void this.approvePlan('default');

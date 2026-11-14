@@ -52,5 +52,19 @@
   "Allowed and remembered: {where}, matching {patterns}": "Đã cho phép và ghi nhớ: {where}, khớp với {patterns}",
   "Allowed and remembered: {where}": "Đã cho phép và ghi nhớ: {where}",
   "Allowed by your permission · {rule}": "Đã cho phép theo quyền của bạn · {rule}",
-  "Allowed by your permission": "Đã cho phép theo quyền của bạn"
+  "Allowed by your permission": "Đã cho phép theo quyền của bạn",
+  "Allow for…": "Cho phép và ghi nhớ…",
+  "Can’t be remembered: {why}": "Không thể ghi nhớ: {why}",
+  "Or save it in Claude Code’s own settings:": "Hoặc lưu vào cài đặt riêng của Claude Code:",
+  "Only matching…": "Chỉ khi khớp…",
+  "Pattern {n}": "Mẫu {n}",
+  "Remove pattern {n}": "Gỡ mẫu {n}",
+  "Add a pattern": "Thêm một mẫu",
+  "Where it applies": "Áp dụng ở đâu",
+  "Allow and remember": "Cho phép và ghi nhớ",
+  "Dangerous actions always ask.": "Thao tác nguy hiểm luôn hỏi.",
+  "Change it later in Permissions on {name}.": "Bạn có thể đổi sau trong Quyền trên {name}.",
+  "Change later in Permissions": "Đổi sau trong Quyền",
+  "To remember it for a project or everywhere, answer at {name}, or on a computer it allows dangerous actions.": "Để ghi nhớ cho một dự án hoặc mọi nơi, hãy trả lời trên {name}, hoặc trên một máy tính mà nó cho phép thao tác nguy hiểm.",
+  "To remember it for a project or everywhere, answer on the {computer}, or let this device take dangerous actions (Settings › Phone & devices).": "Để ghi nhớ cho một dự án hoặc mọi nơi, hãy trả lời trên {computer}, hoặc cho phép thiết bị này thực hiện thao tác nguy hiểm (Cài đặt › Điện thoại & thiết bị)."
 }
