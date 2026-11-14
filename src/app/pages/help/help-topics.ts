@@ -980,6 +980,7 @@ const TOPICS: HelpTopicSource[] = [
           '**Ask for everything** pauses them all: Claude asks before everything, and your permissions are kept until you switch it off.',
           'Allowing more (more or wider patterns, a project or everywhere) needs the same right as remembering it there.',
         ],
+        links: [{ label: 'Open Permissions', path: '/permissions' }],
       },
       {
         heading: "Claude Code's own settings",

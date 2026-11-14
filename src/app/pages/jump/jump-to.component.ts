@@ -52,6 +52,7 @@ const PAGE_WORDS: Readonly<Record<string, string>> = {
   '/accounts/usage': 'plan limits',
   '/accounts/changes': 'undo moves copies deletes',
   '/backups': 'backup restore pull',
+  '/permissions': 'allow always remember rules grants ask',
   '/settings/tools': 'services mcp',
   '/new': 'start',
 };

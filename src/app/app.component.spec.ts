@@ -96,6 +96,7 @@ describe('AppComponent: the navigation, from the map', () => {
       '/http-api',
       '/accounts',
       '/backups',
+      '/permissions',
       '/settings',
     ]);
     // A line between two groups; each group names itself (for screen
@@ -114,7 +115,7 @@ describe('AppComponent: the navigation, from the map', () => {
       '—',
       ['Connections', 'Computers', 'Phone & devices', 'Browser', 'HTTP API'],
       '—',
-      ['Manage', 'Accounts', 'Backups', 'Settings'],
+      ['Manage', 'Accounts', 'Backups', 'Permissions', 'Settings'],
     ]);
     for (const group of nav.querySelectorAll('.nav-group')) {
       expect(group.getAttribute('role')).toBe('group');
@@ -188,6 +189,7 @@ describe('AppComponent: the navigation, from the map', () => {
       ['/http-api?server=work', 'HTTP API'],
       ['/accounts/changes', 'Accounts'],
       ['/backups', 'Backups'],
+      ['/permissions?on=others', 'Permissions'],
       ['/settings/tools', 'Settings'],
     ]) {
       await go(url);

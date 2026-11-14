@@ -983,6 +983,7 @@ const TOPICS: HelpTopicSource[] = [
           '**Hỏi mọi thứ** tạm dừng tất cả: Claude hỏi trước mọi việc, và các quyền của bạn được giữ cho đến khi bạn tắt nó.',
           'Cho phép nhiều hơn (thêm mẫu, mẫu rộng hơn, một dự án hay mọi nơi) cần cùng quyền như khi ghi nhớ ở đó.',
         ],
+        links: [{ label: 'Mở trang Quyền', path: '/permissions' }],
       },
       {
         heading: 'Cài đặt riêng của Claude Code',

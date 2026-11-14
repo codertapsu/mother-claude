@@ -184,6 +184,12 @@ const pages: Routes = [
     path: 'backups',
     loadComponent: () => import('./pages/backup/backup.component').then((m) => m.BackupComponent),
   },
+  // Permissions: what Claude may do without asking (`?on=here|others`).
+  {
+    path: 'permissions',
+    loadComponent: () =>
+      import('./pages/permissions/permissions.component').then((m) => m.PermissionsComponent),
+  },
   {
     path: 'more',
     loadComponent: () => import('./pages/more/more.component').then((m) => m.MoreComponent),

@@ -221,6 +221,16 @@ export const PLACES: readonly NavPlace[] = [
     help: 'backup',
     sections: ['backups'],
   },
+  // What Claude may do without asking (docs/PERMISSIONS.md).
+  {
+    id: 'permissions',
+    path: '/permissions',
+    label: 'Permissions',
+    icon: 'shield',
+    group: 'manage',
+    help: 'permissions',
+    sections: ['permissions'],
+  },
   {
     id: 'settings',
     path: '/settings',

@@ -92,7 +92,7 @@ describe('the map (core/nav.ts)', () => {
         'Connections',
         ['Computers', 'Phone & devices', 'Sessions started elsewhere', 'Browser', 'HTTP API'],
       ],
-      ['Manage', ['Accounts', 'Backups', 'Settings']],
+      ['Manage', ['Accounts', 'Backups', 'Permissions', 'Settings']],
     ]);
     // A phone's leave out the desktop's own place (the plugin's).
     expect(groups(false)[1]).toEqual([
@@ -144,6 +144,7 @@ describe('the map (core/nav.ts)', () => {
       ['HTTP API', '/http-api'],
       ['Accounts', '/accounts'],
       ['Backups', '/backups'],
+      ['Permissions', '/permissions'],
       ['Settings', '/settings'],
     ]);
     // The plugin is installed from the desktop: a phone's sidebar leaves it
@@ -158,6 +159,7 @@ describe('the map (core/nav.ts)', () => {
       'http-api',
       'accounts',
       'backups',
+      'permissions',
       'settings',
     ]);
     // Computers keeps Machines' health dot; Agents is a tab of Sessions.
@@ -172,7 +174,12 @@ describe('the map (core/nav.ts)', () => {
         ['browser', 'globe'],
         ['http-api', 'code'],
         ['backups', 'cloud'],
+        ['permissions', 'shield'],
       ]),
+    );
+    // Permissions: what Claude may do without asking, one page.
+    expect(PLACES.find((p) => p.id === 'permissions')).toEqual(
+      expect.objectContaining({ path: '/permissions', group: 'manage', help: 'permissions' }),
     );
   });
 
@@ -215,6 +222,7 @@ describe('the map (core/nav.ts)', () => {
       'browser',
       'http-api',
       'backups',
+      'permissions',
       'settings',
     ]) {
       expect(tabsOf(id), id).toEqual([]);
@@ -235,6 +243,7 @@ describe('the map (core/nav.ts)', () => {
       'HTTP API',
       'Accounts',
       'Backups',
+      'Permissions',
       'Settings',
       'Help',
     ]);
@@ -245,6 +254,7 @@ describe('the map (core/nav.ts)', () => {
       'http-api',
       'accounts',
       'backups',
+      'permissions',
       'settings',
       'help',
     ]);

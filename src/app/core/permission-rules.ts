@@ -149,9 +149,13 @@ export interface GrantTarget {
 }
 
 /** The tools a permission names by what they do. */
-type Family = 'shell' | 'edit' | 'read' | 'fetch' | 'search' | 'other';
+export type ToolFamily = 'shell' | 'edit' | 'read' | 'fetch' | 'search' | 'other';
 
-function familyOf(tool: string | undefined): Family {
+/** What a tool does, as a permission says it: run commands (Bash,
+ * PowerShell), change files (Edit, Write, MultiEdit, NotebookEdit), read
+ * them (Read, Glob, Grep, LS), fetch pages, search the web, or anything
+ * else (by its name). */
+export function familyOf(tool: string | undefined): ToolFamily {
   switch (tool) {
     case 'Bash':
     case 'PowerShell':
