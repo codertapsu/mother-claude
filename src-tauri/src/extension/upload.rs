@@ -2,7 +2,7 @@
 //! extension never reads the disk).
 //!
 //! A file may come only from the calling session's project folder (its cwd)
-//! or a folder the user approved for uploads (Settings › Browser › Options),
+//! or a folder the user approved for uploads (Browser › Options),
 //! resolved with symlinks followed. Never from any account's config directory, Mother
 //! Claude's own data, `~/.ssh`, shell startup files, `.claude/`, `.mcp.json`
 //! or git hooks (`pending::sensitive_path`), and never a file that usually
@@ -179,7 +179,7 @@ pub fn check(
     if allowed.is_empty() {
         return Err(refuse(
             "Mother Claude does not know this session's project folder, and no upload folder \
-             is approved: the user can approve one in Mother Claude (Settings › Browser › \
+             is approved: the user can approve one in Mother Claude (Browser › \
              Settings).",
         ));
     }
@@ -242,7 +242,7 @@ pub fn check(
         if !allowed.iter().any(|r| path.starts_with(r)) {
             return Err(refuse(format!(
                 "{raw} is outside this session's project folder and the approved upload \
-                 folders (Mother Claude › Settings › Browser › Options)."
+                 folders (Mother Claude › Browser › Options)."
             )));
         }
         total += meta.len();

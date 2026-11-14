@@ -15,7 +15,7 @@ and every pull can be undone for seven days.
 
 ## Setting it up
 
-**Accounts › Backups**, on the desktop or a paired phone (the passphrase
+**Backups**, on the desktop or a paired phone (the passphrase
 only on the desktop):
 
 1. **Folder.** Pick one of the suggestions (iCloud Drive, Google Drive, OneDrive

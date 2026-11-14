@@ -5,8 +5,8 @@ one is doing, its agents, and the approvals, questions and plans waiting for you
 It works at home over Wi-Fi and, if you choose, from anywhere through a tunnel
 you run yourself. It does not use or need Claude's own Remote Control.
 
-Everything is set up on the desktop app's **Phone & devices** page (Settings ›
-Phone & devices). On a phone the same page shows that phone, then the devices
+Everything is set up on the desktop app's **Phone & devices** page (in the
+sidebar, under Connections). On a phone the same page shows that phone, then the devices
 paired, read only: pairing, internet access and what each device may do are
 changed on the desktop.
 
@@ -33,13 +33,13 @@ The security model behind this guide is in [SECURITY.md](../SECURITY.md).
 | `5613…` | `127.0.0.1` (HTTP), each added API server once started | local tools, through an API server you added ([BRIDGE.md](BRIDGE.md#several-api-servers)) | as `5612`, under that server's own policy                            |
 
 `MOTHER_CLAUDE_PORT`, `MOTHER_CLAUDE_TUNNEL_PORT` and `MOTHER_CLAUDE_BRIDGE_PORT`
-change them; an added API server's port is chosen on Settings › HTTP API. Every
+change them; an added API server's port is chosen on the HTTP API page. Every
 API server is also reachable through `5612` at `/servers/<id>/`, and through
 `6725` at `/servers/<id>/v1/` with a token.
 
 ## At home: pair over Wi-Fi
 
-1. On the Mac, open **Settings › Phone & devices › Pair a phone**, choose **Same
+1. On the Mac, open **Phone & devices › Pair a phone**, choose **Same
    Wi-Fi** and press **Show pairing code**. A QR code and a 12-character code
    appear. The code works once and expires after 5 minutes. With more than one
    network address, pick the one the phone can reach.
@@ -105,7 +105,7 @@ and type it at the new address.
 
 ### Tailscale addresses
 
-With **Also listen on Tailscale** (Settings › Phone & devices › Internet
+With **Also listen on Tailscale** (Phone & devices › Internet
 access) the dashboard is served on the Mac's Tailscale address (`100.x.y.z`)
 as well. A request that arrives there is treated like one from the internet: a
 **Same Wi-Fi** code is refused, and the device's **… over the internet** grant
@@ -172,7 +172,7 @@ keeps working, because it bypasses that port, so point tunnels at `6726`.
   from the internet), but 6726 serves fewer routes and insists on HTTPS.
 - **A tunnel points at the Claude API port (5612).** Anyone who finds the address
   could try to drive Claude. The API's tokenless mode is switched off until that
-  tunnel stops — unless the *Open to tunnels* switch (Settings › HTTP API) is
+  tunnel stops — unless the *Open to tunnels* switch (HTTP API) is
   on, in which case the API is open through the tunnel without a token, and the
   warning says so ([BRIDGE.md](BRIDGE.md#what-the-open-default-actually-means)).
 - **A tunnel points at another API server's port.** The same, for that server
@@ -189,7 +189,7 @@ keeps working, because it bypasses that port, so point tunnels at `6726`.
 
 ## Devices
 
-**Settings › Phone & devices › Paired devices** lists every device with its
+**Phone & devices › Paired devices** lists every device with its
 platform, how it last connected (local network or internet), when and from
 which address, and its open connections.
 
@@ -252,7 +252,7 @@ message them too, install the **Mother Claude plugin**.
 
 ### The Mother Claude plugin (the hooks plugin)
 
-On the Mac, open **Settings › Sessions started elsewhere** and press
+On the Mac, open **Sessions started elsewhere** and press
 **Install**. This needs the `claude` command on your PATH and runs, on your
 behalf:
 
@@ -504,7 +504,7 @@ What you get:
 - **The local API stays local.** The Claude HTTP API on port 5612 needs no token
   only for programs on this Mac. Through a tunnel it asks for a token, and while
   a tunnel points at it the tokenless mode is off entirely — unless you turn on
-  *Open to tunnels* in Settings › HTTP API (desktop app only). Each API server
+  *Open to tunnels* on the HTTP API page (desktop app only). Each API server
   you add has its own port and the same rules, port by port; one that runs as
   one account only shows nothing of the others.
 
@@ -583,7 +583,7 @@ it there once, or start the session from the desktop.
 notifications for the site. On iPhone: add Mother Claude to the Home Screen and
 enable push from there. On the home network: trust the Mac's certificate first.
 
-**"Install" is greyed out on Settings › Sessions started elsewhere.** The
+**"Install" is greyed out on the Sessions started elsewhere page.** The
 `claude` command was not found on the PATH the app sees. Install Claude Code,
 or start the app from a shell where `claude` works.
 

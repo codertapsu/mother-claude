@@ -736,7 +736,7 @@ pub async fn take_role(
         return Err(ApiError::conflict(
             "hooks_inactive",
             "Sessions started elsewhere is not on in that session (turn it on on the desktop, \
-             in Settings › Sessions started elsewhere, then run /reload-plugins there): Mother \
+             on the Sessions started elsewhere page, then run /reload-plugins there): Mother \
              Claude could neither guard its edits nor hand it tasks.",
         ));
     }

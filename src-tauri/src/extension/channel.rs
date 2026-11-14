@@ -487,7 +487,7 @@ fn hello(
                     id,
                     "unauthenticated",
                     "This browser is not paired with Mother Claude (or its token is not valid \
-                     here). Pair it again: Mother Claude › Settings › Browser › Pair a \
+                     here). Pair it again: Mother Claude › Browser › Pair a \
                      browser.",
                 ),
             );

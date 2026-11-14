@@ -35,8 +35,8 @@ pairs on its own. Firefox and Safari are not supported yet.
 
 ## 2. Pair it
 
-1. In Mother Claude open **Settings › Browser** (on a phone, *More ›
-   Settings › Browser*) and choose **Pair a browser**. A code like
+1. In Mother Claude open **Browser** (on a phone, *More ›
+   Browser*) and choose **Pair a browser**. A code like
    `K7QD-8F3B` appears; it works once, for 5 minutes.
 2. In the extension's options page type the code. It connects to
    `ws://127.0.0.1:6725/ws/browser` (the port Mother Claude listens on; change
@@ -176,7 +176,7 @@ page says — which browser actions wait for you:
 An approval is a card like any other approval in Mother Claude: in the
 Inbox, on the session's page, on the Browser page — and in the extension's
 side panel. The first answer wins. A phone can approve only when you granted
-it dangerous actions (Settings › Phone & devices › Paired devices); any
+it dangerous actions (Phone & devices › Paired devices); any
 device can deny. Nobody answering within 5 minutes counts as no. Every
 approval allowed in the side panel also shows a notice on the Mac.
 
@@ -206,7 +206,7 @@ The Stop rule has no grant.
   every script asks first (unless you allowed scripts on that site for good);
   the card says when one mentions cookies, storage or credentials.
 - Screenshots show what is on screen (password fields show dots); turn them
-  off under *Options* on Settings › Browser if you prefer.
+  off under *Options* on the Browser page if you prefer.
 
 ## 7. Stop
 
@@ -223,7 +223,7 @@ The Browser page has a **Stop** button for each session too.
 ## 8. Uploads
 
 `browser_upload` reads files only from the session's project folder or a
-folder you added under *Settings › Browser › Options › Folders sessions may
+folder you added under *Browser › Options › Folders sessions may
 upload files from*
 (adding one needs the Mac). Never from a Claude Code configuration folder,
 Mother Claude's own data, `~/.ssh`, shell startup files or git hooks, and

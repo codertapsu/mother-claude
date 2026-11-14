@@ -14,7 +14,7 @@ curl -sS http://127.0.0.1:5612/chat -H 'Content-Type: application/json' \
   -d '{"message":"What does this project do?","cwd":"/path/to/repo"}'
 ```
 
-No token. One step first: open Mother Claude, go to **Settings › HTTP API**,
+No token. One step first: open Mother Claude, go to **HTTP API**,
 and press **Start**.
 
 ---
@@ -46,7 +46,7 @@ The API is **off when the app opens**. Starting it publishes a port that can
 drive Claude with your account, so it is something you do rather than something
 that happens.
 
-Open Mother Claude → **Settings › HTTP API**. Choose:
+Open Mother Claude → **HTTP API**. Choose:
 
 - **Working directory** — where conversations run, and which files Claude reaches.
 - **Model**, **Effort**, **Thinking** — leave any on *Default* to inherit your
@@ -97,7 +97,7 @@ Mac, or a paired device's). Starting with defaults that skip approvals
 | Method and path | Result |
 |---|---|
 | `GET /api/bridge` | Status, defaults, current conversation, running conversations |
-| `POST /api/bridge/start` | `{"defaults": { … }, "openToTunnels": true\|false}` — start (or restart) with these defaults; `openToTunnels` is the switch on Settings › HTTP API (below), and only the desktop app may set it to `true` |
+| `POST /api/bridge/start` | `{"defaults": { … }, "openToTunnels": true\|false}` — start (or restart) with these defaults; `openToTunnels` is the switch on the HTTP API page (below), and only the desktop app may set it to `true` |
 | `POST /api/bridge/stop` | Unbind the port |
 | `POST /api/bridge/active-thread` | `{"threadId": "…"\|null}` — change which conversation messages join |
 
@@ -119,7 +119,7 @@ conversation*, not accumulating a new one per message. So:
 2. **`createNewChat: true`** starts a fresh conversation *and* makes it the one
    later messages join. It is `false` by default, deliberately.
 3. Otherwise the message joins the **current conversation** — the one nominated
-   on Settings › HTTP API when you started, or the one an earlier message
+   on the HTTP API page when you started, or the one an earlier message
    created.
 4. With no current conversation, one is created and becomes current.
 
@@ -143,7 +143,7 @@ curl -sS $B/chat -d '{"message":"And the word?","thread_id":"<first id>"}' -H 'C
 `create_new_chat` is accepted as well as `createNewChat`, so either convention
 works.
 
-Selecting a conversation on Settings › HTTP API — at start, or with **Switch
+Selecting a conversation on the HTTP API page — at start, or with **Switch
 conversation** while running — is the same as step 3 above. `GET /api/bridge`
 reports it as `activeThread`.
 
@@ -161,7 +161,7 @@ with `POST /threads {"resume": …, "account": …}`, which forks it).
 ## Several API servers
 
 Everything above is the **main** API server, the one there always was. More
-can be added on Settings › HTTP API (*Add API server*), each with a name, a
+can be added on the HTTP API page (*Add API server*), each with a name, a
 loopback port of its own (the first free one from 5613 unless you pick one),
 its defaults and, above all, its own Claude account. Each is started and
 stopped on its own, keeps its own current conversation and token policy, and
@@ -208,7 +208,7 @@ on decides whether a tunnel points at it. An id that names no server answers
 
 **Tunnels per server.** Tunnel detection tracks every server's port. A tunnel
 to one switches off the tokenless mode of that port only, as it does for 5612,
-and Settings › HTTP API and Settings › Phone & devices name the server it
+and HTTP API and Phone & devices name the server it
 points at.
 
 `/capabilities` and `/metadata` say which server answered —
@@ -382,7 +382,7 @@ These stay locked regardless:
   own;
 - the LAN mount on port 6725 **always** requires the token.
 
-**Open to tunnels too: the _Open to tunnels_ switch on Settings › HTTP API.** An
+**Open to tunnels too: the _Open to tunnels_ switch on the HTTP API page.** An
 explicit opt-in for publishing the API through a tunnel you run (`ngrok http
 5612`, cloudflared, …) without handing callers a token. Turn it on under
 **Access** there and start (or restart) the API: no request to 5612
@@ -401,8 +401,7 @@ closed:
   only a token holder has them;
 - the LAN mount on port 6725 keeps requiring the token.
 
-The app says so where you would look: a warning when the API starts, on
-Settings › HTTP API, and on Settings › Phone & devices while a tunnel points at
+The app says so where you would look: a warning when the API starts, on the HTTP API page, and on the Phone & devices page while a tunnel points at
 5612. `/capabilities` reports `auth.token_policy: "never"`. Turn the switch off
 and restart the API to return to the default. Every
 [added API server](#several-api-servers) has the same switch, chosen at each of
@@ -816,7 +815,7 @@ Every failure is the same envelope, with context fields flattened alongside:
 | 415 | `content_type` | Send `application/json` |
 | 422 | `invalid_field`, `unknown_field`, `invalid_input`, `invalid_cursor`, `invalid_id`, `image_format` | `error.field` names what was wrong |
 | 502 | `claude_error`, `anthropic_error` | The runtime or the API failed; `error.upstream` has the detail |
-| 503 | `bridge_not_started` | Start the API on **Settings › HTTP API** |
+| 503 | `bridge_not_started` | Start the API on **HTTP API** |
 | 503 | `runtime_unavailable`, `messages_api_unconfigured` | The host is not built/running, or no API key |
 | 504 | `timeout` | Still running — poll the operation or stream its events |
 
@@ -834,7 +833,7 @@ hardcoding.
   with the running `turn_id` — steer it instead of racing it.
 - **Conversations are process-local.** One created here is lost on restart until
   its first turn has written a transcript — after that it can be resumed by id,
-  or nominated on Settings › HTTP API. Operations and event logs never
+  or nominated on the HTTP API page. Operations and event logs never
   survive a restart.
 - **Nothing is retried or replayed.** A disconnected client does not cancel a
   running turn, and there is no idempotency key. Keep your ids and check
@@ -849,7 +848,7 @@ hardcoding.
 ## Troubleshooting
 
 **`503 bridge_not_started`** — the API is off. Open Mother Claude →
-**Settings › HTTP API** → **Start**, or set `MOTHER_CLAUDE_BRIDGE_AUTOSTART=1`
+**HTTP API** → **Start**, or set `MOTHER_CLAUDE_BRIDGE_AUTOSTART=1`
 for a headless run.
 
 **`503 runtime_unavailable` / `host_built: false`** — the host is not built:
@@ -878,7 +877,7 @@ conversation (or the account you named) is another's. Leave `account` out, or
 call a server of that account.
 
 **`404 server_not_found`** — no API server has the id in `/servers/<id>`. The
-ids are on Settings › HTTP API, and in `GET /api/bridge`'s `servers`.
+ids are on the HTTP API page, and in `GET /api/bridge`'s `servers`.
 
 **Turns hang with no events** — look at `GET /requests`: Claude is probably
 blocked on an approval. The dashboard shows the same prompt.

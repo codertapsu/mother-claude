@@ -96,7 +96,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   editor or terminal creates a fork: from then on there are two separate
   conversations. Carry on in one of them and close the other.
 - **Local first, internet when you choose.** Pair phones with a one-time QR code
-  from **Settings › Phone & devices**. Internet access is off until you turn it
+  from **Phone & devices**. Internet access is off until you turn it
   on and point a tunnel at it; internet pairings always wait for you to type the
   phone's 4 digits on the Mac. See [docs/REMOTE.md](docs/REMOTE.md).
 - **Several Claude accounts at once.** **Accounts** adds accounts beside the
@@ -123,7 +123,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   removes conversations or whole projects (**Sessions › Projects** lists every
   project on disk) with the same preview and seven days to undo, and a
   conversation's transcript is a click away in Finder or File Explorer.
-- **Backups and a second laptop.** **Accounts › Backups** keeps encrypted
+- **Backups and a second laptop.** **Backups** keeps encrypted
   backups of each account in a folder you choose (iCloud Drive, Google Drive…),
   and any number of further storages for archives and shared sets; the same
   folder carries conversations to another laptop. Back up, pull and restore
@@ -154,24 +154,24 @@ On start, the console prints the dashboard URLs (tokens only as fingerprints):
 ```
   Mother Claude dashboard
   Local:  http://127.0.0.1:6725
-  LAN:    https://192.168.x.x:6725  (pair from Settings › Phone & devices in the app)
+  LAN:    https://192.168.x.x:6725  (pair from Phone & devices in the app)
   TLS fingerprint (SHA-256): AB:CD:…
   Token:  sha256:1a2b3c4d (the desktop app holds it)
   Claude: you@example.com (max)
-  API:    http://127.0.0.1:6725/v1  (not started — start it in Settings › HTTP API)
+  API:    http://127.0.0.1:6725/v1  (not started — start it on the HTTP API page)
 ```
 
 ### Open it on your phone
 
 1. Connect the phone to the **same Wi-Fi**.
-2. On the desktop, open **Settings › Phone & devices › Pair a phone › Same
+2. On the desktop, open **Phone & devices › Pair a phone › Same
    Wi-Fi** and scan the **QR** with the phone's camera. It encodes a one-time
    code (valid 5 minutes, in the URL fragment — never a token). You can also
    type the code on the phone's Pair page.
 3. The phone warns once about the Mac's certificate; the Pair page shows how to
    trust it (needed for live updates on iOS, the Home Screen app and push).
 
-Away from home, turn on **Settings › Phone & devices › Internet access**, start
+Away from home, turn on **Phone & devices › Internet access**, start
 one of the tunnel commands shown there, and pair with an **Internet** code: the
 phone shows 4 digits and you type them on the Mac. Details in
 [docs/REMOTE.md](docs/REMOTE.md).
@@ -228,7 +228,7 @@ You can skip and revisit anytime under **Computers › This Mac › Permissions*
 | `MOTHER_CLAUDE_BRIDGE_ACCOUNT` | unset | The autostarted API's Claude account (an id or a name); one that does not exist starts nothing. |
 | `MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY` | off | `1` ⇒ the autostarted API runs as that account only. |
 | `MOTHER_CLAUDE_BRIDGE_PORT` | `5612` | Dedicated loopback API port; `0` ⇒ serve only `/v1`. |
-| `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` ⇒ require the token on the loopback bridge port too. `never` ⇒ start with the *Open to tunnels* switch (Settings › HTTP API) on: no token from anyone who can reach that port, through a tunnel too ([BRIDGE.md](docs/BRIDGE.md#what-the-open-default-actually-means)). |
+| `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` ⇒ require the token on the loopback bridge port too. `never` ⇒ start with the *Open to tunnels* switch (HTTP API) on: no token from anyone who can reach that port, through a tunnel too ([BRIDGE.md](docs/BRIDGE.md#what-the-open-default-actually-means)). |
 | `MOTHER_CLAUDE_BRIDGE_CWD` | home dir | Default working directory for API conversations. |
 | `MOTHER_CLAUDE_BRIDGE_ORIGINS` | unset | Unset ⇒ any browser origin may call the bridge; set ⇒ strict allowlist. |
 | `ANTHROPIC_API_KEY` | unset | Enables the bridge's direct Messages API routes. |
@@ -264,7 +264,7 @@ curl -sS http://127.0.0.1:5612/chat -H 'Content-Type: application/json' \
   -d '{"message":"What does this project do?","cwd":"/path/to/repo"}'
 ```
 
-In **Settings › HTTP API**, pick the defaults you want (working directory,
+In **HTTP API**, pick the defaults you want (working directory,
 model, effort, permissions, and which conversation messages join), and press
 **Start**. Nothing listens until you do. After that there is no token and no
 setup for programs on this machine — curl, Postman, Swagger and a web app you
@@ -286,7 +286,7 @@ can use them over TLS. A conversation created through the API shows up in the
 dashboard like any other session, and its approval prompts appear on both.
 
 With more than one Claude account you can run **an API server per account**:
-*Add API server* on **Settings › HTTP API** gives one a port of its own (5613,
+*Add API server* on **HTTP API** gives one a port of its own (5613,
 5614, …), its own defaults and, with *Only this account*, an account it runs as
 and nothing else — another account's conversations do not exist through it, so
 you can put one account's API behind a tunnel without opening the others. Every
@@ -295,7 +295,7 @@ LAN at `/servers/<id>/v1`, with a token).
 
 Full reference: **[docs/BRIDGE.md](docs/BRIDGE.md)**.
 
-> For access from outside your network, use **Settings › Phone & devices ›
+> For access from outside your network, use **Phone & devices ›
 > Internet access** and a tunnel to its local-only port (6726) — never a raw
 > port forward. Devices need their own pairing and never get dangerous actions
 > through a tunnel unless you grant them. The bridge port (5612) binds loopback

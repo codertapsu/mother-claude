@@ -116,7 +116,7 @@ pub struct DeviceInfo {
 }
 
 /// A paired device as a paired device sees it (`GET /api/devices` from a
-/// phone): *Settings › Phone & devices* there lists the devices read only
+/// phone): *Phone & devices* there lists the devices read only
 /// (docs/UI-REDESIGN.md §6.7). Its fields are named one by one, so what
 /// [`DeviceInfo`] gains later stays the desktop's: only what tells the
 /// devices apart and what each may do. Never where or how a device connects

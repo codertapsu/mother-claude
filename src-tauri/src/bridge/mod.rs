@@ -857,12 +857,12 @@ async fn require_started(
     }
     let message = match server.filter(|s| !s.is_main()) {
         Some(s) => format!(
-            "The API server \"{}\" has not been started. Open Mother Claude and start it in \
-             Settings › HTTP API.",
+            "The API server \"{}\" has not been started. Open Mother Claude and start it on \
+             the HTTP API page.",
             s.name()
         ),
         None => "The Claude bridge has not been started. Open Mother Claude, choose the \
-                 defaults you want in Settings › HTTP API, and press Start."
+                 defaults you want on the HTTP API page, and press Start."
             .to_string(),
     };
     error::BridgeError::new(

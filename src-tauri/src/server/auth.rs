@@ -647,7 +647,7 @@ impl<S: Send + Sync> FromRequestParts<S> for DangerousOk {
 
 /// The refusal text for dangerous actions.
 pub const DANGEROUS_BLOCKED_TEXT: &str = "This action is restricted to the Mother Claude \
-     desktop app, or to a device you granted dangerous actions in Settings › Phone & devices.";
+     desktop app, or to a device you granted dangerous actions in Phone & devices.";
 
 /// Require the dangerous right for a condition decided inside the handler (e.g.
 /// only when the body asks for bypassPermissions). Marks the request when it
@@ -659,7 +659,7 @@ pub fn require_dangerous(ctx: &ClientContext, what: &str) -> Result<(), ApiError
     } else {
         Err(ApiError::dangerous_blocked(format!(
             "{what} is restricted to the Mother Claude desktop app, or to a device you \
-             granted dangerous actions in Settings › Phone & devices."
+             granted dangerous actions in Phone & devices."
         )))
     }
 }

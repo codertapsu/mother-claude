@@ -81,7 +81,7 @@ pub async fn pending_status(
 /// them, gets `{devices, pending, idleDays}`: every device in full (never a
 /// token, a hash, a fingerprint or a poll secret). A paired device gets
 /// `{devices, self}`: the devices still paired, as [`DeviceSummary`] (its own
-/// row `current`), and its own id — enough for a phone's *Settings › Phone &
+/// row `current`), and its own id — enough for a phone's *Phone &
 /// devices* to list them read only and show itself first, without a dead end
 /// (docs/UI-REDESIGN.md §6.7). Where and how each device connects, what it
 /// did, its tokens and the pairing requests (`pending`: only the desktop
@@ -218,7 +218,7 @@ pub async fn unpair_self(
 ) -> ApiResult<Json<Value>> {
     let Some(id) = ctx.device_id().map(str::to_string) else {
         return Err(ApiError::bad_request(
-            "Only a paired device can unpair itself; manage devices in Settings › Phone & \
+            "Only a paired device can unpair itself; manage devices in Phone & \
              devices.",
         ));
     };

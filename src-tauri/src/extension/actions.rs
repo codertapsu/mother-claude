@@ -122,7 +122,7 @@ pub fn no_browser(state: &AppState) -> ToolError {
         ToolError::new(
             "no_browser",
             "No browser is paired with Mother Claude. Ask the user to install the Mother Claude \
-             extension and pair it: in the Mother Claude app open Settings › Browser › Pair a \
+             extension and pair it: in the Mother Claude app open Browser › Pair a \
              browser, then type the code it shows into the extension (docs/BROWSER.md).",
         )
     } else {
@@ -153,11 +153,11 @@ fn mode_refusal(r: &Resolved, needs: SiteMode) -> ToolError {
     let how = match &r.sensitive {
         Some(category) => format!(
             "{} is on Mother Claude's sensitive list ({category}): only the user can open it, \
-             from the Mother Claude desktop app (Settings › Browser › Site modes).",
+             from the Mother Claude desktop app (Browser › Site modes).",
             r.origin
         ),
         None => "The user can change it in the extension's side panel or in Mother Claude › \
-                 Settings › Browser › Site modes."
+                 Browser › Site modes."
             .to_string(),
     };
     if r.mode == SiteMode::Off {
@@ -289,11 +289,11 @@ pub fn tool_error(e: &CmdError, page: Option<&str>) -> ToolError {
             .to_string(),
         "site_off" => format!(
             "The extension refused: browsing {site} is off. The user can change it in the \
-             extension's side panel or in Mother Claude › Settings › Browser."
+             extension's side panel or in Mother Claude › Browser."
         ),
         "site_read_only" => format!(
             "The extension refused: {site} is read-only. The user can change it in the \
-             extension's side panel or in Mother Claude › Settings › Browser."
+             extension's side panel or in Mother Claude › Browser."
         ),
         "no_tab" => "This session has no tab in its browser group yet: open one with \
                      browser_navigate (or browser_tabs with action \"open\")."
@@ -393,7 +393,7 @@ fn pick_browser(state: &AppState) -> Result<Arc<Conn>, ToolError> {
             format!(
                 "{name} (the browser Mother Claude is set to use) is not connected. Ask the user \
                  to open it (the extension reconnects by itself), or to choose another in \
-                 Mother Claude › Settings › Browser (Use for new sessions)."
+                 Mother Claude › Browser (Use for new sessions)."
             ),
         ));
     }
@@ -1381,7 +1381,7 @@ async fn run(
     if call.action == "screenshot" && !settings.screenshots {
         return Err(ToolError::new(
             "screenshots_off",
-            "Screenshots are turned off in Mother Claude (Settings › Browser › Options). Use \
+            "Screenshots are turned off in Mother Claude (Browser › Options). Use \
              browser_snapshot or browser_read instead.",
         ));
     }

@@ -93,7 +93,7 @@ pub fn no_channel(s: &SessionSummary) -> ApiError {
     ApiError::conflict(
         "no_channel",
         "Mother Claude cannot reach this session. Turn on Sessions started elsewhere on the \
-         desktop (Settings › Sessions started elsewhere), or continue it here as an owned \
+         desktop (Sessions started elsewhere), or continue it here as an owned \
          session.",
     )
     .with("notes", json!(s.control.notes))
