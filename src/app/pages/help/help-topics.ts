@@ -176,7 +176,7 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           'Some actions are **dangerous**: they let Claude run without approval, or change settings beyond one request.',
         points: [
-          'Examples: switching a session to **Bypass permissions**, saving "always allow" rules to settings files, approving a tool call marked dangerous, removing or deleting sessions, and sending raw keys to a terminal.',
+          'Examples: switching a session to **Bypass permissions**, remembering an answer for a whole project or everywhere, saving "always allow" rules to settings files, approving a tool call marked dangerous, removing or deleting sessions, and sending raw keys to a terminal.',
           'The desktop app can always do them. A phone can only after you allow it on the desktop app under **Phone & devices**, separately for your home network and for the internet.',
         ],
         links: [{ label: 'See Internet access and devices', path: '/help/internet' }],
@@ -748,6 +748,8 @@ const TOPICS: HelpTopicSource[] = [
     keywords: [
       'permission',
       'allow',
+      'allow for',
+      'remember',
       'deny',
       'approve',
       'question',
@@ -767,7 +769,7 @@ const TOPICS: HelpTopicSource[] = [
           'On a phone, what only the desktop app answers or fixes says so, and is not counted.',
         ],
         tips: [
-          "On a keyboard, J and K (or ↓ and ↑) move between requests and Enter opens a request's session; A allows, D denies, F adds feedback.",
+          "On a keyboard, J and K (or ↓ and ↑) move between requests and Enter opens a request's session; A allows, Shift+A opens **Allow for…**, D denies, F adds feedback.",
           '**Dismiss** puts a failure away on this device; failures leave by themselves after a day.',
         ],
         links: [{ label: 'Open Inbox', path: '/inbox' }],
@@ -831,8 +833,12 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           { term: 'Allow once', text: 'Lets this one call run.' },
           {
+            term: 'Allow for…',
+            text: 'Allows it now and remembers your answer: in this session, in its project or everywhere, or only for what matches patterns you write. Requests like it stop asking.',
+          },
+          {
             term: 'Always…',
-            text: 'Allows it now and remembers a rule. Pick where the rule lives: **This session only**, or a settings file for the project or for you.',
+            text: "Shown instead when Mother Claude can't remember the request: allows it now and saves Claude Code's own rule, for **This session only** or in a settings file for the project or for you.",
           },
           { term: 'Deny', text: 'Refuses it.' },
           {
@@ -841,8 +847,9 @@ const TOPICS: HelpTopicSource[] = [
           },
         ],
         notes: [
-          'Rules saved to settings files need the desktop app, or a device allowed dangerous actions. A phone without that is offered the rule for this session only.',
+          'Remembering an answer for a project or everywhere, and saving a rule to a settings file, need the desktop app or a device allowed dangerous actions. Any device may remember it for this session.',
         ],
+        links: [{ label: 'See Permissions', path: '/help/permissions' }],
       },
       {
         heading: 'Answer a question',
@@ -870,6 +877,7 @@ const TOPICS: HelpTopicSource[] = [
           'The desktop app can approve them.',
           'A phone needs **Allow dangerous actions** for the network it is on, set in the desktop app under **Phone & devices**.',
           'Any device can deny them.',
+          'They are never remembered: their card offers **Allow once** only, so they ask every time.',
         ],
       },
       {
@@ -893,6 +901,91 @@ const TOPICS: HelpTopicSource[] = [
             path: '/help/phone',
             fragment: 'push-notifications',
           },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'permissions',
+    title: 'Permissions',
+    icon: 'shield',
+    group: 'sessions',
+    summary:
+      'Let Claude do what you trust without asking you each time, and change it whenever you like.',
+    intro:
+      'A permission is an answer Mother Claude remembers for you. When Claude asks to run a command or change a file, choose **Allow for…** instead of **Allow once**: requests like it are allowed from then on, as far as you said. Anything else, and anything dangerous, still asks.',
+    keywords: [
+      'permissions',
+      'allow for',
+      'always allow',
+      'remember',
+      'rules',
+      'patterns',
+      'standing grant',
+      'ask for everything',
+      'pause',
+      'stop asking',
+    ],
+    sections: [
+      {
+        heading: 'Remember an answer',
+        steps: [
+          'On a request, press **Allow for…**.',
+          'Choose how far it goes: **In this session**, **In … (every session)** for its project, or **Everywhere on this Mac** (**Everywhere on this PC**).',
+        ],
+        points: [
+          'It runs at once, and requests like it stop asking where you chose. Each choice says what it covers, such as “Any Bash command, in every session of shop.”',
+          'A command for another of your computers offers **Commands from this session**, **Commands from …** and **Every command on …**; a task handed to one offers **Tasks from …** the same way.',
+          "A request a permission allows shows no card: the session's timeline says **Allowed by your permission** and which one.",
+        ],
+      },
+      {
+        heading: 'Allow only some',
+        intro:
+          'A choice without patterns allows every use of the tool there: every Bash command, every file change. To allow less, press **Only matching…**. Its rows start from what Claude asked.',
+        terms: [
+          {
+            term: 'Commands',
+            text: 'The words a command starts with: `cargo test` covers `cargo test --lib`, never `cargo test-foo`. A command that chains or redirects (`;`, `&&`, `|`, `>`, `$(`) always asks.',
+          },
+          {
+            term: 'Files',
+            text: 'Paths in the project: `src/**` is everything under `src`, `*.md` every Markdown file.',
+          },
+          { term: 'Sites', text: 'A site, or every site under one: `docs.rs`, `*.github.com`.' },
+        ],
+        steps: [
+          'Change the rows: **Add a pattern** adds one (up to 20), × removes one.',
+          'Under **Where it applies**, pick the session, the project or everywhere.',
+          'Press **Allow and remember**.',
+        ],
+      },
+      {
+        heading: 'Who may remember what',
+        points: [
+          'Anyone who may answer a request may remember it **In this session**.',
+          'A project, or everywhere, needs the desktop app or a phone allowed dangerous actions (**Settings › Phone & devices**). Elsewhere those choices are greyed out and say where to answer instead.',
+          'Dangerous actions always ask: their card says **Can’t be remembered** and offers **Allow once** only.',
+        ],
+      },
+      {
+        heading: 'Change them later',
+        steps: [
+          'Open **Permissions**: in the sidebar on the desktop app, under **More** on a phone.',
+          'Find the permission: they are grouped by computer, then by where they apply.',
+          'Press **Edit** to change its patterns or where it applies, or **Remove** to be asked again.',
+        ],
+        points: [
+          'Each one says what it allows, its patterns, how often it was used and when last.',
+          '**Ask for everything** pauses them all: Claude asks before everything, and your permissions are kept until you switch it off.',
+          'Allowing more (more or wider patterns, a project or everywhere) needs the same right as remembering it there.',
+        ],
+      },
+      {
+        heading: "Claude Code's own settings",
+        points: [
+          "Under the choices, **Or save it in Claude Code’s own settings** lists what Claude Code itself offers, such as a rule in `.claude/settings.local.json`. Those rules live in Claude Code's settings, not in **Permissions**.",
+          "A request Mother Claude can't remember shows **Always…** instead, when Claude Code offers anything.",
         ],
       },
     ],
@@ -1491,7 +1584,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Activity',
-            text: 'What went between your computers: **Recent moves**, **Runs**, **Tasks**, **Team roles** and **Always allowed runs**. The chips at the top show one kind.',
+            text: 'What went between your computers: **Recent moves**, **Runs**, **Tasks** and **Team roles**. The chips at the top show one kind. Commands allowed without asking are in **Permissions**.',
           },
           {
             term: 'Options',
@@ -2242,15 +2335,15 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Always allow a command',
         steps: [
-          "On a run's card, press **Always…**.",
-          'Choose **Always allow … on … for this project**. It names the first words of the command, such as `cargo test`, and the computer.',
+          "On a run's card, press **Allow for…**.",
+          'Choose **Commands from this session**, **Commands from …** (its project) or **Every command on …**; or **Only matching…** to allow only commands that start with some words, such as `cargo test`.',
         ],
         points: [
-          'From then on, a command of this project that starts with those words runs on that computer without asking. Whole words only: `cargo test` covers `cargo test --lib`, never `cargo test-foo`.',
+          'From then on, a command that matches runs on that computer without asking. Whole words only: `cargo test` covers `cargo test --lib`, never `cargo test-foo`.',
           'A command holding `;`, `&`, `|`, `$`, `(`, `)`, `{`, `}`, `<`, `>`, a backtick or a line break always asks, whatever it starts with: nothing can ride along after an allowed command.',
-          'A dangerous command is never allowed this way. Nothing is offered for a shell or an interpreter alone, such as `bash`, `pwsh` or `python`: Mother Claude offers the program and what it runs, such as `npm run build` or `python -m pytest`.',
-          '**Always…** needs the dangerous right: the desktop app, or a phone allowed dangerous actions.',
-          "They are saved in Mother Claude, not in Claude Code's settings. **Computers › Activity** lists them under **Always allowed runs**; **Revoke** takes one back (desktop app), and that command asks again.",
+          'A dangerous command is never allowed this way. A shell or an interpreter alone, such as `bash`, `pwsh` or `python`, is no pattern: name the program and what it runs, such as `npm run build` or `python -m pytest`.',
+          'Anyone who may answer can allow commands from this session; a project, or every command, needs the dangerous right: the desktop app, or a phone allowed dangerous actions.',
+          "They are kept in Mother Claude, not in Claude Code's settings, with your other **Permissions**: **Edit** changes one, **Remove** takes it back, and that command asks again.",
         ],
       },
       {
@@ -2300,7 +2393,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'From a phone',
         points: [
           "A phone answers a run's approval like any other, follows runs on the session's page and under **Runs**, and cancels them.",
-          "**Always…** and dangerous runs need the phone's dangerous permission, set in the desktop app. A phone sees **Always allowed runs** but can't revoke them.",
+          "A phone may allow **Commands from this session**; a project, every command and dangerous runs need the phone's dangerous permission, set in the desktop app. **Permissions** shows them on a phone too.",
         ],
       },
       {
@@ -2399,7 +2492,7 @@ const TOPICS: HelpTopicSource[] = [
           },
         ],
         points: [
-          'There is no **Always…**: every task is approved.',
+          '**Allow for…** remembers your answer: **Tasks from this session**, **Tasks from …** (its project) or **Every task handed to …**. A dangerous task is never remembered.',
           'A task whose session runs without approvals (`bypassPermissions` or `dontAsk`) is dangerous: only the desktop app, or a phone allowed dangerous actions, can allow it, and the other computer must have given this one its **Dangerous** permission.',
         ],
       },

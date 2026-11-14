@@ -14,6 +14,7 @@ const IDS = [
   'session-page',
   'messaging',
   'approvals',
+  'permissions',
   'new-session',
   'phone',
   'internet',
@@ -79,8 +80,10 @@ describe('Vietnamese Help: the basics, sessions and remote topics', () => {
           expect(new Set(terms).size, `${where}: terms`).toBe(terms.length);
           const labels = (s.links ?? []).map((l) => l.label);
           expect(new Set(labels).size, `${where}: links`).toBe(labels.length);
+          // Code may hold `**` (a glob such as `src/**`): only the rest counts.
           for (const text of strings(s)) {
-            expect(text.split('**').length % 2, `${where}: unclosed bold in “${text}”`).toBe(1);
+            const bare = text.replace(/`[^`]+`/g, '');
+            expect(bare.split('**').length % 2, `${where}: unclosed bold in “${text}”`).toBe(1);
           }
         });
       });

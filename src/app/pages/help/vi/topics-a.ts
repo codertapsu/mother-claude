@@ -168,7 +168,7 @@ const TOPICS: HelpTopicSource[] = [
         intro:
           'Một số thao tác là **nguy hiểm**: chúng cho Claude chạy mà không cần duyệt, hoặc thay đổi cài đặt vượt ra ngoài một yêu cầu.',
         points: [
-          'Ví dụ: chuyển một phiên sang **Bỏ qua quyền**, lưu quy tắc “luôn cho phép” vào tệp cài đặt, cho phép một lệnh gọi công cụ bị đánh dấu nguy hiểm, gỡ bỏ hoặc xóa phiên, và gửi phím thô vào terminal.',
+          'Ví dụ: chuyển một phiên sang **Bỏ qua quyền**, ghi nhớ một câu trả lời cho cả một dự án hay mọi nơi, lưu quy tắc “luôn cho phép” vào tệp cài đặt, cho phép một lệnh gọi công cụ bị đánh dấu nguy hiểm, gỡ bỏ hoặc xóa phiên, và gửi phím thô vào terminal.',
           'Ứng dụng máy tính luôn làm được các thao tác này. Điện thoại chỉ làm được sau khi bạn cho phép trên ứng dụng máy tính, trong **Điện thoại & thiết bị**, riêng cho mạng ở nhà và cho internet.',
         ],
         links: [{ label: 'Xem “Truy cập qua internet và thiết bị”', path: '/help/internet' }],
@@ -751,6 +751,7 @@ const TOPICS: HelpTopicSource[] = [
     keywords: [
       'quyền',
       'cho phép',
+      'ghi nhớ',
       'từ chối',
       'duyệt',
       'câu hỏi',
@@ -770,7 +771,7 @@ const TOPICS: HelpTopicSource[] = [
           'Trên điện thoại, những gì chỉ ứng dụng máy tính trả lời hay sửa được sẽ ghi rõ như vậy, và không được tính vào con số.',
         ],
         tips: [
-          'Trên bàn phím, J và K (hoặc ↓ và ↑) chuyển giữa các yêu cầu, Enter mở phiên của yêu cầu; A cho phép, D từ chối, F thêm phản hồi.',
+          'Trên bàn phím, J và K (hoặc ↓ và ↑) chuyển giữa các yêu cầu, Enter mở phiên của yêu cầu; A cho phép, Shift+A mở **Cho phép và ghi nhớ…**, D từ chối, F thêm phản hồi.',
           '**Đóng thông báo** cất một lỗi đi trên thiết bị này; các lỗi tự rời đi sau một ngày.',
         ],
         links: [{ label: 'Mở trang Hộp thư', path: '/inbox' }],
@@ -834,8 +835,12 @@ const TOPICS: HelpTopicSource[] = [
         terms: [
           { term: 'Cho phép một lần', text: 'Chỉ cho lần gọi này chạy.' },
           {
+            term: 'Cho phép và ghi nhớ…',
+            text: 'Cho phép ngay và ghi nhớ câu trả lời của bạn: trong phiên này, trong dự án của phiên hay ở mọi nơi, hoặc chỉ cho những gì khớp với các mẫu bạn viết. Những yêu cầu giống vậy sẽ thôi hỏi.',
+          },
+          {
             term: 'Luôn cho phép…',
-            text: 'Cho phép ngay và ghi nhớ một quy tắc. Chọn nơi lưu quy tắc: **Chỉ phiên này**, hoặc một tệp cài đặt cho dự án hay cho riêng bạn.',
+            text: 'Hiện thay thế khi Mother Claude không ghi nhớ được yêu cầu: cho phép ngay và lưu quy tắc riêng của Claude Code, cho **Chỉ phiên này** hoặc vào một tệp cài đặt cho dự án hay cho riêng bạn.',
           },
           { term: 'Từ chối', text: 'Không cho chạy.' },
           {
@@ -844,8 +849,9 @@ const TOPICS: HelpTopicSource[] = [
           },
         ],
         notes: [
-          'Lưu quy tắc vào tệp cài đặt cần ứng dụng máy tính, hoặc một thiết bị được phép thực hiện thao tác nguy hiểm. Điện thoại không có quyền đó chỉ được đề xuất quy tắc cho riêng phiên này.',
+          'Ghi nhớ câu trả lời cho một dự án hay mọi nơi, và lưu quy tắc vào tệp cài đặt, cần ứng dụng máy tính hoặc một thiết bị được phép thực hiện thao tác nguy hiểm. Thiết bị nào cũng ghi nhớ được cho phiên này.',
         ],
+        links: [{ label: 'Xem “Quyền”', path: '/help/permissions' }],
       },
       {
         heading: 'Trả lời câu hỏi',
@@ -873,6 +879,7 @@ const TOPICS: HelpTopicSource[] = [
           'Ứng dụng máy tính có thể cho phép các yêu cầu này.',
           'Điện thoại cần **Cho phép thao tác nguy hiểm** cho mạng mà nó đang dùng, bật trong ứng dụng máy tính tại **Điện thoại & thiết bị**.',
           'Thiết bị nào cũng có thể từ chối chúng.',
+          'Chúng không bao giờ được ghi nhớ: thẻ của chúng chỉ có **Cho phép một lần**, nên lần nào cũng hỏi.',
         ],
       },
       {
@@ -896,6 +903,92 @@ const TOPICS: HelpTopicSource[] = [
             path: '/help/phone',
             fragment: 'push-notifications',
           },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'permissions',
+    title: 'Quyền',
+    icon: 'shield',
+    group: 'sessions',
+    summary:
+      'Cho Claude làm những gì bạn tin tưởng mà không phải hỏi mỗi lần, và thay đổi bất cứ lúc nào.',
+    intro:
+      'Một quyền là một câu trả lời Mother Claude ghi nhớ giúp bạn. Khi Claude xin chạy một lệnh hay sửa một tệp, hãy chọn **Cho phép và ghi nhớ…** thay vì **Cho phép một lần**: từ đó những yêu cầu giống vậy được cho phép, trong phạm vi bạn đã chọn. Mọi thứ khác, và mọi thao tác nguy hiểm, vẫn hỏi.',
+    keywords: [
+      'quyền',
+      'ghi nhớ',
+      'luôn cho phép',
+      'mẫu',
+      'quy tắc',
+      'hỏi mọi thứ',
+      'tạm dừng',
+      'thôi hỏi',
+    ],
+    sections: [
+      {
+        heading: 'Ghi nhớ một câu trả lời',
+        steps: [
+          'Trên một yêu cầu, nhấn **Cho phép và ghi nhớ…**.',
+          'Chọn phạm vi: **Trong phiên này**, **Trong … (mọi phiên)** cho dự án của phiên, hoặc **Mọi nơi trên máy Mac này** (**Mọi nơi trên máy PC này**).',
+        ],
+        points: [
+          'Yêu cầu chạy ngay, và những yêu cầu giống vậy thôi hỏi ở nơi bạn đã chọn. Mỗi lựa chọn nói rõ nó bao gồm những gì, chẳng hạn “Mọi lệnh Bash, trong mọi phiên của shop.”',
+          'Một lệnh cho máy tính khác của bạn có **Các lệnh từ phiên này**, **Các lệnh từ …** và **Mọi lệnh trên …**; một tác vụ giao cho máy đó có **Các tác vụ từ …** theo cách tương tự.',
+          'Yêu cầu được một quyền cho phép sẽ không hiện thẻ: dòng thời gian của phiên ghi **Allowed by your permission** (đã cho phép theo quyền của bạn) cùng tên quyền đó.',
+        ],
+      },
+      {
+        heading: 'Chỉ cho phép một phần',
+        intro:
+          'Một lựa chọn không có mẫu cho phép mọi lần dùng công cụ đó ở đó: mọi lệnh Bash, mọi thay đổi tệp. Để cho phép ít hơn, nhấn **Chỉ khi khớp…**. Các dòng bắt đầu từ những gì Claude đã xin.',
+        terms: [
+          {
+            term: 'Lệnh',
+            text: 'Những từ mà lệnh bắt đầu bằng: `cargo test` bao gồm `cargo test --lib`, nhưng không bao giờ bao gồm `cargo test-foo`. Lệnh nối chuỗi hoặc chuyển hướng (`;`, `&&`, `|`, `>`, `$(`) luôn hỏi.',
+          },
+          {
+            term: 'Tệp',
+            text: 'Đường dẫn trong dự án: `src/**` là mọi thứ trong `src`, `*.md` là mọi tệp Markdown.',
+          },
+          {
+            term: 'Trang web',
+            text: 'Một trang web, hoặc mọi trang web thuộc một tên miền: `docs.rs`, `*.github.com`.',
+          },
+        ],
+        steps: [
+          'Sửa các dòng: **Thêm một mẫu** thêm một dòng (tối đa 20), × gỡ một dòng.',
+          'Trong **Áp dụng ở đâu**, chọn phiên, dự án hoặc mọi nơi.',
+          'Nhấn **Cho phép và ghi nhớ**.',
+        ],
+      },
+      {
+        heading: 'Ai được ghi nhớ những gì',
+        points: [
+          'Ai trả lời được một yêu cầu thì cũng ghi nhớ được nó **Trong phiên này**.',
+          'Một dự án, hoặc mọi nơi, cần ứng dụng máy tính hoặc một điện thoại được phép thực hiện thao tác nguy hiểm (**Cài đặt › Điện thoại & thiết bị**). Ở nơi khác, các lựa chọn đó bị làm mờ và cho biết nên trả lời ở đâu.',
+          'Thao tác nguy hiểm luôn hỏi: thẻ của chúng ghi **Không thể ghi nhớ** và chỉ có **Cho phép một lần**.',
+        ],
+      },
+      {
+        heading: 'Thay đổi sau',
+        steps: [
+          'Mở **Quyền**: trên thanh bên của ứng dụng máy tính, hoặc trong **Thêm** trên điện thoại.',
+          'Tìm quyền đó: các quyền được nhóm theo máy tính, rồi theo nơi chúng áp dụng.',
+          'Nhấn **Sửa** để đổi mẫu hoặc nơi áp dụng, hoặc **Gỡ bỏ** để được hỏi lại.',
+        ],
+        points: [
+          'Mỗi quyền cho biết nó cho phép gì, các mẫu của nó, đã được dùng bao nhiêu lần và lần cuối khi nào.',
+          '**Hỏi mọi thứ** tạm dừng tất cả: Claude hỏi trước mọi việc, và các quyền của bạn được giữ cho đến khi bạn tắt nó.',
+          'Cho phép nhiều hơn (thêm mẫu, mẫu rộng hơn, một dự án hay mọi nơi) cần cùng quyền như khi ghi nhớ ở đó.',
+        ],
+      },
+      {
+        heading: 'Cài đặt riêng của Claude Code',
+        points: [
+          'Bên dưới các lựa chọn, **Hoặc lưu vào cài đặt riêng của Claude Code** liệt kê những gì chính Claude Code đề xuất, chẳng hạn một quy tắc trong `.claude/settings.local.json`. Các quy tắc đó nằm trong cài đặt của Claude Code, không nằm trong **Quyền**.',
+          'Một yêu cầu Mother Claude không ghi nhớ được sẽ hiện **Luôn cho phép…** thay thế, khi Claude Code có đề xuất.',
         ],
       },
     ],

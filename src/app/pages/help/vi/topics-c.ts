@@ -196,7 +196,7 @@ const TOPICS: HelpTopicSource[] = [
           },
           {
             term: 'Hoạt động',
-            text: 'Những gì đã diễn ra giữa các máy tính của bạn: **Các lần chuyển gần đây**, **Các lần chạy**, **Tác vụ**, **Vai trò trong nhóm** và **Lệnh chạy luôn được phép**. Các nút lọc ở trên cùng chỉ hiện một loại.',
+            text: 'Những gì đã diễn ra giữa các máy tính của bạn: **Các lần chuyển gần đây**, **Các lần chạy**, **Tác vụ** và **Vai trò trong nhóm**. Các nút lọc ở trên cùng chỉ hiện một loại. Các lệnh được phép chạy mà không hỏi nằm trong **Quyền**.',
           },
           {
             term: 'Tùy chọn',
@@ -965,15 +965,15 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Luôn cho phép một lệnh',
         steps: [
-          'Trên thẻ yêu cầu duyệt của một lần chạy, nhấn **Luôn cho phép…**.',
-          'Chọn **Luôn cho phép “…” trên … cho dự án này**. Dòng này nêu các từ đầu tiên của lệnh, chẳng hạn `cargo test`, và máy tính.',
+          'Trên thẻ yêu cầu duyệt của một lần chạy, nhấn **Cho phép và ghi nhớ…**.',
+          'Chọn **Các lệnh từ phiên này**, **Các lệnh từ …** (dự án của phiên) hoặc **Mọi lệnh trên …**; hoặc **Chỉ khi khớp…** để chỉ cho phép các lệnh bắt đầu bằng vài từ, chẳng hạn `cargo test`.',
         ],
         points: [
-          'Từ đó trở đi, một lệnh của dự án này bắt đầu bằng đúng những từ đó sẽ chạy trên máy đó mà không hỏi. Chỉ tính nguyên từ: `cargo test` bao gồm `cargo test --lib`, nhưng không bao giờ bao gồm `cargo test-foo`.',
+          'Từ đó trở đi, một lệnh khớp sẽ chạy trên máy đó mà không hỏi. Chỉ tính nguyên từ: `cargo test` bao gồm `cargo test --lib`, nhưng không bao giờ bao gồm `cargo test-foo`.',
           'Một lệnh có chứa `;`, `&`, `|`, `$`, `(`, `)`, `{`, `}`, `<`, `>`, dấu backtick hoặc dấu xuống dòng thì luôn phải hỏi, dù nó bắt đầu bằng gì: không gì có thể đi kèm sau một lệnh đã được cho phép.',
-          'Lệnh nguy hiểm không bao giờ được cho phép theo cách này. Không có gì được đề xuất cho một shell hay một trình thông dịch đứng riêng, như `bash`, `pwsh` hay `python`: Mother Claude đề xuất chương trình cùng thứ nó chạy, chẳng hạn `npm run build` hay `python -m pytest`.',
-          '**Luôn cho phép…** cần quyền thao tác nguy hiểm: ứng dụng máy tính, hoặc điện thoại được phép thực hiện thao tác nguy hiểm.',
-          'Chúng được lưu trong Mother Claude, không phải trong cài đặt của Claude Code. **Máy tính › Hoạt động** liệt kê chúng trong **Lệnh chạy luôn được phép**; **Thu hồi** để rút lại một lệnh (ứng dụng máy tính), và lệnh đó sẽ lại hỏi.',
+          'Lệnh nguy hiểm không bao giờ được cho phép theo cách này. Một shell hay một trình thông dịch đứng riêng, như `bash`, `pwsh` hay `python`, không phải là một mẫu: hãy ghi chương trình cùng thứ nó chạy, chẳng hạn `npm run build` hay `python -m pytest`.',
+          'Ai trả lời được yêu cầu thì cũng cho phép được các lệnh từ phiên này; một dự án, hoặc mọi lệnh, cần quyền thao tác nguy hiểm: ứng dụng máy tính, hoặc điện thoại được phép thực hiện thao tác nguy hiểm.',
+          'Chúng được giữ trong Mother Claude, không phải trong cài đặt của Claude Code, cùng các **Quyền** khác của bạn: **Sửa** để thay đổi một quyền, **Gỡ bỏ** để rút lại, và lệnh đó sẽ lại hỏi.',
         ],
       },
       {
@@ -1023,7 +1023,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Từ điện thoại',
         points: [
           'Điện thoại trả lời yêu cầu duyệt một lần chạy như mọi yêu cầu khác, theo dõi các lần chạy trên trang của phiên và trong **Các lần chạy**, và hủy được chúng.',
-          '**Luôn cho phép…** và các lần chạy nguy hiểm cần quyền thao tác nguy hiểm của điện thoại, được đặt trong ứng dụng máy tính. Điện thoại thấy **Lệnh chạy luôn được phép** nhưng không thu hồi được.',
+          'Điện thoại cho phép được **Các lệnh từ phiên này**; một dự án, mọi lệnh và các lần chạy nguy hiểm cần quyền thao tác nguy hiểm của điện thoại, được đặt trong ứng dụng máy tính. Trên điện thoại, **Quyền** cũng hiện chúng.',
         ],
       },
       {
@@ -1113,7 +1113,7 @@ const TOPICS: HelpTopicSource[] = [
           },
         ],
         points: [
-          'Không có **Luôn cho phép…**: mọi tác vụ đều được duyệt.',
+          '**Cho phép và ghi nhớ…** ghi nhớ câu trả lời của bạn: **Các tác vụ từ phiên này**, **Các tác vụ từ …** (dự án của phiên) hoặc **Mọi tác vụ giao cho …**. Một tác vụ nguy hiểm không bao giờ được ghi nhớ.',
           'Một tác vụ mà phiên chạy không cần phê duyệt (`bypassPermissions` hoặc `dontAsk`) là tác vụ nguy hiểm: chỉ ứng dụng máy tính, hoặc điện thoại được phép thực hiện thao tác nguy hiểm, mới cho phép được, và máy kia phải cấp quyền **Nguy hiểm** cho máy này.',
         ],
       },
