@@ -81,9 +81,9 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Làm quen với ứng dụng',
         points: [
-          'Trên ứng dụng máy tính, thanh bên có phần việc của bạn trước — **Phiên**, **Hộp thư** và **Nhóm** — rồi đến những gì bạn quản lý: **Máy tính**, **Tài khoản** và **Cài đặt**. **Trợ giúp** nằm ở dưới cùng.',
-          'Nơi nào có nhiều trang sẽ hiện chúng thành các thẻ dưới tên của nó: **Phiên**, **Tác tử** và **Dự án**; **Nhóm**, **Mẫu quy trình** và **Công suất**; **Máy tính**: **Tổng quan**, **Đồng bộ mã nguồn**, **Hoạt động** và **Tùy chọn**; **Tài khoản**: **Tài khoản**, **Mức dùng**, **Bản sao lưu** và **Thay đổi gần đây**. **Cài đặt** mở phần còn lại trong **Các kết nối**: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**.',
-          'Trên điện thoại, các thẻ ở dưới cùng là **Phiên**, **Hộp thư**, **Nhóm** và **Thêm**. **Thêm** có **Máy tính**, **Tài khoản**, **Cài đặt** và **Trợ giúp**, mỗi mục kèm một dòng cho biết tình trạng của nó.',
+          'Trên ứng dụng máy tính, thanh bên có ba nhóm. **Công việc**: **Phiên**, **Hộp thư** và **Nhóm**. **Kết nối**: **Máy tính**, **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt** và **HTTP API**. **Quản lý**: **Tài khoản**, **Bản sao lưu** và **Cài đặt**. **Trợ giúp** nằm ở dưới cùng.',
+          'Nơi nào có nhiều trang sẽ hiện chúng thành các thẻ dưới tên của nó: **Phiên**, **Tác tử** và **Dự án**; **Nhóm**, **Mẫu quy trình** và **Công suất**; **Máy tính**: **Tổng quan**, **Đồng bộ mã nguồn**, **Hoạt động** và **Tùy chọn**; **Tài khoản**: **Tài khoản**, **Mức dùng** và **Thay đổi gần đây**. **Cài đặt** mở **Công cụ cho Claude Code** ở một trang riêng.',
+          'Trên điện thoại, các thẻ ở dưới cùng là **Phiên**, **Hộp thư**, **Nhóm** và **Thêm**. **Thêm** có các nơi còn lại dưới cùng những tiêu đề đó, **Kết nối** và **Quản lý**, rồi đến **Trợ giúp**, mỗi mục kèm một dòng cho biết tình trạng của nó hoặc nó dùng để làm gì.',
           'Chấm ở cuối thanh bên (ở trên cùng trên điện thoại) cho biết trạng thái kết nối. **Trực tiếp** nghĩa là cập nhật đến ngay khi có.',
           'Nút bên cạnh đổi giao diện giữa tối, sáng và theo hệ thống. **Cài đặt › Hiển thị** còn có ngôn ngữ, màu nhấn và nền.',
           'Lần đầu, một ghi chú ngắn **Chào mừng đến với Mother Claude** giải thích cách ứng dụng hoạt động. Nhấn **Đã hiểu** để đóng nó.',
@@ -108,8 +108,8 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Bước tiếp theo',
         points: [
           'Bắt đầu một phiên bằng nút **Phiên mới** trên trang **Phiên**: phiên bắt đầu ở đó được điều khiển hoàn toàn.',
-          'Ghép nối điện thoại trên ứng dụng máy tính, trong **Cài đặt › Điện thoại & thiết bị**.',
-          'Để trả lời các phiên bạn bắt đầu trong terminal hay VS Code, hãy cài plugin Mother Claude trong **Cài đặt › Phiên bắt đầu ở nơi khác**.',
+          'Ghép nối điện thoại trên ứng dụng máy tính, trong **Điện thoại & thiết bị**.',
+          'Để trả lời các phiên bạn bắt đầu trong terminal hay VS Code, hãy cài plugin Mother Claude trong **Phiên bắt đầu ở nơi khác**.',
         ],
         links: [
           { label: 'Mở trang Phiên mới', path: '/new' },
@@ -169,7 +169,7 @@ const TOPICS: HelpTopicSource[] = [
           'Một số thao tác là **nguy hiểm**: chúng cho Claude chạy mà không cần duyệt, hoặc thay đổi cài đặt vượt ra ngoài một yêu cầu.',
         points: [
           'Ví dụ: chuyển một phiên sang **Bỏ qua quyền**, lưu quy tắc “luôn cho phép” vào tệp cài đặt, cho phép một lệnh gọi công cụ bị đánh dấu nguy hiểm, gỡ bỏ hoặc xóa phiên, và gửi phím thô vào terminal.',
-          'Ứng dụng máy tính luôn làm được các thao tác này. Điện thoại chỉ làm được sau khi bạn cho phép trên ứng dụng máy tính, trong **Cài đặt › Điện thoại & thiết bị**, riêng cho mạng ở nhà và cho internet.',
+          'Ứng dụng máy tính luôn làm được các thao tác này. Điện thoại chỉ làm được sau khi bạn cho phép trên ứng dụng máy tính, trong **Điện thoại & thiết bị**, riêng cho mạng ở nhà và cho internet.',
         ],
         links: [{ label: 'Xem “Truy cập qua internet và thiết bị”', path: '/help/internet' }],
       },
@@ -182,7 +182,7 @@ const TOPICS: HelpTopicSource[] = [
     group: 'settings',
     summary: 'Thông báo, giao diện, kết nối và cập nhật phần mềm.',
     intro:
-      'Cài đặt chứa những gì bạn đặt một lần: thông báo, giao diện và kết nối của thiết bị này, cùng những gì khác hoạt động với Mother Claude. Trong ứng dụng máy tính, Cài đặt còn có cập nhật phần mềm; các quyền macOS nằm trong **Máy tính › Máy Mac này**.',
+      'Cài đặt chứa những gì bạn đặt một lần: thông báo, giao diện và kết nối của thiết bị này, cùng các công cụ của Mother Claude cho Claude Code. Trong ứng dụng máy tính, Cài đặt còn có cập nhật phần mềm; các quyền macOS nằm trong **Máy tính › Máy Mac này**.',
     keywords: [
       'tùy chọn',
       'giao diện',
@@ -205,8 +205,8 @@ const TOPICS: HelpTopicSource[] = [
             text: 'Ngôn ngữ, giao diện (**Tối**, **Sáng** hoặc **Theo hệ thống**), màu nhấn và nền.',
           },
           {
-            term: 'Các kết nối',
-            text: 'Những gì khác hoạt động với Mother Claude: **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác** (trong ứng dụng máy tính), **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code**. Mỗi dòng cho biết tình trạng của mục đó và mở một trang riêng, nơi **Cài đặt** ở trên cùng đưa bạn quay lại.',
+            term: 'Claude Code',
+            text: '**Công cụ cho Claude Code**: một dòng cho biết tình trạng của chúng, mở trang riêng của chúng, nơi **Cài đặt** ở trên cùng đưa bạn quay lại.',
           },
           {
             term: 'Kết nối',
@@ -256,6 +256,11 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
+        heading: 'Các kết nối và Bản sao lưu đã chuyển ra thanh bên',
+        intro:
+          'Cài đặt không còn mục **Các kết nối**, và **Tài khoản** không còn thẻ **Bản sao lưu**. **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt** và **HTTP API** giờ là những nơi riêng trong nhóm **Kết nối** ở thanh bên, còn **Bản sao lưu** nằm trong nhóm **Quản lý**; trên điện thoại, chúng nằm trong **Thêm**, dưới cùng những tiêu đề đó. Các liên kết và dấu trang cũ vẫn mở được chúng.',
+      },
+      {
         heading: 'Cập nhật ứng dụng',
         where: 'desktop',
         intro:
@@ -269,7 +274,7 @@ const TOPICS: HelpTopicSource[] = [
         ],
         notes: [
           'Trên Windows, ứng dụng đóng lại trong lúc cài bản cập nhật.',
-          'Sau khi khởi động lại, HTTP API tắt cho đến khi bạn bật lại nó: **Cài đặt › HTTP API**.',
+          'Sau khi khởi động lại, HTTP API tắt cho đến khi bạn bật lại nó: **HTTP API**.',
         ],
       },
       {
@@ -866,14 +871,14 @@ const TOPICS: HelpTopicSource[] = [
           'Mother Claude đánh dấu một số yêu cầu là **nguy hiểm**: ví dụ ghi vào cài đặt của Claude Code, `.mcp.json`, tệp khởi động shell hay git hook. Thẻ sẽ nói rõ lý do.',
         points: [
           'Ứng dụng máy tính có thể cho phép các yêu cầu này.',
-          'Điện thoại cần **Cho phép thao tác nguy hiểm** cho mạng mà nó đang dùng, bật trong ứng dụng máy tính tại **Cài đặt › Điện thoại & thiết bị**.',
+          'Điện thoại cần **Cho phép thao tác nguy hiểm** cho mạng mà nó đang dùng, bật trong ứng dụng máy tính tại **Điện thoại & thiết bị**.',
           'Thiết bị nào cũng có thể từ chối chúng.',
         ],
       },
       {
         heading: 'Phiên bắt đầu ở nơi khác',
         points: [
-          'Khi đã cài plugin Mother Claude (**Cài đặt › Phiên bắt đầu ở nơi khác**), yêu cầu cấp quyền từ một phiên terminal hay VS Code sẽ hiện ở đây, trong khi phiên đó vẫn hiện hộp thoại của riêng nó. Ai trả lời trước thì câu trả lời đó có hiệu lực; hộp thoại còn lại sẽ biến mất.',
+          'Khi đã cài plugin Mother Claude (**Phiên bắt đầu ở nơi khác**), yêu cầu cấp quyền từ một phiên terminal hay VS Code sẽ hiện ở đây, trong khi phiên đó vẫn hiện hộp thoại của riêng nó. Ai trả lời trước thì câu trả lời đó có hiệu lực; hộp thoại còn lại sẽ biến mất.',
           'Nếu chưa cài, các yêu cầu đó hiện trong **Chờ ở nơi phiên chạy**, và khi không có gì đang chờ, **Hộp thư** sẽ cho biết nơi cài plugin.',
           'Phiên ở chế độ **Bỏ qua quyền** gần như không hỏi gì, nên rất ít yêu cầu đến được với bạn.',
         ],
@@ -966,7 +971,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Ghép nối điện thoại trên cùng Wi-Fi',
         steps: [
-          'Trong ứng dụng máy tính, mở **Cài đặt › Điện thoại & thiết bị**.',
+          'Trong ứng dụng máy tính, mở **Điện thoại & thiết bị**.',
           'Trong **Ghép nối điện thoại**, chọn **Cùng Wi-Fi**.',
           'Nhấn **Hiện mã ghép nối**. Một mã QR và một mã 12 ký tự sẽ hiện ra.',
           'Quét mã QR bằng camera của điện thoại.',
@@ -1033,16 +1038,16 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Điện thoại làm được gì',
         points: [
-          'Các thẻ ở dưới cùng là **Phiên** (có các thẻ **Tác tử** và **Dự án**), **Hộp thư**, **Nhóm** (có **Mẫu quy trình** và **Công suất**) và **Thêm**: **Máy tính**, **Tài khoản** (có **Mức dùng**, **Bản sao lưu** và **Thay đổi gần đây**), **Cài đặt** (có **Điện thoại & thiết bị**, **Trình duyệt**, **HTTP API** và **Công cụ cho Claude Code** trong **Các kết nối**) và **Trợ giúp**.',
+          'Các thẻ ở dưới cùng là **Phiên** (có các thẻ **Tác tử** và **Dự án**), **Hộp thư**, **Nhóm** (có **Mẫu quy trình** và **Công suất**) và **Thêm**: trong **Kết nối** là **Máy tính**, **Điện thoại & thiết bị**, **Trình duyệt** và **HTTP API**; trong **Quản lý** là **Tài khoản** (có **Mức dùng** và **Thay đổi gần đây**), **Bản sao lưu** và **Cài đặt** (có **Công cụ cho Claude Code**); sau cùng là **Trợ giúp**.',
           'Xem mọi phiên, trả lời yêu cầu duyệt, câu hỏi và kế hoạch, gửi tin nhắn và ảnh, bắt đầu phiên và tiếp tục phiên.',
           'Việc ghép nối thiết bị, truy cập qua internet, quyền của từng thiết bị và cài plugin chỉ thay đổi được trong ứng dụng máy tính.',
-          'Thao tác nguy hiểm cần được cấp quyền cho thiết bị này trong ứng dụng máy tính (**Cài đặt › Điện thoại & thiết bị**, trong **Thiết bị đã ghép nối**).',
+          'Thao tác nguy hiểm cần được cấp quyền cho thiết bị này trong ứng dụng máy tính (**Điện thoại & thiết bị**, trong **Thiết bị đã ghép nối**).',
         ],
       },
       {
         heading: 'Điện thoại & thiết bị trên điện thoại',
         intro:
-          'Trên điện thoại, **Cài đặt › Điện thoại & thiết bị** hiện điện thoại này và mọi thiết bị đã ghép nối với máy tính của bạn, ở chế độ chỉ xem.',
+          'Trên điện thoại, **Điện thoại & thiết bị** hiện điện thoại này và mọi thiết bị đã ghép nối với máy tính của bạn, ở chế độ chỉ xem.',
         terms: [
           {
             term: 'Thiết bị này',
@@ -1062,7 +1067,7 @@ const TOPICS: HelpTopicSource[] = [
           'Nhấn tiếp **Nhấn lần nữa để hủy ghép nối**.',
         ],
         points: [
-          'Thông báo đẩy của điện thoại dừng lại và ứng dụng máy tính quên thiết bị này. Bạn cũng có thể thu hồi nó trên ứng dụng máy tính, trong **Cài đặt › Điện thoại & thiết bị**.',
+          'Thông báo đẩy của điện thoại dừng lại và ứng dụng máy tính quên thiết bị này. Bạn cũng có thể thu hồi nó trên ứng dụng máy tính, trong **Điện thoại & thiết bị**.',
         ],
       },
     ],
@@ -1081,7 +1086,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Bật truy cập qua internet',
         where: 'desktop',
         steps: [
-          'Mở **Cài đặt › Điện thoại & thiết bị**.',
+          'Mở **Điện thoại & thiết bị**.',
           'Trong **Truy cập Internet**, bật **Cho phép truy cập qua đường hầm**.',
           'Trong **Khởi chạy đường hầm**, sao chép lệnh cho loại đường hầm bạn dùng.',
           'Chạy lệnh đó trong terminal trên máy tính của bạn.',
@@ -1138,7 +1143,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Quản lý thiết bị đã ghép nối',
         where: 'desktop',
         intro:
-          '**Thiết bị đã ghép nối**, trên **Cài đặt › Điện thoại & thiết bị**, liệt kê mọi thiết bị cùng nền tảng của nó, lần kết nối gần nhất (khi nào, bằng cách nào) và các kết nối đang mở.',
+          '**Thiết bị đã ghép nối**, trên **Điện thoại & thiết bị**, liệt kê mọi thiết bị cùng nền tảng của nó, lần kết nối gần nhất (khi nào, bằng cách nào) và các kết nối đang mở.',
         terms: [
           { term: 'Biểu tượng bút chì', text: 'Đổi tên thiết bị.' },
           {
@@ -1192,7 +1197,7 @@ const TOPICS: HelpTopicSource[] = [
     summary:
       'Trả lời và nhắn tin cho phiên terminal, VS Code và JetBrains bằng plugin, hoặc qua tmux.',
     intro:
-      'Mother Claude hiện mọi phiên Claude Code trên máy tính của bạn, bất kể thứ gì đã bắt đầu chúng, và bạn có thể xem chúng ngay. Để trả lời và nhắn tin cho các phiên bạn bắt đầu trong terminal, VS Code, JetBrains hay Claude Desktop, hãy cài plugin Mother Claude trong **Cài đặt › Phiên bắt đầu ở nơi khác**.',
+      'Mother Claude hiện mọi phiên Claude Code trên máy tính của bạn, bất kể thứ gì đã bắt đầu chúng, và bạn có thể xem chúng ngay. Để trả lời và nhắn tin cho các phiên bạn bắt đầu trong terminal, VS Code, JetBrains hay Claude Desktop, hãy cài plugin Mother Claude trong **Phiên bắt đầu ở nơi khác**.',
     keywords: [
       'phiên bên ngoài',
       'điều khiển phiên bên ngoài',
@@ -1207,7 +1212,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Cài plugin Mother Claude',
         where: 'desktop',
         steps: [
-          'Mở **Cài đặt › Phiên bắt đầu ở nơi khác**.',
+          'Mở **Phiên bắt đầu ở nơi khác**.',
           'Ở dòng của tài khoản Claude của bạn, nhấn **Cài đặt** (tài khoản token dùng dòng đầu tiên, của tài khoản Mặc định).',
           'Chờ đến khi cột **Plugin** ghi **Bật**.',
           'Trong mỗi phiên đã chạy từ trước, gõ `/reload-plugins` (hoặc khởi động lại phiên).',
@@ -1228,7 +1233,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Một bảng cho mọi tài khoản',
         intro:
-          'Mỗi tài khoản Claude có thư mục riêng thì có bản plugin riêng, nên **Cài đặt › Phiên bắt đầu ở nơi khác** có một dòng cho mỗi tài khoản: tài khoản Mặc định trước, rồi đến từng tài khoản thư mục. Tài khoản token dùng thư mục của tài khoản Mặc định, và cả dòng của nó.',
+          'Mỗi tài khoản Claude có thư mục riêng thì có bản plugin riêng, nên **Phiên bắt đầu ở nơi khác** có một dòng cho mỗi tài khoản: tài khoản Mặc định trước, rồi đến từng tài khoản thư mục. Tài khoản token dùng thư mục của tài khoản Mặc định, và cả dòng của nó.',
         terms: [
           {
             term: 'Tài khoản Claude',
@@ -1290,7 +1295,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Gỡ cài đặt',
         where: 'desktop',
         steps: [
-          'Mở **Cài đặt › Phiên bắt đầu ở nơi khác**.',
+          'Mở **Phiên bắt đầu ở nơi khác**.',
           'Ở dòng của tài khoản đó, nhấn **Gỡ cài đặt**.',
           'Nhấn tiếp **Nhấn lần nữa để gỡ cài đặt**.',
         ],
