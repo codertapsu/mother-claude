@@ -81,7 +81,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Làm quen với ứng dụng',
         points: [
-          'Trên ứng dụng máy tính, thanh bên có ba nhóm. **Công việc**: **Phiên**, **Hộp thư** và **Nhóm**. **Kết nối**: **Máy tính**, **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt** và **HTTP API**. **Quản lý**: **Tài khoản**, **Bản sao lưu** và **Cài đặt**. **Trợ giúp** nằm ở dưới cùng.',
+          'Trên ứng dụng máy tính, thanh bên có ba nhóm. **Công việc**: **Phiên**, **Hộp thư** và **Nhóm**. **Kết nối**: **Máy tính**, **Điện thoại & thiết bị**, **Phiên bắt đầu ở nơi khác**, **Trình duyệt** và **HTTP API**. **Quản lý**: **Tài khoản**, **Bản sao lưu**, **Quyền** và **Cài đặt**. **Trợ giúp** nằm ở dưới cùng.',
           'Nơi nào có nhiều trang sẽ hiện chúng thành các thẻ dưới tên của nó: **Phiên**, **Tác tử** và **Dự án**; **Nhóm**, **Mẫu quy trình** và **Công suất**; **Máy tính**: **Tổng quan**, **Đồng bộ mã nguồn**, **Hoạt động** và **Tùy chọn**; **Tài khoản**: **Tài khoản**, **Mức dùng** và **Thay đổi gần đây**. **Cài đặt** mở **Công cụ cho Claude Code** ở một trang riêng.',
           'Trên điện thoại, các thẻ ở dưới cùng là **Phiên**, **Hộp thư**, **Nhóm** và **Thêm**. **Thêm** có các nơi còn lại dưới cùng những tiêu đề đó, **Kết nối** và **Quản lý**, rồi đến **Trợ giúp**, mỗi mục kèm một dòng cho biết tình trạng của nó hoặc nó dùng để làm gì.',
           'Chấm ở cuối thanh bên (ở trên cùng trên điện thoại) cho biết trạng thái kết nối. **Trực tiếp** nghĩa là cập nhật đến ngay khi có.',
@@ -967,7 +967,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Ai được ghi nhớ những gì',
         points: [
           'Ai trả lời được một yêu cầu thì cũng ghi nhớ được nó **Trong phiên này**.',
-          'Một dự án, hoặc mọi nơi, cần ứng dụng máy tính hoặc một điện thoại được phép thực hiện thao tác nguy hiểm (**Cài đặt › Điện thoại & thiết bị**). Ở nơi khác, các lựa chọn đó bị làm mờ và cho biết nên trả lời ở đâu.',
+          'Một dự án, hoặc mọi nơi, cần ứng dụng máy tính hoặc một điện thoại được phép thực hiện thao tác nguy hiểm (**Điện thoại & thiết bị**). Ở nơi khác, các lựa chọn đó bị làm mờ và cho biết nên trả lời ở đâu.',
           'Thao tác nguy hiểm luôn hỏi: thẻ của chúng ghi **Không thể ghi nhớ** và chỉ có **Cho phép một lần**.',
         ],
       },
@@ -1132,7 +1132,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Điện thoại làm được gì',
         points: [
-          'Các thẻ ở dưới cùng là **Phiên** (có các thẻ **Tác tử** và **Dự án**), **Hộp thư**, **Nhóm** (có **Mẫu quy trình** và **Công suất**) và **Thêm**: trong **Kết nối** là **Máy tính**, **Điện thoại & thiết bị**, **Trình duyệt** và **HTTP API**; trong **Quản lý** là **Tài khoản** (có **Mức dùng** và **Thay đổi gần đây**), **Bản sao lưu** và **Cài đặt** (có **Công cụ cho Claude Code**); sau cùng là **Trợ giúp**.',
+          'Các thẻ ở dưới cùng là **Phiên** (có các thẻ **Tác tử** và **Dự án**), **Hộp thư**, **Nhóm** (có **Mẫu quy trình** và **Công suất**) và **Thêm**: trong **Kết nối** là **Máy tính**, **Điện thoại & thiết bị**, **Trình duyệt** và **HTTP API**; trong **Quản lý** là **Tài khoản** (có **Mức dùng** và **Thay đổi gần đây**), **Bản sao lưu**, **Quyền** và **Cài đặt** (có **Công cụ cho Claude Code**); sau cùng là **Trợ giúp**.',
           'Xem mọi phiên, trả lời yêu cầu duyệt, câu hỏi và kế hoạch, gửi tin nhắn và ảnh, bắt đầu phiên và tiếp tục phiên.',
           'Việc ghép nối thiết bị, truy cập qua internet, quyền của từng thiết bị và cài plugin chỉ thay đổi được trong ứng dụng máy tính.',
           'Thao tác nguy hiểm cần được cấp quyền cho thiết bị này trong ứng dụng máy tính (**Điện thoại & thiết bị**, trong **Thiết bị đã ghép nối**).',

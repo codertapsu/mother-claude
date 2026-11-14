@@ -4,7 +4,7 @@ import type { IconName } from '../shared/icon.component';
  * The app's map (docs/UI-REDESIGN.md §6.1, §10.1, §11): the places in
  * three groups — **Work**: Sessions, Inbox, Teams; **Connections**:
  * Computers, Phone & devices, Sessions started elsewhere, Browser, HTTP
- * API; **Manage**: Accounts, Backups, Settings — with their tabs,
+ * API; **Manage**: Accounts, Backups, Permissions, Settings — with their tabs,
  * Settings' own pages, and Help. The desktop sidebar, the phone's bottom
  * bar and its More list, the phone's top-bar title and a place's tabs
  * (`mc-hub-tabs`) all read it; nothing else names the places. Routes and

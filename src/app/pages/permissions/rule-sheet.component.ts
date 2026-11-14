@@ -232,7 +232,7 @@ export class RuleSheetComponent {
   protected readonly lockedText = computed(() =>
     this.anyLocked() || this.scopes().some((c) => c.locked)
       ? tr(
-          'To allow more for a project or everywhere, use the {computer}, or a device allowed to take dangerous actions (Settings › Phone & devices).',
+          'To allow more for a project or everywhere, use the {computer}, or a device allowed to take dangerous actions (Phone & devices).',
           { computer: computerNoun() },
         )
       : '',

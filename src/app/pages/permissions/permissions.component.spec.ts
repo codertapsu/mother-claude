@@ -312,7 +312,7 @@ describe('PermissionsComponent', () => {
     expect(radio('Everywhere on this Mac').disabled).toBe(true);
     expect(radio('In api-server (every session)').disabled).toBe(false);
     expect(text(dlg.querySelector('.why'))).toBe(
-      'To allow more for a project or everywhere, use the Mac, or a device allowed to take dangerous actions (Settings › Phone & devices).',
+      'To allow more for a project or everywhere, use the Mac, or a device allowed to take dangerous actions (Phone & devices).',
     );
     // What the server refuses is said as it came.
     patchReply = () => ({

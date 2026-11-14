@@ -307,7 +307,7 @@ export class RememberPanelComponent {
           { name },
         )
       : tr(
-          'To remember it for a project or everywhere, answer on the {computer}, or let this device take dangerous actions (Settings › Phone & devices).',
+          'To remember it for a project or everywhere, answer on the {computer}, or let this device take dangerous actions (Phone & devices).',
           { computer: computerNoun() },
         );
   });

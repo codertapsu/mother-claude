@@ -1251,7 +1251,7 @@ export class MockData {
       return fail(
         403,
         'dangerous_blocked',
-        'A force backup, pull or restore is restricted to the Mother Claude desktop app, or to a device you granted dangerous actions in Settings › Phone & devices.',
+        'A force backup, pull or restore is restricted to the Mother Claude desktop app, or to a device you granted dangerous actions in Phone & devices.',
       );
     }
     return fn();

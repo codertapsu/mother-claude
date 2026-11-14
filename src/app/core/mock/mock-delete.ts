@@ -110,7 +110,7 @@ export class MockDelete {
       return fail(
         403,
         'dangerous_blocked',
-        'Deleting conversations is restricted to the Mother Claude desktop app, or to a device you granted dangerous actions in Settings › Phone & devices.',
+        'Deleting conversations is restricted to the Mother Claude desktop app, or to a device you granted dangerous actions in Phone & devices.',
       );
     }
     const items = obj(b['items']);

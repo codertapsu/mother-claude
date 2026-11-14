@@ -243,7 +243,7 @@ describe('PendingCardComponent: Allow for…', () => {
       ['Everywhere on this Mac', false],
     ]);
     expect(text(el().querySelector('mc-remember-panel .why'))).toBe(
-      'To remember it for a project or everywhere, answer on the Mac, or let this device take dangerous actions (Settings › Phone & devices).',
+      'To remember it for a project or everywhere, answer on the Mac, or let this device take dangerous actions (Phone & devices).',
     );
     // The suggestion saved to a settings file needs it too.
     const cc = el().querySelector<HTMLButtonElement>('.cc .suggestion');

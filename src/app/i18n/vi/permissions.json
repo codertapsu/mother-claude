@@ -66,7 +66,7 @@
   "Change it later in Permissions on {name}.": "Bạn có thể đổi sau trong Quyền trên {name}.",
   "Change later in Permissions": "Đổi sau trong Quyền",
   "To remember it for a project or everywhere, answer at {name}, or on a computer it allows dangerous actions.": "Để ghi nhớ cho một dự án hoặc mọi nơi, hãy trả lời trên {name}, hoặc trên một máy tính mà nó cho phép thao tác nguy hiểm.",
-  "To remember it for a project or everywhere, answer on the {computer}, or let this device take dangerous actions (Settings › Phone & devices).": "Để ghi nhớ cho một dự án hoặc mọi nơi, hãy trả lời trên {computer}, hoặc cho phép thiết bị này thực hiện thao tác nguy hiểm (Cài đặt › Điện thoại & thiết bị).",
+  "To remember it for a project or everywhere, answer on the {computer}, or let this device take dangerous actions (Phone & devices).": "Để ghi nhớ cho một dự án hoặc mọi nơi, hãy trả lời trên {computer}, hoặc cho phép thiết bị này thực hiện thao tác nguy hiểm (Điện thoại & thiết bị).",
   "What Claude may do without asking you. Anything else — and anything dangerous — still asks.": "Những gì Claude được làm mà không cần hỏi bạn. Mọi thứ khác — và mọi thao tác nguy hiểm — vẫn hỏi.",
   "Ask for everything": "Hỏi mọi thứ",
   "On: Claude asks before everything. Your permissions are kept for when you switch this off.": "Đang bật: Claude hỏi trước mọi việc. Các quyền của bạn vẫn được giữ cho đến khi bạn tắt mục này.",
@@ -93,7 +93,7 @@
   "Permission saved": "Đã lưu quyền",
   "Edit permission": "Sửa quyền",
   "What it allows": "Cho phép những gì",
-  "To allow more for a project or everywhere, use the {computer}, or a device allowed to take dangerous actions (Settings › Phone & devices).": "Để cho phép nhiều hơn cho một dự án hay mọi nơi, hãy dùng {computer}, hoặc một thiết bị được phép thực hiện thao tác nguy hiểm (Cài đặt › Điện thoại & thiết bị).",
+  "To allow more for a project or everywhere, use the {computer}, or a device allowed to take dangerous actions (Phone & devices).": "Để cho phép nhiều hơn cho một dự án hay mọi nơi, hãy dùng {computer}, hoặc một thiết bị được phép thực hiện thao tác nguy hiểm (Điện thoại & thiết bị).",
   "Commands and tasks your sessions may run on another computer without asking are kept in Permissions.": "Các lệnh và tác vụ mà phiên của bạn được chạy trên máy tính khác mà không cần hỏi được giữ trong Quyền.",
   "Open Permissions": "Mở trang Quyền"
 }

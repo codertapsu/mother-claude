@@ -89,7 +89,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Find your way around',
         points: [
-          'On the desktop app, the sidebar has three groups. **Work**: **Sessions**, **Inbox** and **Teams**. **Connections**: **Computers**, **Phone & devices**, **Sessions started elsewhere**, **Browser** and **HTTP API**. **Manage**: **Accounts**, **Backups** and **Settings**. **Help** is at the bottom.',
+          'On the desktop app, the sidebar has three groups. **Work**: **Sessions**, **Inbox** and **Teams**. **Connections**: **Computers**, **Phone & devices**, **Sessions started elsewhere**, **Browser** and **HTTP API**. **Manage**: **Accounts**, **Backups**, **Permissions** and **Settings**. **Help** is at the bottom.',
           'A place with more than one page shows them as tabs under its name: **Sessions**, **Agents** and **Projects**; **Teams**, **Templates** and **Capacity**; **Computers**: **Overview**, **Code sync**, **Activity** and **Options**; **Accounts**: **Accounts**, **Usage** and **Recent changes**. **Settings** opens **Claude Code tools** on a page of its own.',
           'On a phone, the tabs at the bottom are **Sessions**, **Inbox**, **Teams** and **More**. **More** has the other places under the same headings, **Connections** and **Manage**, then **Help**, each with a line saying how it stands or what it is for.',
           'The dot at the bottom of the sidebar (at the top on a phone) shows the connection. **Live** means updates arrive as they happen.',
@@ -964,7 +964,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Who may remember what',
         points: [
           'Anyone who may answer a request may remember it **In this session**.',
-          'A project, or everywhere, needs the desktop app or a phone allowed dangerous actions (**Settings › Phone & devices**). Elsewhere those choices are greyed out and say where to answer instead.',
+          'A project, or everywhere, needs the desktop app or a phone allowed dangerous actions (**Phone & devices**). Elsewhere those choices are greyed out and say where to answer instead.',
           'Dangerous actions always ask: their card says **Can’t be remembered** and offers **Allow once** only.',
         ],
       },
@@ -1132,7 +1132,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'What a phone can do',
         points: [
-          'The tabs at the bottom are **Sessions** (with **Agents** and **Projects** as tabs), **Inbox**, **Teams** (with **Templates** and **Capacity**) and **More**: under **Connections**, **Computers**, **Phone & devices**, **Browser** and **HTTP API**; under **Manage**, **Accounts** (with **Usage** and **Recent changes**), **Backups** and **Settings** (with **Claude Code tools**); then **Help**.',
+          'The tabs at the bottom are **Sessions** (with **Agents** and **Projects** as tabs), **Inbox**, **Teams** (with **Templates** and **Capacity**) and **More**: under **Connections**, **Computers**, **Phone & devices**, **Browser** and **HTTP API**; under **Manage**, **Accounts** (with **Usage** and **Recent changes**), **Backups**, **Permissions** and **Settings** (with **Claude Code tools**); then **Help**.',
           'Watch every session, answer approvals, questions and plans, send messages and images, start sessions and continue them.',
           'Pairing devices, internet access, what each device may do and installing the plugin are changed only in the desktop app.',
           'Dangerous actions need a grant for this device in the desktop app (**Phone & devices**, under **Paired devices**).',
