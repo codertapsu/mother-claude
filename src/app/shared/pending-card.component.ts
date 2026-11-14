@@ -325,6 +325,16 @@ export class PendingCardComponent {
     const o = this.offer();
     return !!o && !o.blocked;
   });
+  /** Another computer whose session asks: "Everywhere on MacBook", and its
+   * permissions are changed there. A tool's offer names it (`machineName`:
+   * the computer the session runs on); a run's or a task's names where it
+   * runs, so the context's name it is. Null on this computer's own. */
+  protected readonly remoteHost = computed(() => {
+    const m = this.mctx();
+    if (!m) return null;
+    const o = this.offer();
+    return (o?.kind === 'tool' && o.machineName) || m.name();
+  });
   /** *Always…*: Claude Code's own suggestions, when Mother Claude offers
    * nothing (with an offer they show under *Allow for…*; a blocked one
    * allows once only). A run's is offered only to whoever may attach it
@@ -534,10 +544,9 @@ export class PendingCardComponent {
   remember(choice: RememberChoice): Promise<void> {
     const offer = this.offer();
     if (!offer || offer.blocked) return Promise.resolve();
-    const host = this.mctx()?.name() ?? null;
     return this.respond(
       { decision: 'allow', remember: choice },
-      rememberedText(offer, choice.scope, choice.patterns, host),
+      rememberedText(offer, choice.scope, choice.patterns, this.remoteHost()),
     );
   }
 

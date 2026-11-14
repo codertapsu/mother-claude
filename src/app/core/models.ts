@@ -369,6 +369,9 @@ export interface GrantOffer {
   projectName?: string;
   /** A run's or a task's: the computer it runs on. */
   machine?: string;
+  /** A run's or a task's: that computer's name; a tool's: the name of the
+   * computer the session runs on (its `machine` absent) — "Everywhere on
+   * MacBook" when that is another computer's session. */
   machineName?: string;
   blocked?: string;
 }

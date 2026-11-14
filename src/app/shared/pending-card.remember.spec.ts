@@ -11,6 +11,13 @@ import {
   useFakeServer,
 } from '../core/mock/fake-server.testing';
 import { setActiveMock } from '../core/mock/mock-api';
+import {
+  PEER_ID,
+  goLive,
+  pairedMachines,
+  remoteList,
+  remoteSession,
+} from '../core/mock/remote.testing';
 import { GrantOffer, PendingItem } from '../core/models';
 import { RealtimeService } from '../core/realtime.service';
 import { PendingCardComponent } from './pending-card.component';
@@ -351,5 +358,64 @@ describe('RememberPanelComponent: another computer’s request', () => {
       'Dangerous actions always ask. Change it later in Permissions on DESKTOP-PC.',
     );
     expect(el.querySelector('.foot a')).toBeNull();
+  });
+});
+
+describe('PendingCardComponent: Allow for… on a session of another computer', () => {
+  const PROXY = `/machines/${PEER_ID}/proxy`;
+  let backend: FakeBackend;
+
+  beforeEach(() => {
+    backend = new FakeBackend();
+    useFakeServer(backend, [provideRouter([])]);
+    backend.routes.set(`${PROXY}/sessions/r1/respond`, () => ({ status: 200, body: {} }));
+    hostOsSignal.set('macos');
+  });
+
+  afterEach(() => {
+    TestBed.inject(RealtimeService).stop();
+    hostOsSignal.set(undefined);
+    setActiveMock(null);
+  });
+
+  it('says everywhere on that computer, as its offer names it, and answers through it', async () => {
+    pairedMachines();
+    const socket = await goLive(backend);
+    remoteList(socket, PEER_ID, [remoteSession('r1', { status: 'waiting' })]);
+    asDesktop({ hostOs: 'macos' });
+    const fixture = TestBed.createComponent(PendingCardComponent);
+    fixture.componentRef.setInput('item', {
+      ...bash(),
+      sessionId: 'r1',
+      grant: { ...offer, session: 'r1', machineName: 'Studio PC' },
+    });
+    fixture.componentRef.setInput('machine', PEER_ID);
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const text = (e: Element | null) => (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const button = (label: string) =>
+      [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => text(b).startsWith(label));
+    button('Allow for…')!.click();
+    fixture.detectChanges();
+    expect([...el.querySelectorAll('.clabel')].map(text)).toEqual([
+      'In this session',
+      'In shop (every session)',
+      'Everywhere on Studio PC',
+    ]);
+    expect(text(el.querySelector('mc-remember-panel .foot'))).toBe(
+      'Dangerous actions always ask. Change it later in Permissions on Studio PC.',
+    );
+    button('Everywhere on Studio PC')!.click();
+    await flush();
+    fixture.detectChanges();
+    expect(backend.bodyOf(`POST ${PROXY}/sessions/r1/respond`)).toEqual({
+      requestId: 'req-bash',
+      decision: 'allow',
+      remember: { scope: 'computer' },
+    });
+    expect(text(el.querySelector('.done'))).toBe('Allowed and remembered: Everywhere on Studio PC');
+    fixture.destroy();
   });
 });

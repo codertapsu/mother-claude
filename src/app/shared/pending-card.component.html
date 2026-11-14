@@ -371,7 +371,7 @@
             [offer]="g"
             [canDangerous]="canDangerous()"
             [disabled]="busy() || offline() || allowBlocked()"
-            [host]="mctx()?.name() ?? null"
+            [host]="remoteHost()"
             (chose)="remember($event)"
             (cancelled)="closeRemember()"
           >
