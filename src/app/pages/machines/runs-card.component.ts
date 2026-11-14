@@ -8,11 +8,13 @@ import {
   signal,
 } from '@angular/core';
 
+import { RouterLink } from '@angular/router';
+
 import { ApiService, describeError } from '../../core/api.service';
 import { formatBytes } from '../../core/data-jobs';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
-import { MachineRun, RunGrant, runEnded, runStateLabel, runTone, shellName } from '../../core/runs';
+import { MachineRun, runEnded, runStateLabel, runTone, shellName } from '../../core/runs';
 import { RunsService } from '../../core/runs.service';
 import { ChipComponent } from '../../shared/chip.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -35,8 +37,8 @@ const REFRESH_MS = 3000;
  * session on another computer, and taken from one (`mc-machines-tasks`),
  * and the team roles this computer runs for another's lead
  * (`mc-machines-roles`).
- * Below, the standing grants ("always allowed runs") with *Revoke* (the
- * desktop's; a phone sees them).
+ * Below, a line to the commands and tasks allowed without asking: they are
+ * permissions, on *Permissions* (`?on=others`).
  */
 @Component({
   selector: 'mc-machines-runs',
@@ -46,6 +48,7 @@ const REFRESH_MS = 3000;
     IconComponent,
     RelativeTimePipe,
     RolesListComponent,
+    RouterLink,
     TasksListComponent,
     TPipe,
   ],
@@ -169,41 +172,18 @@ const REFRESH_MS = 3000;
       }
 
       @if (shows('commands')) {
-        <h3>{{ 'Always allowed runs' | t }}</h3>
-        <p class="muted small">
-          {{
-            'Commands a project may run on another computer without asking. Each comes from a run’s approval; revoke one to be asked again.'
-              | t
-          }}
+        <p class="small allowed">
+          <mc-icon name="shield" [size]="15" />
+          <span>
+            {{
+              'Commands and tasks your sessions may run on another computer without asking are kept in Permissions.'
+                | t
+            }}
+            <a routerLink="/permissions" [queryParams]="{ on: 'others' }">{{
+              'Open Permissions' | t
+            }}</a>
+          </span>
         </p>
-        <ul class="list grants">
-          @for (g of runs.grants(); track g.id) {
-            <li>
-              <div class="row">
-                <code class="mono">{{ g.prefix }}</code>
-                <span class="small">{{ 'on {name}' | t: { name: g.machineName } }}</span>
-                <span class="muted small">{{ g.projectName }}</span>
-                <span class="spacer"></span>
-                @if (!readonly()) {
-                  <button
-                    type="button"
-                    class="btn ghost small"
-                    [disabled]="busy() === g.id"
-                    [attr.aria-label]="
-                      'Revoke {prefix} on {name}' | t: { prefix: g.prefix, name: g.machineName }
-                    "
-                    (click)="revoke(g)"
-                  >
-                    {{ 'Revoke' | t }}
-                  </button>
-                }
-              </div>
-              <span class="muted small">{{ grantMeta(g) }}</span>
-            </li>
-          } @empty {
-            <li class="muted small">{{ 'None: every run asks first.' | t }}</li>
-          }
-        </ul>
       }
     </section>
   `,
@@ -261,21 +241,30 @@ const REFRESH_MS = 3000;
         margin: 0;
         padding-left: 1rem;
       }
-      h3 {
-        margin: 0.9rem 0 0.2rem;
-        font-size: 0.95rem;
-      }
       .acts {
         margin-top: 0.1rem;
+      }
+      .allowed {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.45rem;
+        margin: 0.9rem 0 0;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+      }
+      .allowed mc-icon {
+        flex: 0 0 auto;
+        margin-top: 0.1rem;
+        color: var(--accent-text);
       }
     `,
   ],
 })
 export class RunsCardComponent {
-  /** A phone sees the standing grants, never revokes one. */
-  readonly readonly = input(false);
   /** The part shown (Computers › Activity's chips): all of it, the
-   * commands with the always allowed runs, the tasks or the team roles. */
+   * commands (with the line to the ones allowed without asking), the tasks
+   * or the team roles. */
   readonly part = input<'all' | 'commands' | 'tasks' | 'roles'>('all');
 
   private readonly api = inject(ApiService);
@@ -335,13 +324,6 @@ export class RunsCardComponent {
     return formatBytes(n);
   }
 
-  protected grantMeta(g: RunGrant): string {
-    const by = g.createdBy ? tr('added by {name}', { name: g.createdBy }) : '';
-    const used =
-      g.uses === 1 ? tr('used once') : g.uses > 1 ? tr('used {n} times', { n: g.uses }) : '';
-    return [by, used].filter(Boolean).join(' · ');
-  }
-
   /** The open run's output: its whole record's when read, else the list's
    * end of it. */
   protected outputOf(r: MachineRun): string {
@@ -383,13 +365,6 @@ export class RunsCardComponent {
       const d = await this.api.cancelRun(r.id);
       this.runs.applyRun({ ...d, tail: d.tail.slice(-2048) });
       if (this.open() === r.id) this.detail.set(d);
-    });
-  }
-
-  protected async revoke(g: RunGrant): Promise<void> {
-    await this.withBusy(g.id, async () => {
-      const v = await this.api.revokeRunGrant(g.id);
-      this.runs.applyGrants(v.grants);
     });
   }
 

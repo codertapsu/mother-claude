@@ -1,15 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
-import {
-  FakeBackend,
-  asDesktop,
-  asPhoneOf,
-  flush,
-  useFakeServer,
-} from '../../core/mock/fake-server.testing';
+import { FakeBackend, asDesktop, flush, useFakeServer } from '../../core/mock/fake-server.testing';
 import { setActiveMock } from '../../core/mock/mock-api';
-import { MachineRun, RunGrant } from '../../core/runs';
+import { MachineRun } from '../../core/runs';
 import { RunsCardComponent } from './runs-card.component';
 import { PEER_ID } from './machines.testing';
 
@@ -55,20 +49,6 @@ function run(over: Partial<MachineRun> = {}): MachineRun {
   };
 }
 
-const grant = (over: Partial<RunGrant> = {}): RunGrant => ({
-  id: 'rg_0123456789ab',
-  project: '/Users/you/dev/app',
-  projectName: 'app',
-  machine: PEER_ID,
-  machineName: 'DESKTOP-PC',
-  prefix: 'cargo test',
-  createdAt: Date.now() - 3_600_000,
-  createdBy: 'Mac',
-  usedAt: Date.now() - 60_000,
-  uses: 3,
-  ...over,
-});
-
 describe('RunsCardComponent', () => {
   let backend: FakeBackend;
   let fixture: ComponentFixture<RunsCardComponent>;
@@ -93,11 +73,9 @@ describe('RunsCardComponent', () => {
       fixture.detectChanges();
     }
   };
-  const render = async (runs: MachineRun[], grants: RunGrant[], readonly = false) => {
+  const render = async (runs: MachineRun[]) => {
     backend.routes.set('/machines/runs', () => ({ status: 200, body: { runs } }));
-    backend.routes.set('/machines/run-grants', () => ({ status: 200, body: { grants } }));
     fixture = TestBed.createComponent(RunsCardComponent);
-    fixture.componentRef.setInput('readonly', readonly);
     fixture.detectChanges();
     await settle();
     return fixture.nativeElement as HTMLElement;
@@ -122,8 +100,8 @@ describe('RunsCardComponent', () => {
       exitCode: 1,
       durationMs: 3_000,
     });
-    const el = await render([running, run(), failed], []);
-    const rows = [...el.querySelectorAll('ul.list:not(.grants) > li')];
+    const el = await render([running, run(), failed]);
+    const rows = [...el.querySelectorAll('ul.list > li')];
     expect(rows.length).toBe(3);
     expect(text(rows[0])).toContain('On DESKTOP-PC');
     expect(text(rows[0])).toContain('cargo test --lib');
@@ -144,7 +122,7 @@ describe('RunsCardComponent', () => {
     button(rows[0], 'Cancel')!.click();
     await settle();
     expect(backend.calls).toContain('POST /machines/runs/run_1111111111111111/cancel');
-    expect(text(el.querySelectorAll('ul.list:not(.grants) > li')[0])).toContain('Cancelled');
+    expect(text(el.querySelectorAll('ul.list > li')[0])).toContain('Cancelled');
   });
 
   it('shows a run’s output and the files it made', async () => {
@@ -157,7 +135,7 @@ describe('RunsCardComponent', () => {
       status: 200,
       body: { ...done, tail: 'the whole tail: test result: ok' },
     }));
-    const el = await render([done], []);
+    const el = await render([done]);
     button(el, 'Output')!.click();
     await settle();
     expect(text(el.querySelector('pre.out'))).toBe('the whole tail: test result: ok');
@@ -168,29 +146,23 @@ describe('RunsCardComponent', () => {
     expect(el.querySelector('pre.out')).toBeNull();
   });
 
-  it('lists the always-allowed commands; the desktop revokes one, a phone only sees them', async () => {
+  it('sends the commands allowed without asking to Permissions', async () => {
     asDesktop({ hostOs: 'macos' });
-    const g = grant();
-    let el = await render([], [g]);
+    const el = await render([]);
     expect(text(el)).toContain('No run yet.');
-    const row = el.querySelector('ul.grants > li')!;
-    expect(text(row)).toContain('cargo test');
-    expect(text(row)).toContain('on DESKTOP-PC');
-    expect(text(row)).toContain('app');
-    expect(text(row)).toContain('added by Mac · used 3 times');
-    backend.routes.set(`/machines/run-grants/${g.id}`, () => ({
-      status: 200,
-      body: { grants: [] },
-    }));
-    button(row, 'Revoke')!.click();
-    await settle();
-    expect(backend.calls).toContain(`DELETE /machines/run-grants/${g.id}`);
-    expect(text(el.querySelector('ul.grants'))).toContain('None: every run asks first.');
+    const line = el.querySelector('.allowed');
+    expect(text(line)).toBe(
+      'Commands and tasks your sessions may run on another computer without asking are kept in Permissions. Open Permissions',
+    );
+    expect(line?.querySelector('a')?.getAttribute('href')).toBe('/permissions?on=others');
+    // The old standing grants are not asked for any more.
+    expect(backend.calls.some((c) => c.includes('run-grants'))).toBe(false);
+    // Only beside the commands.
     fixture.destroy();
-
-    asPhoneOf('macos');
-    el = await render([], [g], true);
-    expect(text(el.querySelector('ul.grants'))).toContain('cargo test');
-    expect(button(el.querySelector('ul.grants')!, 'Revoke')).toBeUndefined();
+    fixture = TestBed.createComponent(RunsCardComponent);
+    fixture.componentRef.setInput('part', 'tasks');
+    fixture.detectChanges();
+    await settle();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.allowed')).toBeNull();
   });
 });

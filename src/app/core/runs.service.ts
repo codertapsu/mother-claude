@@ -2,17 +2,17 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { ApiError, ApiService, describeError } from './api.service';
 import { RealtimeService } from './realtime.service';
-import { MachineRun, RunGrant } from './runs';
+import { MachineRun } from './runs';
 import { HostedRole, MachineTask, taskEnded } from './tasks';
 
 /**
  * Runs and tasks on other computers (docs/PLAN-MACHINES.md Phase 4) for
- * every screen that shows them — the Machines page's Runs card, its tasks,
- * the team roles it runs for other computers and its standing grants: `GET
- * /api/machines/runs`, `/api/machines/tasks`, `/api/machines/roles` and
- * `/api/machines/run-grants`, refetched on each `{t:'machines', what:
- * 'runs' | 'tasks' | 'roles' | 'runGrants'}` frame (and when a computer
- * comes or goes) while a screen watches.
+ * every screen that shows them — the Machines page's Runs card, its tasks
+ * and the team roles it runs for other computers: `GET /api/machines/runs`,
+ * `/api/machines/tasks` and `/api/machines/roles`, refetched on each
+ * `{t:'machines', what: 'runs' | 'tasks' | 'roles'}` frame (and when a
+ * computer comes or goes) while a screen watches. The commands allowed
+ * without asking are permissions (`PermissionRulesService`).
  */
 @Injectable({ providedIn: 'root' })
 export class RunsService {
@@ -21,7 +21,6 @@ export class RunsService {
 
   readonly runs = signal<MachineRun[]>([]);
   readonly tasks = signal<MachineTask[]>([]);
-  readonly grants = signal<RunGrant[]>([]);
   /** Team roles this computer runs for other computers' leads. */
   readonly roles = signal<HostedRole[]>([]);
   /** The last load's failure ('' when it worked). */
@@ -37,10 +36,7 @@ export class RunsService {
 
   constructor() {
     this.realtime.machines$.subscribe((f) => {
-      if (
-        this.watchers > 0 &&
-        ['runs', 'tasks', 'roles', 'runGrants', 'peers', 'enabled'].includes(f.what)
-      ) {
+      if (this.watchers > 0 && ['runs', 'tasks', 'roles', 'peers', 'enabled'].includes(f.what)) {
         void this.load();
       }
     });
@@ -79,9 +75,8 @@ export class RunsService {
 
   private async fetch(): Promise<void> {
     try {
-      const [runs, grants, tasks, roles] = await Promise.all([
+      const [runs, tasks, roles] = await Promise.all([
         this.api.getRuns(),
-        this.api.getRunGrants(),
         // A server that hands no tasks over yet has no such route.
         this.api.getTasks().catch((e: unknown) => {
           if (e instanceof ApiError && e.status === 404) return { tasks: [] };
@@ -94,7 +89,6 @@ export class RunsService {
         }),
       ]);
       this.runs.set(runs.runs ?? []);
-      this.grants.set(grants.grants ?? []);
       this.tasks.set(tasks.tasks ?? []);
       this.roles.set(roles.roles ?? []);
       this.error.set('');
@@ -118,9 +112,5 @@ export class RunsService {
   /** A task removed. */
   dropTask(id: string): void {
     this.tasks.update((list) => list.filter((x) => x.id !== id));
-  }
-
-  applyGrants(list: RunGrant[] | null | undefined): void {
-    if (list) this.grants.set(list);
   }
 }

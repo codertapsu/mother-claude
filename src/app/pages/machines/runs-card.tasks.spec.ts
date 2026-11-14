@@ -94,7 +94,6 @@ describe('RunsCardComponent: tasks handed to another computer', () => {
   };
   const render = async (tasks: MachineTask[]) => {
     backend.routes.set('/machines/runs', () => ({ status: 200, body: { runs: [] } }));
-    backend.routes.set('/machines/run-grants', () => ({ status: 200, body: { grants: [] } }));
     backend.routes.set('/machines/tasks', () => ({ status: 200, body: { tasks } }));
     fixture = TestBed.createComponent(RunsCardComponent);
     fixture.detectChanges();

@@ -148,7 +148,7 @@ class FixtureBackend implements MockBackend {
    * `/sessions/:id/move*`, the other computers' proxies). */
   private readonly computerMoves: MockMoves | null;
   /** Runs, tasks and team roles on the other computers (`?mockmachines=1`:
-   * `/machines/{runs,tasks,roles,run-grants}*`). */
+   * `/machines/{runs,tasks,roles}*`). */
   private readonly computerRuns: MockRuns | null;
   /** What Claude may do without asking (`/permissions*`, `remember`). */
   private readonly permissions: MockPermissions;

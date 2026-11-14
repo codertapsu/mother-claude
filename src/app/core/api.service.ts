@@ -53,7 +53,7 @@ import {
   normalizePermissions,
   normalizeRule,
 } from './permission-rules';
-import type { MachineRun, RunGrantsView, RunsView } from './runs';
+import type { MachineRun, RunsView } from './runs';
 import type { HostedRolesView, MachineTask, TaskRemoved, TasksView } from './tasks';
 import {
   MovePreflight,
@@ -243,7 +243,7 @@ import {
  *             askMachine(machine, body) · answerMachineAsk(id, answer) ·
  *             getSync() · setSync(project, machine, on) · syncNow(id) ·
  *             resolveSync(id, keep) · getRuns() · getRun(id) ·
- *             cancelRun(id) · getRunGrants() · revokeRunGrant(id) ·
+ *             cancelRun(id) ·
  *             getTasks() · getTask(id) · cancelTask(id) · removeTask(id) ·
  *             getHostedRoles() · stopHostedRole(binding) ·
  *             removeHostedRole(binding) ·
@@ -1488,17 +1488,6 @@ export class ApiService {
   /** `POST /api/machines/runs/{id}/cancel`: stops it, there or here. */
   cancelRun(id: string): Promise<MachineRun> {
     return this.post<MachineRun>(`/machines/runs/${enc(id)}/cancel`, {});
-  }
-
-  /** `GET /api/machines/run-grants`: the commands a project may run on
-   * another computer without asking. */
-  getRunGrants(): Promise<RunGrantsView> {
-    return this.req<RunGrantsView>('/machines/run-grants');
-  }
-
-  /** Desktop: `DELETE /api/machines/run-grants/{id}`; answers the list. */
-  revokeRunGrant(id: string): Promise<RunGrantsView> {
-    return this.req<RunGrantsView>(`/machines/run-grants/${enc(id)}`, { method: 'DELETE' });
   }
 
   /** `GET /api/machines/tasks`: tasks handed to other computers, and

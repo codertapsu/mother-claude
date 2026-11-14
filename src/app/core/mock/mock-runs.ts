@@ -1,15 +1,15 @@
 // Dev-only: runs, tasks and team roles on other computers
 // (docs/PLAN-MACHINES.md Phase 4) for `?mock=1&mockmachines=1`: a run on
-// DESKTOP-PC that goes on and ends while you look, a finished build with an
-// artifact, a failed check, one DESKTOP-PC asked this computer for; a
-// standing grant; a task done with its branch, one that works and one
-// DESKTOP-PC handed here; a team role this computer runs for DESKTOP-PC's
-// lead. `GET /api/machines/{runs,tasks,roles,run-grants}` and their actions.
-// Never bundled in production builds.
+// DESKTOP-PC that goes on and ends while you look (a permission allowed it:
+// mock-permissions.ts), a finished build with an artifact, a failed check,
+// one DESKTOP-PC asked this computer for; a task done with its branch, one
+// that works and one DESKTOP-PC handed here; a team role this computer runs
+// for DESKTOP-PC's lead. `GET /api/machines/{runs,tasks,roles}` and their
+// actions. Never bundled in production builds.
 
 import { MachinesFrame } from '../machines';
 import { PendingItem } from '../models';
-import { MachineRun, RunGrant } from '../runs';
+import { MachineRun } from '../runs';
 import { HostedRole, MachineTask, taskEnded } from '../tasks';
 import { Fixtures, toPreview } from './fixtures';
 import { MOCK_DESKTOP } from './mock-moves';
@@ -45,7 +45,6 @@ const TEST_LINES = [
 
 export class MockRuns {
   private runs: MachineRun[];
-  private grants: RunGrant[];
   private tasks: MachineTask[];
   private roles: HostedRole[];
   private ticker?: ReturnType<typeof setInterval>;
@@ -65,7 +64,7 @@ export class MockRuns {
         startedAt: now - 20 * S,
         tail: TEST_LINES.slice(0, 2).join('\n'),
         outputSize: 180,
-        grant: 'rg_00000000a001',
+        grant: 'pr_0000000000a4',
       }),
       this.run('run_00000000000000a2', {
         command: 'npm run tauri:build',
@@ -120,20 +119,6 @@ export class MockRuns {
         outputSize: 112_455,
         approvedBy: 'machine DESKTOP-PC',
       }),
-    ];
-    this.grants = [
-      {
-        id: 'rg_00000000a001',
-        project: PROJECT,
-        projectName: 'mother-claude',
-        machine: MOCK_DESKTOP,
-        machineName: 'DESKTOP-PC',
-        prefix: 'cargo test',
-        createdAt: now - 2 * 24 * H,
-        createdBy: 'desktop',
-        usedAt: now - 20 * S,
-        uses: 14,
-      },
     ];
     this.tasks = [
       this.task('task_00000000000000b1', {
@@ -334,13 +319,12 @@ export class MockRuns {
     }, 4 * S);
   }
 
-  private frame(what: 'runs' | 'tasks' | 'roles' | 'runGrants'): void {
+  private frame(what: 'runs' | 'tasks' | 'roles'): void {
     this.opts.broadcast({ t: 'machines', what });
   }
 
   route(path: string, method: string): Response | null {
     if (path === '/machines/runs' && method === 'GET') return json({ runs: this.runs });
-    if (path === '/machines/run-grants' && method === 'GET') return json({ grants: this.grants });
     if (path === '/machines/tasks' && method === 'GET') return json({ tasks: this.tasks });
     if (path === '/machines/roles' && method === 'GET') return json({ roles: this.roles });
 
@@ -359,13 +343,6 @@ export class MockRuns {
         }
         return json(r);
       }
-    }
-    const grant = /^\/machines\/run-grants\/(rg_[0-9a-f]{12})$/.exec(path);
-    if (grant && method === 'DELETE') {
-      if (!this.opts.desktop) return err(403, 'desktop_only', 'Only the desktop app can do this.');
-      this.grants = this.grants.filter((g) => g.id !== grant[1]);
-      this.frame('runGrants');
-      return json({ grants: this.grants });
     }
     const task = /^\/machines\/tasks\/(task_[0-9a-f]{16})(\/cancel)?$/.exec(path);
     if (task) {

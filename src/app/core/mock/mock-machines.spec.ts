@@ -1,7 +1,7 @@
 import { CopiesView } from '../copies';
 import { MachinesFrame, MachinesView, SetupView, SyncView } from '../machines';
 import { MovePreflight } from '../moves';
-import { MachineRun, RunGrantsView } from '../runs';
+import { MachineRun } from '../runs';
 import { HostedRolesView, MachineTask } from '../tasks';
 import { buildFixtures } from './fixtures';
 import { MockMachines } from './mock-machines';
@@ -58,7 +58,7 @@ describe('the Machines mock (`?mock=1&mockmachines=1`)', () => {
     expect(copies.held.length).toBeGreaterThan(0);
   });
 
-  it('serves runs, tasks, team roles and standing grants, and their actions', async () => {
+  it('serves runs, tasks and team roles, and their actions', async () => {
     const runs = new MockRuns({ desktop: true, broadcast: (f) => frames.push(f) });
     const route = (path: string, method: string) => runs.route(path, method);
     const list = ((await call(route, '/machines/runs')).body as { runs: MachineRun[] }).runs;
@@ -73,12 +73,9 @@ describe('the Machines mock (`?mock=1&mockmachines=1`)', () => {
       .body as MachineRun;
     expect(cancelled.state).toBe('cancelled');
     expect(frames).toContainEqual({ t: 'machines', what: 'runs' });
-
-    const grants = (await call(route, '/machines/run-grants')).body as RunGrantsView;
-    expect(grants.grants.map((g) => g.prefix)).toEqual(['cargo test']);
-    const left = (await call(route, `/machines/run-grants/${grants.grants[0].id}`, 'DELETE'))
-      .body as RunGrantsView;
-    expect(left.grants).toEqual([]);
+    // The running one ran under a permission; the old grants are gone.
+    expect(list[0].grant).toBe('pr_0000000000a4');
+    expect(runs.route('/machines/run-grants', 'GET')).toBeNull();
 
     const tasks = ((await call(route, '/machines/tasks')).body as { tasks: MachineTask[] }).tasks;
     expect(tasks.map((t) => [t.direction, t.state])).toEqual([
@@ -103,15 +100,6 @@ describe('the Machines mock (`?mock=1&mockmachines=1`)', () => {
     expect(((await call(route, '/machines/roles')).body as HostedRolesView).roles[0].state).toBe(
       'stopped',
     );
-
-    // A phone may read them, not drop a standing grant.
-    const phone = new MockRuns({ desktop: false, broadcast: () => undefined });
-    const g = (
-      (await call((p, m) => phone.route(p, m), '/machines/run-grants')).body as RunGrantsView
-    ).grants[0];
-    expect(
-      (await call((p, m) => phone.route(p, m), `/machines/run-grants/${g.id}`, 'DELETE')).status,
-    ).toBe(403);
   });
 
   it('asks for a run and a task on DESKTOP-PC from a session, its run one of its tasks', () => {

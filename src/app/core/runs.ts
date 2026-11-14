@@ -1,8 +1,9 @@
 // Runs on another computer (docs/PLAN-MACHINES.md Phase 4): a session runs a
 // command on another of your computers at its own code. The wire types of
-// `/api/machines/runs*` and `/api/machines/run-grants*`, the approval's
-// `input` (a pending item whose source is `machine`), and the helpers the
-// screens share. Labels are translated where they are made (`tr`).
+// `/api/machines/runs*`, the approval's `input` (a pending item whose source
+// is `machine`), and the helpers the screens share. The commands allowed
+// without asking are permissions (`core/permission-rules.ts`). Labels are
+// translated where they are made (`tr`).
 
 import { tr } from './i18n/i18n';
 
@@ -77,7 +78,7 @@ export interface MachineRun {
   artifacts: RunArtifact[];
   fetched: FetchedArtifact[];
   approvedBy: string | null;
-  /** The standing grant it ran under. */
+  /** The permission it ran under, when one allowed it without asking. */
   grant: string | null;
   /** The asking side: the other computer did not answer the last time. */
   unreachable: boolean;
@@ -87,26 +88,6 @@ export interface MachineRun {
 /** `GET /api/machines/runs`. */
 export interface RunsView {
   runs: MachineRun[];
-}
-
-/** A standing grant: this project may run `prefix` on that computer
- * without asking. */
-export interface RunGrant {
-  id: string;
-  project: string;
-  projectName: string;
-  machine: string;
-  machineName: string;
-  prefix: string;
-  createdAt: number;
-  createdBy: string;
-  usedAt: number | null;
-  uses: number;
-}
-
-/** `GET /api/machines/run-grants`. */
-export interface RunGrantsView {
-  grants: RunGrant[];
 }
 
 /** A run approval's `input` (`machines::work::source::approve`). */

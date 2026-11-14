@@ -93,5 +93,7 @@
   "Permission saved": "Đã lưu quyền",
   "Edit permission": "Sửa quyền",
   "What it allows": "Cho phép những gì",
-  "To allow more for a project or everywhere, use the {computer}, or a device allowed to take dangerous actions (Settings › Phone & devices).": "Để cho phép nhiều hơn cho một dự án hay mọi nơi, hãy dùng {computer}, hoặc một thiết bị được phép thực hiện thao tác nguy hiểm (Cài đặt › Điện thoại & thiết bị)."
+  "To allow more for a project or everywhere, use the {computer}, or a device allowed to take dangerous actions (Settings › Phone & devices).": "Để cho phép nhiều hơn cho một dự án hay mọi nơi, hãy dùng {computer}, hoặc một thiết bị được phép thực hiện thao tác nguy hiểm (Cài đặt › Điện thoại & thiết bị).",
+  "Commands and tasks your sessions may run on another computer without asking are kept in Permissions.": "Các lệnh và tác vụ mà phiên của bạn được chạy trên máy tính khác mà không cần hỏi được giữ trong Quyền.",
+  "Open Permissions": "Mở trang Quyền"
 }

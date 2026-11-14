@@ -1,6 +1,5 @@
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 
-import { AuthService } from '../../core/auth.service';
 import { computerNoun } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { MachinesService } from '../../core/machines.service';
@@ -26,10 +25,10 @@ const CHIPS: { id: Show; label: string }[] = [
  * *Computers › Activity* (docs/UI-REDESIGN.md §6.5): what went between your
  * computers — *Recent moves* of sessions to and from this one (cancel, try
  * again, undo: spikes/machines/UX.md §1.2, §7.2–§7.3), the commands run on
- * another computer and from one here with the always allowed ones, the
- * tasks handed over, and the team roles this computer runs for another's
- * lead — with chips to show one kind. A phone may act on a move, as a
- * device may; the standing grants are the desktop's.
+ * another computer and from one here (the ones allowed without asking are
+ * on *Permissions*), the tasks handed over, and the team roles this
+ * computer runs for another's lead — with chips to show one kind. A phone
+ * may act on a move, as a device may.
  */
 @Component({
   selector: 'mc-computers-activity',
@@ -76,7 +75,7 @@ const CHIPS: { id: Show; label: string }[] = [
       }
 
       @if (inUse() && show() !== 'moves') {
-        <mc-machines-runs [readonly]="!isDesktop()" [part]="show() === 'all' ? 'all' : part()" />
+        <mc-machines-runs [part]="show() === 'all' ? 'all' : part()" />
       }
     </div>
   `,
@@ -135,7 +134,6 @@ export class ActivityPageComponent {
   private readonly machines = inject(MachinesService);
   private readonly moves = inject(MovesService);
   private readonly runs = inject(RunsService);
-  protected readonly isDesktop = inject(AuthService).isDesktop;
   protected readonly computer = computerNoun;
 
   protected readonly show = signal<Show>('all');

@@ -64,7 +64,6 @@ describe('RunsCardComponent: team roles run for another computer', () => {
   };
   const render = async (roles: HostedRole[] | null) => {
     backend.routes.set('/machines/runs', () => ({ status: 200, body: { runs: [] } }));
-    backend.routes.set('/machines/run-grants', () => ({ status: 200, body: { grants: [] } }));
     backend.routes.set('/machines/tasks', () => ({ status: 200, body: { tasks: [] } }));
     if (roles) {
       backend.routes.set('/machines/roles', () => ({ status: 200, body: { roles } }));
