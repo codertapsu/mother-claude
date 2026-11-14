@@ -22,14 +22,12 @@ import {
   SCOPES,
   cleanPatterns,
   needsDangerous,
-  patternExample,
-  patternHint,
   patternsHeading,
   quickChoices,
   scopeLabel,
 } from '../core/permission-rules';
-import { HelpTextComponent } from '../pages/help/help-text.component';
 import { IconComponent } from './icon.component';
+import { PatternRowsComponent } from './pattern-rows.component';
 
 /** Each panel's radio group has its own name. */
 let panels = 0;
@@ -54,7 +52,7 @@ let panels = 0;
 @Component({
   selector: 'mc-remember-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, HelpTextComponent, IconComponent, TPipe],
+  imports: [FormsModule, RouterLink, IconComponent, PatternRowsComponent, TPipe],
   host: { '(keydown.escape)': 'back($event)' },
   template: `
     @if (mode() === 'choices') {
@@ -90,43 +88,7 @@ let panels = 0;
     } @else {
       <form class="patterns" (ngSubmit)="submit()">
         <p class="ptitle">{{ heading() }}</p>
-        <ul class="rows">
-          @for (p of rows(); track $index; let i = $index) {
-            <li class="prow">
-              <input
-                class="mono"
-                type="text"
-                autocomplete="off"
-                autocapitalize="off"
-                spellcheck="false"
-                [ngModel]="p"
-                (ngModelChange)="setRow(i, $event)"
-                [ngModelOptions]="{ standalone: true }"
-                [placeholder]="example()"
-                [attr.aria-label]="'Pattern {n}' | t: { n: i + 1 }"
-              />
-              <button
-                type="button"
-                class="btn ghost small icon-only"
-                [disabled]="rows().length === 1"
-                [attr.aria-label]="'Remove pattern {n}' | t: { n: i + 1 }"
-                [title]="'Remove' | t"
-                (click)="removeRow(i)"
-              >
-                <mc-icon name="x" [size]="14" />
-              </button>
-            </li>
-          }
-        </ul>
-        <button
-          type="button"
-          class="btn ghost small narrow"
-          [disabled]="rows().length >= max"
-          (click)="addRow()"
-        >
-          <mc-icon name="plus" [size]="14" /> {{ 'Add a pattern' | t }}
-        </button>
-        <p class="muted small hint"><mc-help-text [text]="hint()" /></p>
+        <mc-pattern-rows [(rows)]="rows" [kind]="kind()" />
         <fieldset class="scopes">
           <legend class="field-label">{{ 'Where it applies' | t }}</legend>
           @for (c of scopes(); track c.scope) {
@@ -189,7 +151,6 @@ let panels = 0;
       }
       .lead,
       .why,
-      .hint,
       .ptitle,
       .foot {
         margin: 0;
@@ -246,23 +207,6 @@ let panels = 0;
         display: flex;
         flex-direction: column;
         gap: 0.45rem;
-      }
-      .rows {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 0.35rem;
-      }
-      .prow {
-        display: flex;
-        align-items: center;
-        gap: 0.35rem;
-      }
-      .prow input {
-        flex: 1;
-        min-width: 0;
       }
       .scopes {
         border: 0;
@@ -326,7 +270,6 @@ export class RememberPanelComponent {
   readonly chose = output<RememberChoice>();
   readonly cancelled = output<void>();
 
-  protected readonly max = MAX_PATTERNS;
   protected readonly group = `remember-scope-${++panels}`;
   protected readonly mode = signal<'choices' | 'patterns'>('choices');
   /** The pattern rows, from the offer's suggestions (one empty row else). */
@@ -370,9 +313,9 @@ export class RememberPanelComponent {
   });
   protected readonly patterns = computed(() => cleanPatterns(this.rows()));
   protected readonly scopeLocked = computed(() => this.locked(this.scope()));
-  protected readonly heading = computed(() => patternsHeading(this.offer().patterns ?? 'command'));
-  protected readonly hint = computed(() => patternHint(this.offer().patterns ?? 'command'));
-  protected readonly example = computed(() => patternExample(this.offer().patterns ?? 'command'));
+  /** What the patterns are (an offer that takes none never opens them). */
+  protected readonly kind = computed(() => this.offer().patterns ?? 'command');
+  protected readonly heading = computed(() => patternsHeading(this.kind()));
 
   constructor() {
     afterNextRender(() => this.focus('.choice:not(:disabled)'));
@@ -386,21 +329,6 @@ export class RememberPanelComponent {
   protected openPatterns(): void {
     this.mode.set('patterns');
     afterNextRender(() => this.focus('.prow input'), { injector: this.injector });
-  }
-
-  protected setRow(i: number, value: string): void {
-    this.rows.update((list) => list.map((p, j) => (j === i ? value : p)));
-  }
-
-  protected addRow(): void {
-    if (this.rows().length >= MAX_PATTERNS) return;
-    this.rows.update((list) => [...list, '']);
-    afterNextRender(() => this.focus('.prow:last-child input'), { injector: this.injector });
-  }
-
-  protected removeRow(i: number): void {
-    if (this.rows().length === 1) return;
-    this.rows.update((list) => list.filter((_, j) => j !== i));
   }
 
   protected submit(): void {
