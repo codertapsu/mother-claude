@@ -58,7 +58,7 @@ describe('AccountSheetComponent removal', () => {
       'The API is running with Work as the account its new conversations start under. Stop the API, or start it again with another account, then remove Work.',
     );
     const link = el.querySelector('a[href="/http-api"]');
-    expect(text(link)).toBe('Open Settings › HTTP API');
+    expect(text(link)).toBe('Open HTTP API');
   });
 
   it('names the API server that runs under it, and links to that server', async () => {
@@ -72,7 +72,7 @@ describe('AccountSheetComponent removal', () => {
       'The API server Work API is running under Work. Stop it, or start it with another account, then remove Work.',
     );
     const link = el.querySelector('a[href="/http-api?server=work"]');
-    expect(text(link)).toBe('Open Settings › HTTP API');
+    expect(text(link)).toBe('Open HTTP API');
   });
 
   it('says sessions still run under it, without the API link', async () => {

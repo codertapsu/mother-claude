@@ -137,7 +137,7 @@ export class NoticeService {
     const text = prefix ? `${prefix}: ${d.text}` : d.text;
     const action = d.bridge
       ? {
-          label: tr('Open Settings › HTTP API'),
+          label: tr('Open HTTP API'),
           run: () => void this.router.navigate(['/http-api']),
         }
       : retry && d.retry

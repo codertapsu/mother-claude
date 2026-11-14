@@ -174,7 +174,7 @@ import { tokenStoreText } from './token-store';
                 routerLink="/http-api"
                 [queryParams]="apiServer() ? { server: apiServer() } : null"
                 (click)="closed.emit()"
-                >{{ 'Open Settings › HTTP API' | t }}</a
+                >{{ 'Open HTTP API' | t }}</a
               >
             </p>
           }

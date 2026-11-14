@@ -228,7 +228,7 @@ describe('RestoreSheetComponent', () => {
     const trust = el.querySelector('.check input') as HTMLInputElement;
     expect(trust.disabled).toBe(true);
     expect(text(el.querySelector('.check'))).toContain(
-      'Needs dangerous actions for this device, granted on the computer in Settings › Phone & devices.',
+      'Needs dangerous actions for this device, granted on the computer in Phone & devices.',
     );
     boxes(el)[1].click();
     fixture.detectChanges();
@@ -318,7 +318,7 @@ describe('RestoreSheetComponent', () => {
     const force = el.querySelector('.check.force input') as HTMLInputElement;
     expect(force.disabled).toBe(true);
     expect(text(el.querySelector('.check.force'))).toContain(
-      'Needs dangerous actions for this device, granted on the computer in Settings › Phone & devices.',
+      'Needs dangerous actions for this device, granted on the computer in Phone & devices.',
     );
   });
 

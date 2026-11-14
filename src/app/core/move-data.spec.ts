@@ -571,7 +571,7 @@ describe('move data helpers', () => {
       ),
     ).toBe('Copying within the shared folder is refused.');
     expect(moveErrorText(new ApiError('nope', 403, 'http', 'dangerous_blocked'))).toContain(
-      'Settings › Phone & devices',
+      'in Phone & devices',
     );
     expect(
       moveErrorText(

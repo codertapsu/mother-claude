@@ -66,7 +66,7 @@ const DESTINATIONS: Record<string, string> = {
   projectSettings: 'Saved in .claude/settings.json (this project, shared with the repo)',
   userSettings: 'Saved in ~/.claude/settings.json (all your projects)',
   cliArg: 'This run only',
-  browser: 'Saved in Mother Claude (Settings › Browser › Always allowed)',
+  browser: 'Saved in Mother Claude (Browser › Always allowed)',
   machines: 'Saved in Mother Claude (Computers › Activity › Always allowed runs)',
 };
 
@@ -251,7 +251,7 @@ export class PendingCardComponent {
     const m = this.mctx();
     if (!m) {
       return tr(
-        'Approve dangerous actions on the {computer}, or allow this device to take them (Settings › Phone & devices). You can still deny it here.',
+        'Approve dangerous actions on the {computer}, or allow this device to take them (Phone & devices). You can still deny it here.',
         { computer: computerNoun() },
       );
     }
@@ -540,7 +540,7 @@ export class PendingCardComponent {
           },
         )
       : tr(
-          'Rules saved to settings files need the {computer}, or a device allowed to take dangerous actions (Settings › Phone & devices).',
+          'Rules saved to settings files need the {computer}, or a device allowed to take dangerous actions (Phone & devices).',
           { computer: computerNoun() },
         );
   }

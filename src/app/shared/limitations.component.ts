@@ -50,7 +50,7 @@ import { IconComponent } from './icon.component';
         <div>
           <strong>{{ 'Local first, internet when you choose.' | t }}</strong>
           {{ 'Phones pair with a QR code from' | t }}
-          <strong>{{ 'Settings › Phone & devices' | t }}</strong>
+          <strong>{{ 'Phone & devices' | t }}</strong>
           {{
             'on the desktop. On your own Wi-Fi nothing leaves your network. Internet access is off until you turn it on and point a tunnel (ngrok, Cloudflare, Tailscale) at it; every device still needs its own pairing, and you can revoke any of them at any time.'
               | t

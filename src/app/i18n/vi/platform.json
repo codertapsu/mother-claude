@@ -625,7 +625,7 @@
   "Also in the Inbox, with everything else waiting ›": "Cũng có trong Hộp thư, cùng mọi thứ khác đang chờ ›",
   "The Claude account conversations run under. Automatic takes the project's account, else the one Accounts sets for the API. A request can still name another.": "Tài khoản Claude dùng để chạy các cuộc trò chuyện. Tự động sẽ lấy tài khoản của dự án, nếu không thì tài khoản được đặt cho API trong Tài khoản. Một yêu cầu vẫn có thể chỉ định tài khoản khác.",
   "A local HTTP API for Claude on this computer — conversations, turns, live streams, tool approvals and images — off until you start it.": "Một API HTTP cục bộ cho Claude trên máy tính này — cuộc trò chuyện, lượt, luồng trực tiếp, yêu cầu duyệt công cụ và hình ảnh — chỉ chạy khi bạn khởi động nó.",
-  "Pair a browser on the Mother Claude desktop app (Settings › Browser › Pair a browser).": "Ghép nối trình duyệt trên ứng dụng máy tính Mother Claude (Cài đặt › Trình duyệt › Ghép nối trình duyệt).",
+  "Pair a browser on the Mother Claude desktop app (Browser › Pair a browser).": "Ghép nối trình duyệt trên ứng dụng máy tính Mother Claude (Trình duyệt › Ghép nối trình duyệt).",
   "Role sessions at once": "Số phiên vai trò cùng lúc",
   "Daily budget": "Ngân sách mỗi ngày",
   "Daily budget (USD)": "Ngân sách mỗi ngày (USD)",

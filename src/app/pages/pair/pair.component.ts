@@ -72,7 +72,7 @@ function groupCode(code: string): string {
         <div class="card">
           <p>
             {{ 'This is the desktop app. To connect a phone, open' | t }}
-            <strong>{{ 'Settings › Phone & devices' | t }}</strong
+            <strong>{{ 'Phone & devices' | t }}</strong
             >{{ ", choose LAN or Internet, and scan the QR code with the phone's camera." | t }}
           </p>
           <a class="btn primary" routerLink="/devices"
@@ -150,7 +150,7 @@ function groupCode(code: string): string {
               <ol class="steps">
                 <li>
                   {{ 'On your computer, open' | t }}
-                  <strong>{{ 'Mother Claude › Settings › Phone & devices' | t }}</strong
+                  <strong>{{ 'Mother Claude › Phone & devices' | t }}</strong
                   >.
                 </li>
                 <li>

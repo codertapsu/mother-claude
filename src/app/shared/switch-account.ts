@@ -138,7 +138,7 @@ export function switchErrorText(e: unknown, accountName?: string): string {
         return tr('A move, copy, backup or restore is running: try again once it has finished.');
       case 'dangerous_blocked':
         return tr(
-          'This session runs without permission prompts: switching it needs dangerous actions for this device, granted on the computer in Settings › Phone & devices.',
+          'This session runs without permission prompts: switching it needs dangerous actions for this device, granted on the computer in Phone & devices.',
         );
       case 'untrusted_cwd':
         return (

@@ -35,7 +35,7 @@ import { IconComponent } from './icon.component';
               @case ('install-foreign-control') {
                 <mc-desktop-only
                   [line]="
-                    'Set it up on the {computer}, in Settings › Sessions started elsewhere.'
+                    'Set it up on the {computer}, in Sessions started elsewhere.'
                       | t: { computer: computer() }
                   "
                 >
