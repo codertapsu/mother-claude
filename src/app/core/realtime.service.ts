@@ -42,6 +42,7 @@ import { NowService } from './now.service';
 import { normalizeAccountUsages, normalizePlanUsage } from './plan-usage';
 import type { MachinesFrame, RemoteFrame, RemoteSessionsView } from './machines';
 import { MoveFrame, normalizeMove } from './moves';
+import type { PermissionsFrame } from './permission-rules';
 import type { TeamsFrame } from './teams';
 import { TranscriptStore, TranscriptStoreOptions } from './transcript-store';
 import { computerNoun, tr } from './i18n/i18n';
@@ -236,7 +237,7 @@ export interface RemoteEvent {
  * Streams (RxJS; one emission per frame, never coalesced):
  * - `hello$`, `sessions$`, `transcript$`, `transcriptReset$`, `stream$`,
  *   `pending$`, `pendingResolved$`, `agents$`, `fleet$`, `notice$`,
- *   `devices$`, `pairRequest$`.
+ *   `devices$`, `pairRequest$`, `permissions$`.
  * - `refetch$` — REST-loaded data may be stale (reconnect, resync, resume
  *   after ≥ 30 s hidden, network back).
  * - `pollTick$` — every 2 s while Limited and visible; open views poll.
@@ -372,6 +373,10 @@ export class RealtimeService {
   /** A data job started or ended: refetch `/api/data/jobs`. */
   private readonly jobsS = new Subject<JobsFrame>();
   readonly jobs$: Observable<JobsFrame> = this.jobsS.asObservable();
+  /** Permissions changed (one saved, edited or removed; paused or used
+   * again): refetch `/api/permissions`. */
+  private readonly permissionsS = new Subject<PermissionsFrame>();
+  readonly permissions$: Observable<PermissionsFrame> = this.permissionsS.asObservable();
   readonly refetch$: Observable<RefetchReason> = this.refetchS.asObservable();
   readonly pollTick$: Observable<void> = this.pollTickS.asObservable();
 
@@ -1079,6 +1084,9 @@ export class RealtimeService {
         break;
       case 'jobs':
         this.jobsS.next(frame);
+        break;
+      case 'permissions':
+        this.permissionsS.next(frame);
         break;
       case 'resync':
         this.resync();

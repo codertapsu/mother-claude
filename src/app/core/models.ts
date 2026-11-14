@@ -334,6 +334,53 @@ export interface PermissionSuggestion {
   raw: unknown;
 }
 
+/** What a remembered answer allows: a session's tool call, a command a
+ * session runs on another computer, or a task it hands to one. */
+export type GrantKind = 'tool' | 'run' | 'task';
+
+/** Where a remembered answer applies: this session only, every session of
+ * its project, or every project on the computer (a run's or a task's: every
+ * project here, on that computer). */
+export type GrantScope = 'session' | 'project' | 'computer';
+
+/** What a pattern means: the first words of a command, files relative to
+ * the project (a glob), or a site. */
+export type PatternKind = 'command' | 'path' | 'domain';
+
+/**
+ * A permission card's offer to remember the answer (`PendingItem.grant`):
+ * present when Mother Claude can. `blocked` says why nothing can be
+ * remembered (a dangerous action): then only *Allow once*.
+ */
+export interface GrantOffer {
+  kind: GrantKind;
+  /** A tool's: `Bash`, `PowerShell`, `Edit` (also Write, MultiEdit,
+   * NotebookEdit), `Read` (also Glob, Grep, LS), `WebFetch`, `WebSearch`, or
+   * any other exact tool name. */
+  tool?: string;
+  /** What its patterns mean; absent: it takes none. */
+  patterns?: PatternKind;
+  /** Patterns to start from (`cargo test`, `src/**`, `docs.rs`). */
+  suggested?: string[];
+  session: string;
+  sessionName?: string;
+  /** Absent: the session has no project folder. */
+  project?: string;
+  projectName?: string;
+  /** A run's or a task's: the computer it runs on. */
+  machine?: string;
+  machineName?: string;
+  blocked?: string;
+}
+
+/** `remember` on an allow: keep the answer as a permission (1–20 patterns,
+ * only when the offer takes them). A project or the whole computer needs
+ * the dangerous right; this session is open to anyone who may answer. */
+export interface RememberChoice {
+  scope: GrantScope;
+  patterns?: string[];
+}
+
 export type PendingKind = 'permission' | 'question' | 'plan' | 'elicitation';
 
 /** observed = seen on disk, not answerable from here; browser = a browser
@@ -371,6 +418,8 @@ export interface PendingItem {
   createdAt: number;
   /** `input` was capped (4 KB) in this copy; `GET /sessions/{id}` has it all. */
   inputTruncated?: boolean;
+  /** A permission Mother Claude can remember the answer to (*Allow for…*). */
+  grant?: GrantOffer;
 }
 
 /** The light copy of a PendingItem carried by every `sessions` frame. */
@@ -401,8 +450,10 @@ export type PendingOutcome =
   'allowed' | 'denied' | 'answered' | 'withdrawn' | 'expired' | 'cancelled';
 
 export interface PendingResolvedBy {
-  kind: 'device' | 'desktop' | 'host' | 'timeout';
-  /** Device name, or e.g. "Mac". */
+  /** `permission`: one of your permissions allowed it, and nobody was asked. */
+  kind: 'device' | 'desktop' | 'host' | 'timeout' | 'permission';
+  /** Device name, or e.g. "Mac"; a permission's: the rule in a few words
+   * ("commands like cargo test in shop"). */
   name?: string;
 }
 
@@ -425,6 +476,8 @@ export interface RespondBody {
   interrupt?: boolean;
   /** Elicitation: the form content (allow = accept, deny = decline). */
   content?: Record<string, unknown>;
+  /** Allow, and keep the answer as a permission (`PendingItem.grant`). */
+  remember?: RememberChoice;
 }
 
 // ──────────────────────────────────────────────────────────────── 4.3 Agents
@@ -1883,7 +1936,9 @@ export type ServerFrame =
   // Another computer's frame, republished (`core/machines.ts`).
   | import('./machines').RemoteFrame
   // A move of a session to or from another computer (`core/moves.ts`).
-  | import('./moves').MoveFrame;
+  | import('./moves').MoveFrame
+  // Permissions changed (`core/permission-rules.ts`).
+  | import('./permission-rules').PermissionsFrame;
 
 /** `machine` on `sub`/`unsub`: another computer's session (its id). */
 export type ClientFrame =

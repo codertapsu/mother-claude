@@ -71,13 +71,20 @@ function desktopName(name: string | undefined): string {
 }
 
 /** "Allowed on Marcus's iPhone", "Answered at the Mac", "Expired". Another
- * computer's request (`machine`: its name) reads "Answered at DESKTOP-PC". */
+ * computer's request (`machine`: its name) reads "Answered at DESKTOP-PC".
+ * One a permission allowed: "Allowed by your permission · commands like
+ * cargo test in shop" (the rule as the server words it). */
 export function resolutionText(r: PendingResolution, machine?: string): string {
   const outcome = tr(OUTCOME_TEXT[r.outcome] ?? 'Settled');
   if (r.mine) return tr('{outcome} from here', { outcome });
   const by = r.by;
   if (!by) {
     return r.outcome === 'withdrawn' ? tr('{outcome} (answered elsewhere)', { outcome }) : outcome;
+  }
+  if (by.kind === 'permission') {
+    return by.name
+      ? tr('Allowed by your permission · {rule}', { rule: by.name })
+      : tr('Allowed by your permission');
   }
   const computer = computerNoun();
   if (machine && (by.kind === 'desktop' || by.kind === 'host')) {

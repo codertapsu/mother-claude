@@ -46,6 +46,13 @@ import type {
 } from './machines';
 import type { CopiesView, SessionCopiesView, TakeOverFromCopy } from './copies';
 import type { MoveBody } from './move-data';
+import {
+  PermissionRule,
+  PermissionRulePatch,
+  PermissionsView,
+  normalizePermissions,
+  normalizeRule,
+} from './permission-rules';
 import type { MachineRun, RunGrantsView, RunsView } from './runs';
 import type { HostedRolesView, MachineTask, TaskRemoved, TasksView } from './tasks';
 import {
@@ -172,6 +179,8 @@ import {
  *             continueSession(id, body) · switchSessionAccount(id, body) ·
  *             cancelSessionSwitch(id) · sendKey(id, key) ·
  *             lifecycle(id, action)
+ *   Permissions getPermissions() · setPermissionsPaused(paused) ·
+ *             updatePermission(id, patch) · removePermission(id)
  *   Usage     getPlanUsage() · refreshPlanUsage(account?) ·
  *             setPlanUsageSettings(intervalSecs)
  *   Accounts  getAccounts() · addAccount(body) · updateAccount(id, patch) ·
@@ -487,6 +496,45 @@ export class ApiService {
 
   lifecycle(id: string, action: LifecycleAction): Promise<void> {
     return this.post(`/sessions/${enc(id)}/${action}`, {});
+  }
+
+  // ──────────────────────────────────────────────────────── Permissions
+
+  /** `GET /api/permissions`: what Claude may do without asking, and
+   * whether they are paused. */
+  async getPermissions(): Promise<PermissionsView> {
+    return normalizePermissions(await this.req<unknown>('/permissions'));
+  }
+
+  /** `PATCH /api/permissions {paused}`: ask for everything (the rules are
+   * kept), or use them again. */
+  async setPermissionsPaused(paused: boolean): Promise<PermissionsView> {
+    const v = await this.req<unknown>('/permissions', {
+      method: 'PATCH',
+      body: JSON.stringify({ paused }),
+    });
+    return normalizePermissions(v);
+  }
+
+  /** `PATCH /api/permissions/{id}`: its patterns or its scope (`422
+   * invalid_pattern`; `403 dangerous_blocked` when it widens it without
+   * the dangerous right). */
+  async updatePermission(id: string, patch: PermissionRulePatch): Promise<PermissionRule> {
+    const rule = normalizeRule(
+      await this.req<unknown>(`/permissions/${enc(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      }),
+    );
+    if (!rule) throw unreadable();
+    return rule;
+  }
+
+  /** `DELETE /api/permissions/{id}`: answers what is left. */
+  async removePermission(id: string): Promise<PermissionsView> {
+    return normalizePermissions(
+      await this.req<unknown>(`/permissions/${enc(id)}`, { method: 'DELETE' }),
+    );
   }
 
   // ───────────────────────────────────────────────────────── Plan usage

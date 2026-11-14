@@ -6,6 +6,7 @@ import core from './core.json';
 import data from './data.json';
 import machines from './machines.json';
 import moves from './moves.json';
+import permissions from './permissions.json';
 import platform from './platform.json';
 import runs from './runs.json';
 import shared from './shared.json';
@@ -30,4 +31,5 @@ export const VI: Dict = {
   ...moves,
   ...copies,
   ...runs,
+  ...permissions,
 };
