@@ -19,6 +19,7 @@ pub mod disk;
 pub mod foreign;
 pub mod pairing;
 pub mod permissions;
+pub mod plugins;
 pub mod push;
 pub mod remote;
 pub mod transfers;
@@ -243,6 +244,11 @@ pub fn api_router() -> Router<AppState> {
         .route("/sessions/{id}/answer", post(control::legacy_answer))
         .route("/sessions/{id}/context", get(control::context_usage))
         .route("/sessions/{id}/mcp", get(control::mcp_status))
+        .route("/sessions/{id}/mcp/reconnect", post(control::mcp_reconnect))
+        .route("/sessions/{id}/mcp/enabled", post(control::mcp_enabled))
+        .route("/sessions/{id}/plugins", get(control::session_plugins))
+        .route("/sessions/{id}/plugins/reload", post(control::reload_plugins))
+        .route("/sessions/{id}/plugins/add", post(control::add_plugin))
         // ── foreign control (B4) ──
         .route("/sessions/{id}/keys", post(foreign::keys))
         .route("/sessions/{id}/terminal", get(foreign::terminal))
@@ -252,6 +258,16 @@ pub fn api_router() -> Router<AppState> {
         .route("/control/foreign/install", post(foreign::install))
         .route("/control/foreign/uninstall", post(foreign::uninstall))
         .route("/hooks/install", post(foreign::legacy_install_hooks))
+        // ── Claude Code's plugins (docs/PLUGINS.md) ──
+        .route("/plugins", get(plugins::list))
+        .route("/plugins/available", get(plugins::available))
+        .route("/plugins/install", post(plugins::install))
+        .route("/plugins/uninstall", post(plugins::uninstall))
+        .route("/plugins/enabled", post(plugins::set_enabled))
+        .route("/plugins/update", post(plugins::update))
+        .route("/plugins/marketplaces", post(plugins::add_marketplace))
+        .route("/plugins/marketplaces/{name}", delete(plugins::remove_marketplace))
+        .route("/plugins/reload", post(plugins::reload_everywhere))
         // ── Claude Code tools: the MCP server's panel (docs/MCP.md) ──
         .route("/mcp", get(crate::mcp::api::get_status))
         .route("/mcp/settings", put(crate::mcp::api::put_settings))

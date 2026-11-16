@@ -1437,7 +1437,8 @@ pub async fn task_output(state: &AppState, id: &str, task_id: &str) -> ApiResult
     .await
 }
 
-/// MCP server status (`mcp_status`) → `{servers:[{name,status,scope?}]}`.
+/// MCP server status (`mcp_status`) → `{servers:[{name, status, scope?,
+/// source?, error?, tools?}]}`.
 pub async fn mcp_status(state: &AppState, id: &str) -> ApiResult<Value> {
     let resp = request(state, id, json!({ "subtype": "mcp_status" })).await?;
     let list = resp
@@ -1446,18 +1447,231 @@ pub async fn mcp_status(state: &AppState, id: &str) -> ApiResult<Value> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    // Never echo server config (env / headers can hold secrets).
-    let servers: Vec<Value> = list
-        .iter()
+    Ok(json!({ "servers": mcp_servers_view(&list) }))
+}
+
+/// What a session's MCP servers are, never their config (an environment
+/// value or a header can hold a secret): name, status, where it comes from,
+/// why it failed, how many tools it brings.
+fn mcp_servers_view(list: &[Value]) -> Vec<Value> {
+    let text = |s: &Value, k: &str, max: usize| -> Value {
+        s.get(k)
+            .and_then(Value::as_str)
+            .map(|t| Value::String(t.chars().take(max).collect()))
+            .unwrap_or(Value::Null)
+    };
+    list.iter()
+        .filter(|s| s.get("name").and_then(Value::as_str).is_some())
         .map(|s| {
+            let tools = s.get("toolCount").and_then(Value::as_u64).or_else(|| {
+                s.get("tools")
+                    .and_then(Value::as_array)
+                    .map(|t| t.len() as u64)
+            });
             json!({
-                "name": s.get("name").cloned().unwrap_or(Value::Null),
-                "status": s.get("status").cloned().unwrap_or(Value::Null),
-                "scope": s.get("scope").cloned().unwrap_or(Value::Null),
+                "name": text(s, "name", 200),
+                "status": text(s, "status", 40),
+                "scope": text(s, "scope", 40),
+                "source": text(s, "source", 200),
+                "error": text(s, "error", 500),
+                "tools": tools,
             })
         })
-        .collect();
-    Ok(json!({ "servers": servers }))
+        .collect()
+}
+
+/// How long a reconnect, a switch or a reload may take: a server may start
+/// a program or dial out, and a reload reads every plugin again.
+const PLUGIN_ACTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn check_server_name(name: &str) -> ApiResult<()> {
+    if name.trim().is_empty() || name.len() > 200 || name.chars().any(char::is_control) {
+        return Err(ApiError::unprocessable(
+            "invalid_server",
+            "That is not an MCP server's name.",
+        ));
+    }
+    Ok(())
+}
+
+async fn request_long(state: &AppState, id: &str, request: Value) -> ApiResult<Value> {
+    state
+        .control
+        .request(id, request, PLUGIN_ACTION_TIMEOUT)
+        .await
+        .map_err(control_error)
+}
+
+/// Connects an MCP server of the session again (`mcp_reconnect`) — one that
+/// failed because what it talks to was not running yet — and says how its
+/// servers are after.
+pub async fn mcp_reconnect(state: &AppState, id: &str, server: &str) -> ApiResult<Value> {
+    check_server_name(server)?;
+    request_long(
+        state,
+        id,
+        json!({ "subtype": "mcp_reconnect", "serverName": server }),
+    )
+    .await?;
+    mcp_status(state, id).await
+}
+
+/// Turns an MCP server on or off for this session only (`mcp_toggle`).
+pub async fn mcp_toggle(
+    state: &AppState,
+    id: &str,
+    server: &str,
+    enabled: bool,
+) -> ApiResult<Value> {
+    check_server_name(server)?;
+    request_long(
+        state,
+        id,
+        json!({ "subtype": "mcp_toggle", "serverName": server, "enabled": enabled }),
+    )
+    .await?;
+    mcp_status(state, id).await
+}
+
+/// A plugin a session loaded, as `system/init` and `reload_plugins` name
+/// it: `{name, source?, version?, path?}`.
+pub(crate) fn plugin_view(p: &Value) -> Option<Value> {
+    let text = |k: &str, max: usize| {
+        p.get(k)
+            .and_then(Value::as_str)
+            .map(|t| t.chars().take(max).collect::<String>())
+    };
+    let name = text("name", 200)?;
+    Some(json!({
+        "name": name,
+        "source": text("source", 200),
+        "version": text("version", 60),
+        "path": text("path", 1000),
+    }))
+}
+
+/// What went wrong loading a plugin, in Claude Code's words.
+pub(crate) fn plugin_error_text(e: &Value) -> Option<String> {
+    let msg = ["message", "error", "reason"]
+        .iter()
+        .find_map(|k| e.get(*k).and_then(Value::as_str))
+        .or_else(|| e.as_str())?;
+    let who = ["plugin", "name", "source"]
+        .iter()
+        .find_map(|k| e.get(*k).and_then(Value::as_str));
+    let line = match who {
+        Some(w) if !msg.contains(w) => format!("{w}: {msg}"),
+        _ => msg.to_string(),
+    };
+    Some(line.chars().take(500).collect())
+}
+
+/// The plugins an owned session loaded and the errors loading them (as of
+/// its last turn's start or its last reload): `None` when Mother Claude
+/// holds no process for it.
+pub fn session_plugins(state: &AppState, id: &str) -> Option<Value> {
+    live_state(state, id).map(|l| {
+        json!({
+            "plugins": l.plugins,
+            "errors": l.plugin_errors,
+            "known": l.plugins_known,
+        })
+    })
+}
+
+/// Reads the session's plugins again from disk (`reload_plugins`), as
+/// `/reload-plugins` does — refused while it works, so nothing changes
+/// under a running turn. Without `force`, a reload that would make the
+/// next message re-read the whole conversation (its tools change) is held
+/// and answered as such (`held`, what would change), for the person to
+/// decide. `add`: a plugin folder this session loads too (only it, until
+/// it ends).
+pub async fn reload_plugins(
+    state: &AppState,
+    id: &str,
+    force: bool,
+    add: Option<&Path>,
+) -> ApiResult<Value> {
+    let mut req = json!({ "subtype": "reload_plugins", "refuse_if_busy": true });
+    if !force {
+        req["hold_on_cache_impact"] = json!(true);
+    }
+    if let Some(dir) = add {
+        req["add_plugins"] = json!([{ "type": "local", "path": dir.to_string_lossy() }]);
+    }
+    let resp = request_long(state, id, req).await?;
+    let plugins: Vec<Value> = resp
+        .get("plugins")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(plugin_view).collect())
+        .unwrap_or_default();
+    let held = resp.get("held").and_then(Value::as_bool).unwrap_or(false);
+    if !held {
+        state.control.update(id, |l| {
+            l.plugins = plugins.clone();
+            l.plugins_known = true;
+        });
+    }
+    let servers = resp
+        .get("mcpServers")
+        .and_then(Value::as_array)
+        .map(|a| mcp_servers_view(a))
+        .unwrap_or_default();
+    let impact = resp.get("cache_impact").map(|c| {
+        let names = |k: &str| -> Vec<String> {
+            c.get(k)
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .take(50)
+                        .map(|s| s.chars().take(200).collect())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        json!({
+            "serversAdded": names("mcp_servers_added"),
+            "serversRemoved": names("mcp_servers_removed"),
+            "lspToolChange": c.get("lsp_tool_change").and_then(Value::as_bool).unwrap_or(false),
+        })
+    });
+    Ok(json!({
+        "held": held,
+        "cacheImpact": impact,
+        "plugins": plugins,
+        "servers": servers,
+        "errorCount": resp.get("error_count").and_then(Value::as_u64).unwrap_or(0),
+        "commands": resp.get("commands").and_then(Value::as_array).map_or(0, Vec::len),
+    }))
+}
+
+/// A plugin folder a session may load: an existing folder on this computer
+/// with a plugin manifest (`.claude-plugin/plugin.json`) or something a
+/// plugin carries (skills, commands, agents, hooks, an MCP config).
+pub fn check_plugin_folder(raw: &str) -> ApiResult<PathBuf> {
+    let bad = |why: &str| ApiError::unprocessable("invalid_plugin_folder", why.to_string());
+    let p = Path::new(raw.trim());
+    if raw.trim().is_empty() || !p.is_absolute() {
+        return Err(bad("Give the full path of the plugin's folder."));
+    }
+    let dir =
+        dunce::canonicalize(p).map_err(|_| bad("There is no such folder on this computer."))?;
+    if !dir.is_dir() {
+        return Err(bad("That is not a folder."));
+    }
+    let looks_like_plugin = dir.join(".claude-plugin").join("plugin.json").is_file()
+        || ["skills", "commands", "agents", "hooks"]
+            .iter()
+            .any(|d| dir.join(d).is_dir())
+        || dir.join(".mcp.json").is_file();
+    if !looks_like_plugin {
+        return Err(bad(
+            "That folder has no plugin in it: a plugin has .claude-plugin/plugin.json, or skills, \
+             commands, agents or hooks folders.",
+        ));
+    }
+    Ok(dir)
 }
 
 /// Slash commands the owned session offers (from `initialize`), else `None`

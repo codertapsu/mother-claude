@@ -1069,6 +1069,161 @@ pub async fn mcp_status(
     }
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct McpServerBody {
+    pub server: String,
+    pub enabled: Option<bool>,
+}
+
+/// `409` for an MCP server of a session Mother Claude does not run: where
+/// it is handled instead.
+fn mcp_elsewhere(route: &Route) -> ApiError {
+    match route {
+        Route::None(s) => no_channel(s),
+        _ => ApiError::conflict(
+            "not_supported",
+            "Mother Claude reaches the MCP servers of the sessions it runs. In a session started \
+             elsewhere, type /mcp in it to reconnect a server or turn one off.",
+        ),
+    }
+}
+
+/// `POST /api/sessions/{id}/mcp/reconnect {server}` → its servers' status
+/// after (owned sessions): one that failed because what it talks to was not
+/// running yet connects now.
+pub async fn mcp_reconnect(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<McpServerBody>,
+) -> ApiResult<Json<Value>> {
+    match route_for(&state, &id).await? {
+        Route::Owned => Ok(Json(owned::mcp_reconnect(&state, &id, &body.server).await?)),
+        other => Err(mcp_elsewhere(&other)),
+    }
+}
+
+/// `POST /api/sessions/{id}/mcp/enabled {server, enabled}` → its servers'
+/// status after: on or off for this session only.
+pub async fn mcp_enabled(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<McpServerBody>,
+) -> ApiResult<Json<Value>> {
+    let enabled = body.enabled.ok_or_else(|| {
+        ApiError::unprocessable("invalid_body", "Say whether to turn it on or off.")
+    })?;
+    match route_for(&state, &id).await? {
+        Route::Owned => Ok(Json(
+            owned::mcp_toggle(&state, &id, &body.server, enabled).await?,
+        )),
+        other => Err(mcp_elsewhere(&other)),
+    }
+}
+
+/// `GET /api/sessions/{id}/plugins` → `{plugins, errors, known, reload}`:
+/// what an owned session loaded, and how its plugins are read again from
+/// here — `control` (asked of the session), `tmux` (`/reload-plugins`
+/// typed into its pane) or `none` (type it in the session).
+pub async fn session_plugins(
+    Authed(_ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let none =
+        |reload: &str| json!({ "plugins": [], "errors": [], "known": false, "reload": reload });
+    Ok(Json(match route_for(&state, &id).await? {
+        Route::Owned => {
+            let mut v = owned::session_plugins(&state, &id).unwrap_or_else(|| none("control"));
+            v["reload"] = json!("control");
+            v
+        }
+        Route::Tmux(_) => none("tmux"),
+        _ => none("none"),
+    }))
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct ReloadPluginsBody {
+    /// Reload even when the next message then re-reads the conversation.
+    pub force: bool,
+}
+
+/// `POST /api/sessions/{id}/plugins/reload {force?}`: the session reads its
+/// plugins and their MCP servers again (`/reload-plugins`). An owned one is
+/// asked (refused while it works; held, with what would change, when its
+/// next message would re-read the whole conversation, unless `force`); in a
+/// tmux pane it is typed; elsewhere `409` says to type it there.
+pub async fn reload_plugins(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<ReloadPluginsBody>,
+) -> ApiResult<Json<Value>> {
+    match route_for(&state, &id).await? {
+        Route::Owned => Ok(Json(
+            owned::reload_plugins(&state, &id, body.force, None).await?,
+        )),
+        Route::Tmux(s) => {
+            tmux::send_text_as(&state, &ctx, &s, "/reload-plugins").await?;
+            Ok(Json(json!({ "typed": true })))
+        }
+        Route::None(s) => Err(no_channel(&s)),
+        _ => Err(ApiError::conflict(
+            "not_supported",
+            "Type /reload-plugins in the session itself: Mother Claude can't type into it where \
+             it runs.",
+        )),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct AddPluginBody {
+    /// The plugin's folder on this computer.
+    pub path: String,
+}
+
+/// `POST /api/sessions/{id}/plugins/add {path}`: an owned session loads the
+/// plugin in that folder too — only it, until it ends. A plugin runs code
+/// (hooks, MCP servers): the dangerous right. Audited (the folder's name).
+pub async fn add_plugin(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<AddPluginBody>,
+) -> ApiResult<Json<Value>> {
+    require_dangerous(&ctx, "Loading a plugin into a session")?;
+    let dir = owned::check_plugin_folder(&body.path)?;
+    match route_for(&state, &id).await? {
+        Route::Owned => {
+            let v = owned::reload_plugins(&state, &id, true, Some(&dir)).await?;
+            state
+                .devices
+                .audit
+                .record(crate::server::devices::audit::AuditEntry {
+                    detail: Some(json!({
+                        "session": id,
+                        "folder": dir.file_name().map(|n| n.to_string_lossy().into_owned()),
+                    })),
+                    ..crate::server::devices::audit::AuditEntry::from_ctx(
+                        &ctx,
+                        "session.plugin.added",
+                    )
+                });
+            Ok(Json(v))
+        }
+        _ => Err(ApiError::conflict(
+            "not_supported",
+            "A plugin folder can be added to a session Mother Claude runs. For a session started \
+             elsewhere, start it with claude --plugin-dir, or install the plugin for its project.",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -59,6 +59,116 @@ def arg(name):
     return None
 
 
+# `claude plugin …` (CLI 2.1.325's argv and --json shapes). Its state lives
+# only in the file FAKE_PLUGINS_STATE names, and only inside the temp
+# directory: a test's, never the real configuration. Every call is recorded
+# there with its cwd and CLAUDE_CONFIG_DIR.
+def fake_plugin(args):
+    path = os.environ.get("FAKE_PLUGINS_STATE", "")
+    root = os.path.realpath(tempfile.gettempdir())
+    if not path or not os.path.realpath(path).startswith(root + os.sep):
+        print(json.dumps({"ok": False, "error": "no FAKE_PLUGINS_STATE in the temp directory"}))
+        sys.exit(1)
+    try:
+        with open(path, encoding="utf-8") as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        st = {"installed": [], "marketplaces": [
+            {"name": "claude-plugins-official", "source": "github", "repo": "anthropics/claude-plugins-official"}],
+            "calls": []}
+    st["calls"].append({"argv": args, "cwd": os.getcwd(), "configDir": os.environ.get("CLAUDE_CONFIG_DIR")})
+
+    def save():
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+
+    def opt(name):
+        return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else None
+
+    def fail(msg, **extra):
+        save()
+        print(json.dumps({"ok": False, "error": msg, **extra}))
+        sys.exit(1)
+
+    here = os.path.realpath(os.getcwd())
+    sub = args[1] if len(args) > 1 else ""
+    if sub == "list":
+        installed = []
+        for p in st["installed"]:
+            if p["scope"] in ("project", "local") and p.get("project") != here:
+                continue
+            entry = {k: v for k, v in p.items() if k != "project"}
+            entry["projectEnabled"] = p["scope"] in ("project", "local")
+            installed.append(entry)
+        save()
+        if "--available" in args:
+            print(json.dumps({"installed": installed, "available": [
+                {"pluginId": "figma@claude-plugins-official", "name": "figma",
+                 "description": "Figma design files", "marketplaceName": "claude-plugins-official", "installCount": 900},
+                {"pluginId": "needs-command@claude-plugins-official", "name": "needs-command",
+                 "description": "Installed by running a command", "marketplaceName": "claude-plugins-official",
+                 "installCount": 5},
+                {"pluginId": "postman@claude-plugins-official", "name": "postman",
+                 "description": "API testing", "marketplaceName": "claude-plugins-official", "installCount": 400},
+            ]}))
+        else:
+            print(json.dumps(installed))
+        sys.exit(0)
+    if sub == "marketplace":
+        verb = args[2] if len(args) > 2 else ""
+        if verb == "list":
+            save()
+            print(json.dumps(st["marketplaces"]))
+            sys.exit(0)
+        if verb == "add":
+            source = args[3]
+            name = os.path.basename(source.rstrip("/").replace(".git", "")) or "market"
+            st["marketplaces"].append({"name": name, "source": "github" if "/" in source and not source.startswith("/") else "directory",
+                                       "repo" if not source.startswith("/") else "path": source})
+            save()
+            print("Cloning…")
+            print(json.dumps({"ok": True, "marketplace": name}))
+            sys.exit(0)
+        if verb in ("remove", "rm"):
+            name = args[3]
+            if not any(m["name"] == name for m in st["marketplaces"]):
+                fail(f"Marketplace '{name}' not found")
+            st["marketplaces"] = [m for m in st["marketplaces"] if m["name"] != name]
+            save()
+            print(json.dumps({"ok": True}))
+            sys.exit(0)
+    if sub in ("install", "uninstall", "enable", "disable", "update"):
+        plugin = args[2]
+        scope = opt("--scope") or "user"
+        project = here if scope in ("project", "local") else None
+        mine = [p for p in st["installed"] if p["id"] == plugin and p["scope"] == scope and p.get("project") == project]
+        if sub == "install":
+            if plugin.startswith("needs-command@") and opt("--accept-command") != "c" * 64:
+                fail("This plugin installs by running a command: confirm it",
+                     shownCommand={"command": "npx needs-command-installer --global", "sha256": "c" * 64})
+            if mine:
+                fail(f"Plugin '{plugin}' is already installed")
+            st["installed"].append({"id": plugin, "version": "1.0.0", "scope": scope, "enabled": True,
+                                    "project": project, "mcpServers": {"srv": {"type": "http",
+                                    "url": "https://mcp.example.com/mcp", "headers": {"Authorization": "Bearer t0ken"}}}})
+            save()
+            print(json.dumps({"ok": True, "plugin": plugin, "scope": scope}))
+            sys.exit(0)
+        if not mine:
+            fail(f"Plugin '{plugin}' is not installed in scope {scope}")
+        if sub == "uninstall":
+            st["installed"] = [p for p in st["installed"] if p is not mine[0]]
+        elif sub in ("enable", "disable"):
+            mine[0]["enabled"] = sub == "enable"
+        save()
+        print(json.dumps({"ok": True, "plugin": plugin, "scope": scope}))
+        sys.exit(0)
+    fail(f"unknown plugin command: {' '.join(args)}")
+
+
+if ARGS[:1] == ["plugin"]:
+    fake_plugin(ARGS)
+
 # Job subcommands run in the server's own cwd: answer them without logging.
 if ARGS and ARGS[0] in ("stop", "rm", "respawn"):
     print(f"{ARGS[0]} {ARGS[1] if len(ARGS) > 1 else ''}".strip())
@@ -308,6 +418,25 @@ def model_caps(model):
     if "sonnet" in m:
         return "claude-sonnet-5", True, False, False
     return model, True, False, True
+# The session's MCP servers and their status (a server that failed at start
+# connects once reconnected), and the plugins it loaded.
+MCP = {"gh": "connected", "figma-mcp-node": "failed"}
+PLUGINS = [{"name": "figma", "path": "/fake/plugins/figma", "source": "figma@claude-plugins-official",
+            "version": "2.2.157"}]
+
+
+def mcp_servers():
+    """`mcp_status`'s list, a secret in a config the host must never echo."""
+    out = []
+    for name, status in MCP.items():
+        entry = {"name": name, "status": status, "scope": "user",
+                 "config": {"env": {"TOKEN": "secret"}}, "tools": [{"name": "t"}]}
+        if status == "failed":
+            entry["error"] = "Connection closed: the Figma plugin is not running"
+        out.append(entry)
+    return out
+
+
 HELD = []  # user messages received while a turn runs
 TASKS = {}
 REPLIES = {}  # request_id -> host control_response
@@ -451,8 +580,45 @@ def handle_host_request(obj):
         else:
             err(rid, "task_id required")
     elif sub == "mcp_status":
-        ok(rid, {"mcpServers": [{"name": "gh", "status": "connected", "scope": "user",
-                                 "config": {"env": {"TOKEN": "secret"}}}]})
+        ok(rid, {"mcpServers": mcp_servers()})
+    elif sub == "mcp_reconnect":
+        name = req.get("serverName")
+        if name not in MCP:
+            err(rid, f"Server not found: {name}")
+        else:
+            MCP[name] = "connected"
+            ok(rid, {})
+    elif sub == "mcp_toggle":
+        name = req.get("serverName")
+        if name not in MCP:
+            err(rid, f"Server not found: {name}")
+        else:
+            MCP[name] = "connected" if req.get("enabled") else "disabled"
+            ok(rid, {})
+    elif sub == "reload_plugins":
+        log({"reload": req})
+        if req.get("refuse_if_busy") and STATE["busy"]:
+            err(rid, "The session is busy, so plugins were not reloaded. Ask again once it is idle.",
+                "reload_plugins_busy")
+        else:
+            added = [a.get("path") for a in req.get("add_plugins") or [] if isinstance(a, dict)]
+            # A folder named "adds-server" brings an MCP server: the next
+            # message would re-read the conversation, so a careful reload
+            # holds it.
+            impact = any(os.path.basename(p or "") == "adds-server" for p in added)
+            if impact and req.get("hold_on_cache_impact"):
+                ok(rid, {"commands": [], "agents": [], "plugins": PLUGINS, "mcpServers": mcp_servers(),
+                         "error_count": 0, "held": True,
+                         "cache_impact": {"mcp_servers_added": ["extra"], "mcp_servers_removed": [],
+                                          "lsp_tool_change": False}})
+            else:
+                for path in added:
+                    PLUGINS.append({"name": os.path.basename(path), "path": path,
+                                    "source": os.path.basename(path) + "@inline"})
+                    if impact:
+                        MCP["extra"] = "connected"
+                ok(rid, {"commands": [{"name": "review"}], "agents": [], "plugins": PLUGINS,
+                         "mcpServers": mcp_servers(), "error_count": 0})
     elif sub == "cancel_async_message":
         target = req.get("message_uuid")
         found = any(m.get("uuid") == target for m in HELD)
@@ -571,7 +737,9 @@ def run_turn(msg):
         STATE["started"] = True
         sys_msg("init", cwd=os.getcwd(), model=MODEL,
                 permissionMode="bypassPermissions" if MODEL == "fake-bypass" else STATE["mode"],
-                claude_code_version="9.9.9-fake", capabilities=["interrupt_receipt_v1", "interrupt_send_now_v1"], tools=[])
+                claude_code_version="9.9.9-fake", capabilities=["interrupt_receipt_v1", "interrupt_send_now_v1"], tools=[],
+                plugins=PLUGINS, plugin_errors=[{"plugin": "broken@m", "message": "manifest is not valid JSON"}],
+                mcp_servers=[{"name": k, "status": v} for k, v in MCP.items()])
     STATE["interrupted"] = False
 
     if text == "hello" or (not text and images):

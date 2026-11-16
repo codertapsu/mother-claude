@@ -79,7 +79,7 @@ const STATUS_TTL_MS: i64 = 30_000;
 /// another session (or would leak our token). `CLAUDE_CONFIG_DIR` is
 /// deliberately not here: a user-set value is inherited untouched, and we
 /// never set one.
-const ENV_DENYLIST: [&str; 8] = [
+pub(crate) const ENV_DENYLIST: [&str; 8] = [
     "CLAUDECODE",
     "CLAUDE_CODE_ENTRYPOINT",
     "CLAUDE_CODE_SESSION_ID",

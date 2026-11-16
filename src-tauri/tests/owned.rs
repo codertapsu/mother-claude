@@ -2318,3 +2318,174 @@ async fn a_token_accounts_session_keeps_its_account_after_a_restart() {
     st.accounts.remove(&pro.id).unwrap();
     assert_eq!(session_account(&st, &id), "default");
 }
+
+// ──────────────────────── MCP servers and plugins ─────────────────────────
+
+/// A plugin folder the fake loads (`name`: "adds-server" brings an MCP
+/// server, so a careful reload is held).
+fn plugin_folder(root: &Path, name: &str) -> std::path::PathBuf {
+    let dir = root.join(name);
+    std::fs::create_dir_all(dir.join(".claude-plugin")).unwrap();
+    std::fs::write(
+        dir.join(".claude-plugin").join("plugin.json"),
+        format!("{{\"name\":\"{name}\"}}"),
+    )
+    .unwrap();
+    dunce::canonicalize(dir).unwrap()
+}
+
+#[tokio::test]
+async fn an_owned_sessions_mcp_servers_reconnect_and_its_plugins_reload() {
+    let f = Fixture::new();
+    let base = serve(mother_claude_lib::server::router(f.st.clone())).await;
+    let token = f.st.auth.token.clone();
+    let c = reqwest::Client::new();
+    let post = |path: &str, body: Value| {
+        c.post(format!("{base}/api/sessions{path}"))
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+    };
+    let get = |path: &str| {
+        c.get(format!("{base}/api/sessions{path}"))
+            .bearer_auth(&token)
+            .send()
+    };
+    let id = f.spawn_text("hello").await;
+    wait_turn_done(&f.st, &id).await;
+
+    // The server that started before what it talks to says so; no config.
+    let r = get(&format!("/{id}/mcp")).await.unwrap();
+    assert_eq!(r.status(), 200);
+    let text = r.text().await.unwrap();
+    assert!(!text.contains("secret"), "{text}");
+    let v: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["servers"][1]["name"], "figma-mcp-node");
+    assert_eq!(v["servers"][1]["status"], "failed");
+    assert!(v["servers"][1]["error"]
+        .as_str()
+        .unwrap()
+        .contains("not running"));
+    assert_eq!(v["servers"][0]["tools"], 1);
+
+    // Reconnected, it is connected; off for this session, it is disabled.
+    let r = post(
+        &format!("/{id}/mcp/reconnect"),
+        json!({ "server": "figma-mcp-node" }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(v["servers"][1]["status"], "connected");
+    let r = post(
+        &format!("/{id}/mcp/enabled"),
+        json!({ "server": "gh", "enabled": false }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(
+        r.json::<Value>().await.unwrap()["servers"][0]["status"],
+        "disabled"
+    );
+    let r = post(&format!("/{id}/mcp/reconnect"), json!({ "server": "nope" }))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 422);
+    assert!(r.text().await.unwrap().contains("Server not found"));
+    let r = post(&format!("/{id}/mcp/enabled"), json!({ "server": "gh" }))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 422, "on or off must be said");
+
+    // What it loaded, from its first turn; then read again from disk.
+    let v: Value = get(&format!("/{id}/plugins"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(v["reload"], "control");
+    assert_eq!(v["known"], true);
+    assert_eq!(v["plugins"][0]["name"], "figma");
+    assert_eq!(v["errors"][0], "broken@m: manifest is not valid JSON");
+    let r = post(&format!("/{id}/plugins/reload"), json!({}))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(v["held"], false);
+    assert_eq!(v["commands"], 1);
+    let reloads = f.logged("reload");
+    assert_eq!(
+        reloads[0],
+        json!({ "subtype": "reload_plugins", "refuse_if_busy": true, "hold_on_cache_impact": true })
+    );
+
+    // A careful reload whose next message would re-read the conversation
+    // is held, and says what would change; the session keeps its plugins.
+    let folders = tempfile::tempdir().unwrap();
+    let adds = plugin_folder(folders.path(), "adds-server");
+    let held = owned::reload_plugins(&f.st, &id, false, Some(&adds))
+        .await
+        .unwrap();
+    assert_eq!(held["held"], true);
+    assert_eq!(held["cacheImpact"]["serversAdded"], json!(["extra"]));
+    assert_eq!(owned::live_state(&f.st, &id).unwrap().plugins.len(), 1);
+
+    // A folder for this session only: the dangerous right, a real plugin.
+    let empty = folders.path().join("empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    let r = post(
+        &format!("/{id}/plugins/add"),
+        json!({ "path": empty.to_string_lossy() }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status(), 422);
+    assert!(r.text().await.unwrap().contains("invalid_plugin_folder"));
+    let script = c
+        .post(format!("{base}/api/sessions/{id}/plugins/add"))
+        .bearer_auth(&f.st.auth.script_token)
+        .json(&json!({ "path": adds.to_string_lossy() }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(script.status(), 403, "a local script may not load code");
+    let r = post(
+        &format!("/{id}/plugins/add"),
+        json!({ "path": adds.to_string_lossy() }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(v["held"], false);
+    assert!(v["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["name"] == "adds-server"));
+    let sent = f.logged("reload");
+    assert_eq!(
+        sent.last().unwrap()["add_plugins"],
+        json!([{ "type": "local", "path": adds.to_string_lossy() }])
+    );
+    assert!(sent.last().unwrap().get("hold_on_cache_impact").is_none());
+
+    // While it works, a reload is refused, in Claude Code's words.
+    owned::send(&f.st, &id, "slow", &[]).await.unwrap();
+    wait_for("the slow turn", || {
+        owned::live_state(&f.st, &id).is_some_and(|l| l.turn_active)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let r = post(&format!("/{id}/plugins/reload"), json!({}))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 422);
+    assert!(r.text().await.unwrap().contains("busy"));
+    wait_turn_done(&f.st, &id).await;
+    owned::kill(&f.st, &id).await.unwrap();
+}

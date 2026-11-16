@@ -138,6 +138,9 @@ pub struct Inner {
     pub hooks: HookHub,
     /// Hooks plugin install state. B4 (`claude/hooks.rs`).
     pub plugin: PluginManager,
+    /// The catalogs of plugins the marketplaces offer, read lately
+    /// (`claude/plugins.rs`, docs/PLUGINS.md).
+    pub plugin_catalogs: crate::claude::plugins::Catalogs,
     /// tmux sockets/panes. B4 (`claude/tmux.rs`).
     pub tmux: TmuxState,
     /// Web Push. B5 (`server/push.rs`).
@@ -247,6 +250,7 @@ impl Inner {
             timeline: Timeline::new(),
             hooks: HookHub::load(data_dir),
             plugin: PluginManager::new(),
+            plugin_catalogs: Default::default(),
             tmux: TmuxState::new(),
             push: PushService::new(data_dir),
             usage: UsageStore::new(data_dir),

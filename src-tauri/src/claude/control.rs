@@ -408,6 +408,13 @@ pub struct OwnedLive {
     /// Closed to new messages: its account is being switched and the process
     /// stops next ([`ControlRegistry::close_for_switch`], `claude::switch`).
     pub closing: bool,
+    /// The plugins it loaded (`system/init`, a reload): `{name, source?,
+    /// version?, path?}` (`owned::plugin_view`).
+    pub plugins: Vec<Value>,
+    /// What went wrong loading plugins, in Claude Code's words.
+    pub plugin_errors: Vec<String>,
+    /// `plugins` says what it loaded: a turn started or a reload answered.
+    pub plugins_known: bool,
 }
 
 /// Mother Claude's setting changes on an owned session, counted, so a
@@ -1823,6 +1830,24 @@ async fn on_system(state: &AppState, h: &Arc<OwnedHandle>, v: &Value) {
                         .filter_map(Value::as_str)
                         .map(str::to_string)
                         .collect();
+                }
+                if let Some(plugins) = v.get("plugins").and_then(Value::as_array) {
+                    live.plugins = plugins
+                        .iter()
+                        .take(500)
+                        .filter_map(crate::claude::owned::plugin_view)
+                        .collect();
+                    live.plugin_errors = v
+                        .get("plugin_errors")
+                        .and_then(Value::as_array)
+                        .map(|a| {
+                            a.iter()
+                                .take(50)
+                                .filter_map(crate::claude::owned::plugin_error_text)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    live.plugins_known = true;
                 }
             }
             if let Some(reported) = text("session_id").filter(|r| r != &h.id) {
