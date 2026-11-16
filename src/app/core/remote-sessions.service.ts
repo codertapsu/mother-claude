@@ -41,6 +41,13 @@ export class RemoteSessionsService {
   readonly list = computed<MachineSessions[]>(() => {
     const view = this.machines.view();
     if (view && !view.enabled) return [];
+    // Another computer's copy of a session that lives on this computer now
+    // (brought back here) is left out where this computer lists it: one
+    // row, the one it runs in. Its page still opens from a link.
+    const self = view?.self.id ?? '';
+    const here = new Set(this.realtime.sessions().map((s) => s.id));
+    const livesHere = (s: SessionSummary) =>
+      !!self && s.livesOn?.machine === self && here.has(s.id);
     const out: MachineSessions[] = [];
     for (const [id, m] of this.realtime.remote()) {
       const peer = view?.peers.find((p) => p.id === id);
@@ -52,7 +59,7 @@ export class RemoteSessionsService {
         online: m.online,
         since: m.since ?? (m.online ? null : (peer?.lastSeen ?? null)),
         loaded: m.loaded,
-        sessions: [...m.sessions.values()],
+        sessions: [...m.sessions.values()].filter((s) => !livesHere(s)),
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

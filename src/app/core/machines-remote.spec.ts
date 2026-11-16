@@ -18,7 +18,7 @@ import {
 } from './mock/remote.testing';
 import { RealtimeService } from './realtime.service';
 import { RemoteSessionsService } from './remote-sessions.service';
-import { machinesView, peer } from '../pages/machines/machines.testing';
+import { SELF_ID, machinesView, peer } from '../pages/machines/machines.testing';
 
 const PROXY = `/machines/${PEER_ID}/proxy`;
 
@@ -147,6 +147,22 @@ describe("other computers' sessions (docs/PLAN-MACHINES.md §6)", () => {
 
     TestBed.inject(MachinesService).apply(machinesView({ enabled: false, peers: [peer()] }));
     expect(list.list()).toEqual([]);
+  });
+
+  it('leaves out their copy of a session brought back here, where this computer lists it', async () => {
+    const s = await goLive(backend);
+    const list = TestBed.inject(RemoteSessionsService);
+    pairedMachines();
+    const back = { machine: SELF_ID, name: 'MacBook', since: 5, epoch: 2 };
+    s.frame({ t: 'sessions', full: true, sessions: [remoteSession('moved')], seq: 1 });
+    remoteList(s, PEER_ID, [
+      remoteSession('moved', { live: false, status: 'ended', livesOn: back }),
+      remoteSession('theirs'),
+      // Lives here, but this computer's list doesn't have it (yet): kept,
+      // so it can still be opened.
+      remoteSession('unknown-here', { live: false, status: 'ended', livesOn: back }),
+    ]);
+    expect(list.sessions().map((x) => x.id)).toEqual(['theirs', 'unknown-here']);
   });
 
   it('passes its runs and tasks changes to its scope, and nothing else of its Machines', async () => {

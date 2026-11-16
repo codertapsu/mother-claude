@@ -2,12 +2,15 @@ import { WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
+import { MachineContext } from '../../core/machine-context';
+import { MachinesService } from '../../core/machines.service';
 import { FakeBackend, flush, useFakeServer } from '../../core/mock/fake-server.testing';
 import { ownedCaps } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
 import { SessionDetail, SessionSummary } from '../../core/models';
 import { NowService } from '../../core/now.service';
 import { RealtimeService } from '../../core/realtime.service';
+import { PEER_ID, SELF_ID, machinesView, peer } from '../machines/machines.testing';
 import { SessionChipsComponent } from './session-chips.component';
 import { SessionContext } from './session-context';
 
@@ -334,5 +337,62 @@ describe('SessionChipsComponent', () => {
     // Thinking from before this process (a resumed session) doesn't count.
     const before = render(session({ ...off, lastThinkingAt: startedAt - 10 * M }));
     expect(button(before.el, 'Thinking off')).toBeDefined();
+  });
+});
+
+describe('SessionChipsComponent, a session that runs on another computer than its page', () => {
+  const ended = (machine: string) =>
+    session({
+      live: false,
+      status: 'ended',
+      permissionMode: 'bypassPermissions',
+      control: { ...ownedCaps(), channel: 'none', setMode: 'none', setEffort: false },
+      livesOn: { machine, name: 'MacBook', since: Date.now() - M, epoch: 2 },
+    });
+  const words = (el: Element | null | undefined) =>
+    (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const dialog = () => document.querySelector('dialog[open]');
+
+  const render = (s: SessionDetail, page: string | null) => {
+    useFakeServer(new FakeBackend(), [
+      provideRouter([]),
+      SessionContext,
+      ...(page
+        ? [{ provide: MachineContext, useValue: { id: page, name: () => 'DESKTOP-PC' } }]
+        : []),
+    ]);
+    TestBed.inject(MachinesService).apply(machinesView({ enabled: true, peers: [peer()] }));
+    const ctx = TestBed.inject(SessionContext);
+    ctx.id.set(s.id);
+    ctx.detail.set(s);
+    const fixture = TestBed.createComponent(SessionChipsComponent);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    // The permission mode's chip, locked.
+    (el.querySelector('button.pick.off') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    return fixture;
+  };
+  afterEach(() => setActiveMock(null));
+
+  it('says the copy on the other computer runs here now, and opens it here', () => {
+    const fixture = render(ended(SELF_ID), PEER_ID);
+    expect(words(dialog())).toContain('This is the copy on DESKTOP-PC: the session runs on this');
+    expect(words(dialog())).not.toContain('The session is not running.');
+    const open = dialog()?.querySelector('a.btn') as HTMLAnchorElement;
+    expect(words(open)).toBe('Open it here');
+    expect(open.getAttribute('href')).toBe('/session/s1');
+    fixture.destroy();
+  });
+
+  it("says this computer's copy runs on the other one now, and opens it there", () => {
+    const fixture = render(ended(PEER_ID), null);
+    expect(words(dialog())).toContain(
+      'The session runs on DESKTOP-PC now: its settings change there.',
+    );
+    const open = dialog()?.querySelector('a.btn') as HTMLAnchorElement;
+    expect(words(open)).toBe('Open there');
+    expect(open.getAttribute('href')).toBe(`/session/s1/on/${PEER_ID}`);
+    fixture.destroy();
   });
 });

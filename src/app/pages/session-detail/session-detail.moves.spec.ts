@@ -355,6 +355,62 @@ describe('a session page and moves between computers', () => {
     expect(TestBed.inject(Router).url).toBe('/session/l1');
   });
 
+  it("goes to this computer's page when the session comes here while another computer's page shows it", async () => {
+    here(remoteSession('l1', { title: 'Fix tray icon', status: 'idle' }));
+    remoteList(socket, PEER_ID, [there()]);
+    backend.routes.set(`${PROXY}/sessions/l1`, () => ({
+      status: 200,
+      body: { ...there(), pendingDetail: [] },
+    }));
+    backend.routes.set(`${PROXY}/sessions/l1/transcript`, () => ({
+      status: 200,
+      body: { events: [], tail: '0' },
+    }));
+    backend.routes.set(`${PROXY}/moves`, () => ({ status: 200, body: { moves: [] } }));
+    await open(`/session/l1/on/${PEER_ID}`);
+    expect(TestBed.inject(Router).url).toBe(`/session/l1/on/${PEER_ID}`);
+
+    // Brought back here (the sheet closed before it ended): its copy there
+    // ended, and says it lives here now.
+    const ended = remoteSession('l1', {
+      title: 'Fix tray icon',
+      live: false,
+      status: 'ended',
+      activity: { kind: 'ended', label: 'Ended' },
+      livesOn: { machine: SELF_ID, name: 'MacBook', since: Date.now(), epoch: 3 },
+    });
+    remote(socket, PEER_ID, { t: 'sessions', full: false, upsert: [ended], seq: 2 });
+    await settle();
+    expect(TestBed.inject(Router).url).toBe('/session/l1');
+  });
+
+  it("stays on another computer's page opened on its copy of a session that lives here", async () => {
+    const ended = remoteSession('l1', {
+      title: 'Fix tray icon',
+      live: false,
+      status: 'ended',
+      activity: { kind: 'ended', label: 'Ended' },
+      livesOn: { machine: SELF_ID, name: 'MacBook', since: SINCE, epoch: 3 },
+    });
+    here(remoteSession('l1', { title: 'Fix tray icon', status: 'idle' }));
+    remoteList(socket, PEER_ID, [ended]);
+    backend.routes.set(`${PROXY}/sessions/l1`, () => ({
+      status: 200,
+      body: { ...ended, pendingDetail: [] },
+    }));
+    backend.routes.set(`${PROXY}/sessions/l1/transcript`, () => ({
+      status: 200,
+      body: { events: [], tail: '0' },
+    }));
+    backend.routes.set(`${PROXY}/moves`, () => ({ status: 200, body: { moves: [] } }));
+    const el = await open(`/session/l1/on/${PEER_ID}`);
+    expect(TestBed.inject(Router).url).toBe(`/session/l1/on/${PEER_ID}`);
+    // Its banner says so, and opens it here.
+    const banner = el.querySelector('mc-lives-on-banner')!;
+    expect(text(banner)).toContain('Lives on this computer since');
+    expect(text(banner.querySelector('a.btn'))).toBe('Open it here');
+  });
+
   it("offers Bring back on another computer's session, through that computer", async () => {
     here(remoteSession('other', { title: 'Something else' }));
     remoteList(socket, PEER_ID, [remoteSession('r1', { title: 'Release notes', status: 'idle' })]);

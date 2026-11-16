@@ -42,6 +42,7 @@ import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.
 import { MoveSessionSheetComponent } from '../../shared/move-session-sheet.component';
 import { MovesService } from '../../core/moves.service';
 import { RemoteSessionsService } from '../../core/remote-sessions.service';
+import { sessionLink } from '../../core/session-links';
 import { SheetComponent } from '../../shared/sheet.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { runningTasks, switchMode } from '../../shared/switch-account';
@@ -908,6 +909,27 @@ export class SessionHeaderComponent {
         this.startRename();
       });
     });
+    // Another computer's page of a session that came to this computer
+    // while it was open (brought back here, the sheet closed before the
+    // move ended): that copy has ended, so its settings and composer are
+    // locked. This computer's page takes over, where it runs now. A page
+    // opened on such a copy stays (its banner says where it lives); the
+    // move sheet, while open, follows on its own when it closes.
+    if (this.machine) {
+      let seenElsewhere = false;
+      effect(() => {
+        const s = this.ctx.session();
+        const self = this.moves.selfId();
+        if (!s || !self) return;
+        if (s.livesOn?.machine !== self) {
+          seenElsewhere = true;
+          return;
+        }
+        if (!seenElsewhere || this.computerMove()) return;
+        seenElsewhere = false;
+        untracked(() => void this.router.navigate(sessionLink(s.id, null), { replaceUrl: true }));
+      });
+    }
   }
 
   protected openMenu(): void {

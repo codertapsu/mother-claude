@@ -10,13 +10,18 @@ import {
   viewChild,
 } from '@angular/core';
 
+import { RouterLink } from '@angular/router';
+
 import { plural } from '../../core/data-jobs';
 import { DefaultsService, FALLBACK_EFFORTS } from '../../core/defaults.service';
-import { tr } from '../../core/i18n/i18n';
+import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { MachineContext } from '../../core/machine-context';
+import { MovesService } from '../../core/moves.service';
 import { NoticeService } from '../../core/notice.service';
 import { NowService } from '../../core/now.service';
 import { PermissionMode, SessionSummary } from '../../core/models';
+import { sessionLink } from '../../core/session-links';
 import { CapLimitsComponent } from '../../shared/cap-limits.component';
 import { capLimits, capThinking, capUltracode } from '../../shared/caps';
 import { ChannelBadgeComponent } from '../../shared/channel-badge.component';
@@ -49,6 +54,9 @@ interface Why {
   limits: boolean;
   /** Offer to withdraw an ultracode request the model can't run. */
   cancelUltracode?: boolean;
+  /** The session runs on another computer's page (or this one's) now:
+   * where its settings change. */
+  open?: { label: string; link: string[] };
 }
 
 /**
@@ -73,6 +81,7 @@ interface Why {
     ContextMeterComponent,
     CostComponent,
     IconComponent,
+    RouterLink,
     SheetComponent,
     TPipe,
   ],
@@ -339,6 +348,13 @@ interface Why {
             </button>
           </p>
         }
+        @if (why()?.open; as o) {
+          <p>
+            <a class="btn small primary" [routerLink]="o.link" (click)="why.set(null)">{{
+              o.label
+            }}</a>
+          </p>
+        }
         @if (why()?.limits) {
           <mc-cap-limits [session]="s" (done)="why.set(null)" />
         }
@@ -449,6 +465,9 @@ export class SessionChipsComponent {
   private defaults = inject(DefaultsService);
   private notices = inject(NoticeService);
   private clock = inject(NowService);
+  private moves = inject(MovesService);
+  /** Another computer's session (none: this computer's). */
+  private machine = inject(MachineContext, { optional: true });
 
   private readonly modelSel = viewChild<ElementRef<HTMLSelectElement>>('modelSel');
   private readonly modeSel = viewChild<ElementRef<HTMLSelectElement>>('modeSel');
@@ -611,6 +630,16 @@ export class SessionChipsComponent {
       return;
     }
     const what = tr(EXPLAIN_WHAT[kind]);
+    const away = this.livesAway(s);
+    if (away) {
+      this.why.set({
+        title: tr('Change {what}', { what }),
+        lines: [away.line],
+        limits: false,
+        open: away.open ?? undefined,
+      });
+      return;
+    }
     const lines =
       kind === 'ultracode'
         ? explainUltracode(s, now)
@@ -632,6 +661,34 @@ export class SessionChipsComponent {
       limits: capLimits(s.control).length > 0,
       cancelUltracode: kind === 'ultracode' && this.ultracodeCancel(),
     });
+  }
+
+  /** This copy of the session is not where it runs: its lease names another
+   * computer than the one this page shows (this one, from another
+   * computer's page of a session brought back here). Where its settings
+   * change instead, with the way there when that computer is this one or
+   * a paired one. */
+  private livesAway(
+    s: SessionSummary,
+  ): { line: string; open: { label: string; link: string[] } | null } | null {
+    const l = s.livesOn;
+    const self = this.moves.selfId();
+    if (!l || !self || l.machine === (this.machine?.id ?? self)) return null;
+    if (l.machine === self) {
+      return {
+        line: tr(
+          'This is the copy on {name}: the session runs on this {computer} now, where its settings change.',
+          { name: this.machine?.name() ?? l.name, computer: computerNoun() },
+        ),
+        open: { label: tr('Open it here'), link: sessionLink(s.id, null) },
+      };
+    }
+    const paired = this.moves.peers().some((p) => p.id === l.machine);
+    const name = paired ? this.moves.nameOf(l.machine) : l.name;
+    return {
+      line: tr('The session runs on {name} now: its settings change there.', { name }),
+      open: paired ? { label: tr('Open there'), link: sessionLink(s.id, l.machine) } : null,
+    };
   }
 
   protected async toggleUltracode(): Promise<void> {
