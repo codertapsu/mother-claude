@@ -93,12 +93,16 @@ def fake_plugin(args):
     here = os.path.realpath(os.getcwd())
     sub = args[1] if len(args) > 1 else ""
     if sub == "list":
+        # Like the CLI: every installation, a project's with its
+        # projectPath; whether it is on is for the folder it runs in.
         installed = []
         for p in st["installed"]:
-            if p["scope"] in ("project", "local") and p.get("project") != here:
-                continue
             entry = {k: v for k, v in p.items() if k != "project"}
-            entry["projectEnabled"] = p["scope"] in ("project", "local")
+            ours_here = p.get("project") == here
+            if p["scope"] in ("project", "local"):
+                entry["projectPath"] = p.get("project")
+                entry["enabled"] = bool(p["enabled"] and ours_here)
+            entry["projectEnabled"] = bool(p["scope"] in ("project", "local") and ours_here and p["enabled"])
             installed.append(entry)
         save()
         if "--available" in args:

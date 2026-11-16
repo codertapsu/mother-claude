@@ -265,6 +265,45 @@ describe('PluginsComponent', () => {
     expect(backend.calls).toContain('DELETE /plugins/marketplaces/claude-plugins-official');
   });
 
+  it("shows a project's own plugin with its project, and switches it in that project", async () => {
+    asDesktop();
+    const site = '/Users/me/dev/site';
+    const local = (known: boolean) =>
+      installed({
+        id: 'tokens@team',
+        name: 'tokens',
+        marketplace: 'team',
+        scope: 'local',
+        project: site,
+        enabled: known,
+        enabledKnown: known,
+        mcpServers: [],
+      });
+    backend.routes.set('/plugins', (_m, _b, url) => ({
+      status: 200,
+      body: view([installed(), local(url?.searchParams.get('project') === site)]),
+    }));
+    backend.routes.set('/plugins/enabled', () => ({ status: 200, body: { ok: true } }));
+    const { fixture, el } = await render();
+    const tokens = () => el.querySelector('[data-id="tokens@team"].plugin');
+    expect(words(tokens())).toContain('This project, only you');
+    expect(words(tokens())).toContain('in site');
+    // Whether it is on is known only in its project.
+    expect(words(tokens())).not.toContain('Off');
+    expect(button(tokens(), 'Turn off')).toBeUndefined();
+    button(tokens(), 'Show site')!.click();
+    await settle(fixture);
+    expect(backend.urls).toContain(`/plugins?project=${encodeURIComponent(site)}`);
+    button(tokens(), 'Turn off')!.click();
+    await settle(fixture);
+    expect(backend.bodyOf('POST /plugins/enabled')).toEqual({
+      plugin: 'tokens@team',
+      enabled: false,
+      scope: 'local',
+      project: site,
+    });
+  });
+
   it('says what a reload of every session did', () => {
     expect(reloadAllText({ reloaded: 0, held: 0, busy: 0, failed: 0 })).toContain(
       'No session Mother Claude runs needed it',

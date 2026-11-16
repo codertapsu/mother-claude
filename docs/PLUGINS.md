@@ -24,7 +24,12 @@ session (owned sessions) or `/reload-plugins` typed into its tmux pane.
 | `local` (*One project, only you*) | `<project>/.claude/settings.local.json` | this computer only |
 
 The project scopes run the CLI in the project's folder (`check_project`:
-an existing folder, never inside a configuration directory). A directory
+an existing folder, never inside a configuration directory). `claude plugin
+list --json` names every project's own plugins wherever it runs (with their
+`projectPath`, served as `project`), but says whether one is on only for the
+folder it runs in: such a plugin's `enabledKnown` is true only when the list
+was read in its project (*Show a project*), and a change of it runs in its
+own project's folder. A directory
 account manages its own directory: the CLI runs with that account's
 environment (`accounts::AccountEnv`, `CLAUDE_CONFIG_DIR`); a token account
 shares the Default's. Plugins from claude.ai (`synced`) and managed ones are

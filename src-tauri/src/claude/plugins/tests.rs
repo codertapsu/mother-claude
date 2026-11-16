@@ -83,12 +83,23 @@ fn installed_plugins_are_read_field_by_field_without_server_secrets() {
             "scope": "user",
             "enabled": true
         },
-        {"id": "engineering@synced", "scope": "synced", "enabled": true, "notes": ["Synced from claude.ai"]},
+        {"id": "engineering@synced", "scope": "synced", "enabled": true, "notes": ["Synced from claude.ai"],
+         "projectPath": "/not/for/synced"},
+        {"id": "tokens@team", "scope": "local", "enabled": false, "projectPath": "/Users/me/dev/site"},
         {"no": "id"},
         "junk"
     ]);
     let list = parse_installed(&v);
-    assert_eq!(list.len(), 3);
+    assert_eq!(list.len(), 4);
+    let tokens = list.iter().find(|p| p.name == "tokens").unwrap();
+    assert_eq!(tokens.project.as_deref(), Some("/Users/me/dev/site"));
+    assert!(list
+        .iter()
+        .find(|p| p.name == "engineering")
+        .unwrap()
+        .project
+        .is_none());
+    let list: Vec<Installed> = list.into_iter().filter(|p| p.name != "tokens").collect();
     let engineering = &list[0];
     assert_eq!(engineering.name, "engineering");
     assert!(
@@ -135,7 +146,7 @@ fn installed_plugins_are_read_field_by_field_without_server_secrets() {
         assert!(!shown.contains(secret), "{secret} in {shown}");
     }
     // The `--available` shape carries the same list.
-    assert_eq!(parse_installed(&json!({ "installed": v })).len(), 3);
+    assert_eq!(parse_installed(&json!({ "installed": v })).len(), 4);
 }
 
 #[test]

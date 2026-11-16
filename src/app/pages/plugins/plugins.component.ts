@@ -163,7 +163,12 @@ export function reloadAllText(r: ReloadAllResult): string {
                       <span class="muted small">{{ p.version }}</span>
                     }
                     <span class="chip">{{ scope(p.scope) }}</span>
-                    @if (!p.enabled) {
+                    @if (p.project) {
+                      <span class="muted small" [title]="p.project">{{
+                        'in {project}' | t: { project: folderName(p.project) }
+                      }}</span>
+                    }
+                    @if (p.enabledKnown && !p.enabled) {
                       <span class="chip off">{{ 'Off' | t }}</span>
                     }
                   </div>
@@ -205,17 +210,28 @@ export function reloadAllText(r: ReloadAllResult): string {
                         {{ 'Keep it' | t }}
                       </button>
                     } @else {
-                      <button
-                        class="btn ghost small"
-                        type="button"
-                        [disabled]="!!busy()"
-                        [attr.aria-label]="
-                          (p.enabled ? 'Turn {name} off' : 'Turn {name} on') | t: { name: p.name }
-                        "
-                        (click)="setEnabled(p, !p.enabled)"
-                      >
-                        {{ p.enabled ? ('Turn off' | t) : ('Turn on' | t) }}
-                      </button>
+                      @if (p.enabledKnown) {
+                        <button
+                          class="btn ghost small"
+                          type="button"
+                          [disabled]="!!busy()"
+                          [attr.aria-label]="
+                            (p.enabled ? 'Turn {name} off' : 'Turn {name} on') | t: { name: p.name }
+                          "
+                          (click)="setEnabled(p, !p.enabled)"
+                        >
+                          {{ p.enabled ? ('Turn off' | t) : ('Turn on' | t) }}
+                        </button>
+                      } @else if (p.project) {
+                        <button
+                          class="btn ghost small"
+                          type="button"
+                          [title]="'Whether it is on shows with its project' | t"
+                          (click)="pickProject(p.project)"
+                        >
+                          {{ 'Show {project}' | t: { project: folderName(p.project) } }}
+                        </button>
+                      }
                       <button
                         class="btn ghost small"
                         type="button"
@@ -619,14 +635,21 @@ export class PluginsComponent {
     }
   }
 
-  /** The scope and project a change of `p` names. */
+  /** The scope and project a change of `p` names: a project's own plugin
+   * changes in its project's folder. */
   private where(p: InstalledPlugin): { scope: PluginScope; project?: string; account?: string } {
     const scope = (p.scope === 'project' || p.scope === 'local' ? p.scope : 'user') as PluginScope;
+    const project = p.project || this.project();
     return {
       scope,
-      ...(scope !== 'user' && this.project() ? { project: this.project() } : {}),
+      ...(scope !== 'user' && project ? { project } : {}),
       ...(this.accountParam() ? { account: this.accountParam() } : {}),
     };
+  }
+
+  /** A folder's last name ("site" for /Users/me/dev/site). */
+  protected folderName(path: string): string {
+    return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
   }
 
   /** Runs a change; `true` when it was made. */

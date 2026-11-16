@@ -216,20 +216,41 @@ async fn plugins_are_managed_through_claude_code_from_the_desktop_only() {
         .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(calls().last().unwrap()["cwd"], dir_s.as_str());
+    let postman_in = |v: &Value| {
+        v["installed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "postman")
+            .cloned()
+            .expect("the project's plugin")
+    };
+    // Listed anywhere with its project; whether it is on, only there.
     let (_, everywhere) = a.call("GET", "/plugins", None).await;
-    assert!(!everywhere.to_string().contains("postman"));
+    let postman = postman_in(&everywhere);
+    assert_eq!(postman["project"], dir_s.as_str());
+    assert_eq!(postman["enabledKnown"], false);
     let (_, there) = a
         .call("GET", &format!("/plugins?project={}", enc(&dir_s)), None)
         .await;
-    let postman = there["installed"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|p| p["name"] == "postman")
-        .cloned()
-        .expect("the project's plugin");
+    let postman = postman_in(&there);
     assert_eq!(postman["scope"], "local");
+    assert_eq!(postman["enabledKnown"], true);
+    assert_eq!(postman["enabled"], true);
     assert_eq!(postman["projectEnabled"], true);
+    // Turned off there, in its folder.
+    let (s, v) = a
+        .call(
+            "POST",
+            "/plugins/enabled",
+            Some(
+                json!({ "plugin": "postman@claude-plugins-official", "enabled": false,
+                         "scope": "local", "project": dir_s }),
+            ),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(calls().last().unwrap()["cwd"], dir_s.as_str());
     let (s, v) = a
         .call(
             "POST",

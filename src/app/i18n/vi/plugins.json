@@ -93,5 +93,8 @@
   "adds {name}": "thêm {name}",
   "removes {name}": "bỏ {name}",
   "Reloading {what}: Claude then re-reads the whole conversation with its next message, which costs more. Reload anyway?": "Việc tải lại sẽ {what}: khi đó Claude đọc lại toàn bộ cuộc trò chuyện ở tin nhắn tiếp theo, tốn hơn. Vẫn tải lại?",
-  "Reloading changes its tools: Claude then re-reads the whole conversation with its next message, which costs more. Reload anyway?": "Việc tải lại làm thay đổi công cụ của phiên: khi đó Claude đọc lại toàn bộ cuộc trò chuyện ở tin nhắn tiếp theo, tốn hơn. Vẫn tải lại?"
+  "Reloading changes its tools: Claude then re-reads the whole conversation with its next message, which costs more. Reload anyway?": "Việc tải lại làm thay đổi công cụ của phiên: khi đó Claude đọc lại toàn bộ cuộc trò chuyện ở tin nhắn tiếp theo, tốn hơn. Vẫn tải lại?",
+  "in {project}": "trong {project}",
+  "Show {project}": "Xem {project}",
+  "Whether it is on shows with its project": "Việc nó có được bật hay không hiện ra khi xem dự án của nó"
 }

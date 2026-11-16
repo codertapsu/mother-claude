@@ -32,8 +32,13 @@ export interface InstalledPlugin {
   /** `user`, `project`, `local`, `managed`, `synced`, … */
   scope: string;
   enabled: boolean;
+  /** `enabled` holds: a project's own plugin is on or off for that project,
+   * known only when the list was read there (*Show a project*). */
+  enabledKnown: boolean;
   /** On in the project the list was read in. */
   projectEnabled?: boolean;
+  /** The project folder of a `project` or `local` plugin. */
+  project?: string;
   installedAt?: string;
   updatedAt?: string;
   mcpServers: PluginServer[];
@@ -157,7 +162,9 @@ function installed(v: unknown): InstalledPlugin | null {
     version: str(o['version']),
     scope: str(o['scope']) ?? 'user',
     enabled: o['enabled'] !== false,
+    enabledKnown: o['enabledKnown'] !== false,
     projectEnabled: typeof o['projectEnabled'] === 'boolean' ? o['projectEnabled'] : undefined,
+    project: str(o['project']),
     installedAt: str(o['installedAt']),
     updatedAt: str(o['updatedAt']),
     mcpServers: list(o['mcpServers'])

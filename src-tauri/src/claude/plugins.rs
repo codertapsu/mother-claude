@@ -263,6 +263,15 @@ pub fn check_project(state: &AppState, raw: &str) -> ApiResult<PathBuf> {
     Ok(dir)
 }
 
+/// Two paths name the same folder (as written, or once resolved).
+fn same_folder(a: &Path, b: &Path) -> bool {
+    a == b
+        || matches!(
+            (dunce::canonicalize(a), dunce::canonicalize(b)),
+            (Ok(x), Ok(y)) if x == y
+        )
+}
+
 /// The account's environment (`None`: the Default, ours unchanged).
 pub fn account_env(state: &AppState, account: Option<&str>) -> ApiResult<AccountEnv> {
     match account.map(str::trim).filter(|a| !a.is_empty()) {
@@ -344,9 +353,16 @@ pub struct Installed {
     /// says.
     pub scope: String,
     pub enabled: bool,
+    /// `enabled` holds: Claude Code says whether a plugin is on for the
+    /// folder it runs in, so a project's own plugin is known only when the
+    /// list was read in that project.
+    pub enabled_known: bool,
     /// On in the project the list was read in (when one was).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_enabled: Option<bool>,
+    /// The project folder of a `project` or `local` plugin.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installed_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -399,7 +415,13 @@ pub fn parse_installed(v: &Value) -> Vec<Installed> {
                 changeable: matches!(scope.as_str(), "user" | "project" | "local"),
                 version: text(p, "folderVersion").or_else(|| text(p, "version")),
                 enabled: p.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+                enabled_known: true,
                 project_enabled: p.get("projectEnabled").and_then(Value::as_bool),
+                project: p
+                    .get("projectPath")
+                    .and_then(Value::as_str)
+                    .filter(|_| matches!(scope.as_str(), "project" | "local"))
+                    .map(|s| s.chars().take(1000).collect()),
                 installed_at: text(p, "installedAt"),
                 updated_at: text(p, "lastUpdated"),
                 mcp_servers: servers_of(p.get("mcpServers")),
@@ -575,7 +597,7 @@ pub async fn overview(
     if !list.ok {
         return Err(failed(&list));
     }
-    let installed = serde_json::from_str::<Value>(list.stdout.trim())
+    let mut installed = serde_json::from_str::<Value>(list.stdout.trim())
         .map(|v| parse_installed(&v))
         .map_err(|_| {
             ApiError::unprocessable(
@@ -583,6 +605,13 @@ pub async fn overview(
                 "Claude Code's list of plugins could not be read.",
             )
         })?;
+    // A project's own plugin is on or off for that project: known only
+    // when the list was read there.
+    for p in &mut installed {
+        if let Some(theirs) = &p.project {
+            p.enabled_known = project.is_some_and(|here| same_folder(here, Path::new(theirs)));
+        }
+    }
     let markets = run(
         &args(&["plugin", "marketplace", "list", "--json"]),
         &env,
