@@ -619,6 +619,16 @@ developed on `main`, as the rest of the app is. Invariants:
   Relays (`machines.json` settings): public (n0's, the default), custom (an
   `iroh-relay`; a peer is then dialled as key + that relay and no n0 service
   is asked), none (the local network only).
+- **Which of a paired computer's sessions show here is this computer's
+  choice** (`PeerRecord::sessions` in `machines.json`: `all` but the ones
+  `stopped`, or only the ones `chosen`; read field by field). The
+  federation keeps every session it hears and passes on only the shown
+  ones — full lists, diffs, pending items and resolutions, the polling
+  snapshot, the view's counts — and a changed choice republishes the list
+  (`federation::republish`). The other computer is never told and nothing
+  changes there; a hidden session's page and its subscriptions stay
+  reachable. Read the choice before the federation's lock, never under it.
+  Changing it is `ManageData` (`/api/machines/{id}/sessions/sync`).
 - **The setup's fixes** run only from the desktop of the machine they change
   (`POST /api/machines/setup/fix`, `DesktopOnly`); another machine can only
   ask (a desktop notice there). A fix that opens System Settings or the UAC

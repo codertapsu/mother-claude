@@ -216,6 +216,36 @@ acted; a dangerous one also shows a notice there.
 When a computer goes offline, its sessions stay listed, greyed, until it is
 back.
 
+### Choosing which sessions show here
+
+Each computer chooses which of another's sessions it shows — in its lists,
+counts and **Inbox**. It only changes what this computer shows: nothing is
+deleted, moved or changed on the other one, and it is never told.
+
+- On **Computers**, a paired computer's card says *Shown here: all of its
+  sessions* (or *…but 2*, or *only the sessions you choose*), and
+  **Choose sessions…** opens the choice: **All of DESKTOP-PC's sessions**
+  (a new one there shows here too; turn off the ones you don't want) or
+  **Only the ones you choose** (a new one shows once you choose it), and
+  every session of it as last heard — the hidden ones too — each with a
+  box. A change applies at once, to every dashboard of this computer, the
+  phones paired with it included.
+- On one of its sessions' pages, the **⋮** menu has **Stop syncing to this
+  Mac** (with *Undo*), and **Sync to this Mac** once it is hidden. Its page
+  still opens from a link.
+- While some of its sessions don't show, **Sessions** says so: *Showing 3
+  of DESKTOP-PC's sessions* (only the chosen ones) or *Not showing 2 of
+  DESKTOP-PC's sessions*, with **Choose**.
+- A hidden session goes on there, and what it asks doesn't reach this
+  computer's **Inbox**: answer it on that computer, or sync it again.
+
+The choice is kept in this computer's `machines.json`, on that computer's
+entry (`sessions: {mode, chosen, stopped}`; both lists are kept when the
+mode changes, so switching back finds the earlier choice). The desktop or a
+paired phone changes it (`GET`/`PUT /api/machines/{id}/sessions/sync`,
+`POST /api/machines/{id}/sessions/sync/{session} {synced}`), audited as
+`machine.sessions.shown` with ids only.
+
 ## Moving a session to another computer
 
 A session can go on on another of your computers: the same conversation,

@@ -1839,6 +1839,9 @@ const TOPICS: HelpTopicSource[] = [
       'new session',
       'phone',
       'remote control',
+      'sync',
+      'hide',
+      'choose sessions',
     ],
     sections: [
       {
@@ -1858,6 +1861,22 @@ const TOPICS: HelpTopicSource[] = [
           "Without the other computer's **Drive** permission, the page says **Runs on … — you can watch it from here.**, and what you try says why, for example **… lets this Mac watch its sessions, not drive them.**",
           'Switching its account, moving or copying it to another account or a storage, deleting it, showing its files and opening it in VS Code are done on the computer it runs on.',
         ],
+      },
+      {
+        heading: 'Choose which sessions show here',
+        intro:
+          "Each computer chooses which of another's sessions it shows. It only changes what this computer lists: nothing is deleted or changed on the other one.",
+        steps: [
+          "On **Computers**, press **Choose sessions…** on the other computer's card.",
+          'Pick **All of …’s sessions** (new ones show here too) or **Only the ones you choose** (a new one shows once you choose it).',
+          'Tick or untick a session: it shows here, or stops showing, at once.',
+        ],
+        points: [
+          "On one of its sessions' pages, the **⋮** menu has **Stop syncing to this Mac** (or **this PC**), and **Sync to this Mac** once it is hidden.",
+          "While some of its sessions don't show, **Sessions** says so, for example **Showing 3 of …’s sessions**, with **Choose**.",
+          "A hidden session goes on there, and what it asks doesn't reach this computer's **Inbox**: answer it there, or sync it again.",
+        ],
+        links: [{ label: 'Open Computers', path: '/computers' }],
       },
       {
         heading: 'Start a session on another computer',

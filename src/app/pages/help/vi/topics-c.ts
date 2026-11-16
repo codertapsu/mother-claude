@@ -461,6 +461,9 @@ const TOPICS: HelpTopicSource[] = [
       'phiên mới',
       'điện thoại',
       'điều khiển từ xa',
+      'đồng bộ',
+      'ẩn phiên',
+      'chọn phiên',
     ],
     sections: [
       {
@@ -480,6 +483,22 @@ const TOPICS: HelpTopicSource[] = [
           'Khi máy kia không cấp quyền **Điều khiển**, trang ghi **Chạy trên … — bạn có thể xem nó từ đây.**, và việc bạn thử làm sẽ cho biết lý do, chẳng hạn **… chỉ cho máy Mac này xem các phiên của nó, không cho điều khiển.**',
           'Việc đổi tài khoản, chuyển hoặc sao chép phiên sang tài khoản khác hay kho lưu trữ, xóa phiên, mở tệp của phiên và mở phiên trong VS Code được thực hiện trên máy tính mà phiên đang chạy.',
         ],
+      },
+      {
+        heading: 'Chọn những phiên hiện ở đây',
+        intro:
+          'Mỗi máy tự chọn những phiên nào của máy kia được hiện trên nó. Việc này chỉ thay đổi những gì máy này liệt kê: không có gì bị xóa hay thay đổi trên máy kia.',
+        steps: [
+          'Trên **Máy tính**, nhấn **Chọn phiên…** trên thẻ của máy kia.',
+          'Chọn **Tất cả các phiên của …** (phiên mới cũng hiện ở đây) hoặc **Chỉ những phiên bạn chọn** (phiên mới chỉ hiện khi bạn chọn nó).',
+          'Đánh dấu hoặc bỏ đánh dấu một phiên: phiên đó hiện ở đây, hoặc thôi hiện, ngay lập tức.',
+        ],
+        points: [
+          'Trên trang của một phiên của máy đó, menu **⋮** có **Ngừng đồng bộ về máy Mac này** (hoặc **máy PC này**), và **Đồng bộ về máy Mac này** khi phiên đã bị ẩn.',
+          'Khi có phiên của máy đó không được hiện, trang **Phiên** sẽ cho biết, chẳng hạn **Đang hiện 3 phiên của …**, kèm **Chọn**.',
+          'Phiên bị ẩn vẫn tiếp tục chạy ở máy đó, và những gì nó hỏi sẽ không đến **Hộp thư** của máy này: hãy trả lời ở máy đó, hoặc đồng bộ lại phiên.',
+        ],
+        links: [{ label: 'Mở trang Máy tính', path: '/computers' }],
       },
       {
         heading: 'Bắt đầu phiên trên máy khác',
