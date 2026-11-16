@@ -299,6 +299,7 @@ class FixtureBackend implements MockBackend {
       desktop: role === 'desktop',
       broadcast: (frame) => this.broadcast(frame),
       paired: MOCK_MACHINES,
+      shown: (machine) => this.computerMoves?.shown(machine),
     });
     this.computerMoves = MOCK_MACHINES
       ? new MockMoves({

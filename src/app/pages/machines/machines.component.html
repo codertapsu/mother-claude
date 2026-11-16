@@ -246,6 +246,15 @@
             </a>
           </div>
         }
+        <!-- Which of its sessions show here (this computer's choice). -->
+        @if (p.sessionsShown) {
+          <div class="row sessions shown">
+            <span class="small grow">{{ shownText(p) }}</span>
+            <button type="button" class="btn ghost small" (click)="chooseSessions(p)">
+              {{ 'Choose sessions…' | t }}
+            </button>
+          </div>
+        }
         @if (p.problem === 'olderApp') {
           <p class="notice warn small">
             {{
@@ -454,6 +463,14 @@
       <mc-machines-copies />
     }
   }
+
+  <!-- ─────────────── Which of a paired computer's sessions show here ─────────────── -->
+  <mc-sessions-shown-sheet
+    [open]="!!choosingPeer()"
+    [machine]="choosingPeer()?.id ?? ''"
+    [name]="choosingPeer()?.name ?? ''"
+    (closed)="closeChoice()"
+  />
 
   <!-- ─────────────── This computer's details: what Claude Code runs besides sessions ─────────────── -->
   <mc-sheet [open]="detailsOpen()" [title]="'Details' | t" (closed)="detailsOpen.set(false)">

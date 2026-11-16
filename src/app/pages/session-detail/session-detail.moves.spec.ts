@@ -411,6 +411,50 @@ describe('a session page and moves between computers', () => {
     expect(text(banner.querySelector('a.btn'))).toBe('Open it here');
   });
 
+  it("stops syncing another computer's session to this one, saved here, and undoes it", async () => {
+    here(remoteSession('other', { title: 'Something else' }));
+    const r1 = remoteSession('r1', { title: 'Release notes', status: 'idle' });
+    remoteList(socket, PEER_ID, [r1]);
+    backend.routes.set(`${PROXY}/sessions/r1`, () => ({
+      status: 200,
+      body: { ...r1, pendingDetail: [] },
+    }));
+    backend.routes.set(`${PROXY}/sessions/r1/transcript`, () => ({
+      status: 200,
+      body: { events: [], tail: '0' },
+    }));
+    backend.routes.set(`${PROXY}/moves`, () => ({ status: 200, body: { moves: [] } }));
+    const sync = `/machines/${PEER_ID}/sessions/sync/r1`;
+    backend.routes.set(sync, () => ({
+      status: 200,
+      body: { mode: 'all', loaded: true, sessions: [] },
+    }));
+    const success = vi.spyOn(TestBed.inject(NoticeService), 'success');
+    const el = await open(`/session/r1/on/${PEER_ID}`);
+    expect(menu(el)).toContain('Stop syncing to this computer');
+    button(
+      document.querySelector('mc-session-header .menu')!,
+      'Stop syncing to this computer',
+    )!.click();
+    await settle();
+    // This computer's choice, saved on this computer: never through the
+    // other one's proxy.
+    expect(backend.bodyOf(`POST ${sync}`)).toEqual({ synced: false });
+    expect(backend.calls.some((c) => c.includes('/proxy/machines/'))).toBe(false);
+    const [text0, opts] = success.mock.calls.at(-1)!;
+    expect(text0).toBe('Release notes no longer shows on this computer. It goes on on DESKTOP-PC.');
+    expect(opts?.action?.label).toBe('Undo');
+
+    // The list this computer is sent leaves it out: the page still opens,
+    // and offers to sync it again.
+    remote(socket, PEER_ID, { t: 'sessions', full: true, sessions: [], seq: 2 });
+    await settle();
+    expect(menu(el)).toContain('Sync to this computer');
+    opts?.action?.run();
+    await settle();
+    expect(backend.bodyOf(`POST ${sync}`)).toEqual({ synced: true });
+  });
+
   it("offers Bring back on another computer's session, through that computer", async () => {
     here(remoteSession('other', { title: 'Something else' }));
     remoteList(socket, PEER_ID, [remoteSession('r1', { title: 'Release notes', status: 'idle' })]);

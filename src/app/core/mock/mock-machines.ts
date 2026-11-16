@@ -16,6 +16,7 @@ import {
   MachinesView,
   PairingView,
   PeerMachine,
+  PeerSessionsShown,
   ProjectInput,
   ProjectOptions,
   Readiness,
@@ -111,6 +112,9 @@ export class MockMachines {
       /** `?mockmachines=1`: on, with DESKTOP-PC (online) and BUILD-BOX
        * (offline) paired (`mock-moves.ts` serves their sessions). */
       paired?: boolean;
+      /** Which of a paired computer's sessions show here (`mock-moves.ts`
+       * keeps the choice with their sessions). */
+      shown?: (machine: string) => PeerSessionsShown | undefined;
     },
   ) {
     this.copies = new MockCopies(
@@ -979,7 +983,10 @@ export class MockMachines {
         versions: { app: '0.11.0', protocol: 1, claude: '2.1.330' },
         key: '3F9A C1D2 77E0 9B41',
       },
-      peers: this.peers,
+      peers: this.peers.map((p) => {
+        const sessionsShown = this.opts.shown?.(p.id);
+        return sessionsShown ? { ...p, sessionsShown } : p;
+      }),
       pairing: this.pairing,
       settings: {
         relay: this.relay,

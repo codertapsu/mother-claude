@@ -5,6 +5,8 @@ import {
   MachinesFrame,
   MachinesView,
   PeerMachine,
+  SessionsChoiceView,
+  SessionsShownMode,
   SetupView,
   healthAlarm,
   pairingLive,
@@ -140,6 +142,35 @@ export class MachinesService {
    * known). Reactive. */
   nameOf(id: string): string {
     return this.peer(id)?.name || shortMachineId(id);
+  }
+
+  // Which of a paired computer's sessions show here. This computer's own
+  // choice, saved on this computer whatever page asks (another computer's
+  // session page has that computer's proxied REST client; this service's
+  // is this computer's).
+
+  /** Every session of `machine` as last heard, with whether it shows here. */
+  sessionsChoice(machine: string): Promise<SessionsChoiceView> {
+    return this.api.getSessionsChoice(machine);
+  }
+
+  /** All of its sessions show here but the ones stopped, or only the ones
+   * chosen. */
+  async setSessionsMode(machine: string, mode: SessionsShownMode): Promise<SessionsChoiceView> {
+    const v = await this.api.setSessionsMode(machine, mode);
+    void this.load();
+    return v;
+  }
+
+  /** One of its sessions shows here, or stops showing. */
+  async setSessionSynced(
+    machine: string,
+    session: string,
+    synced: boolean,
+  ): Promise<SessionsChoiceView> {
+    const v = await this.api.setSessionSynced(machine, session, synced);
+    void this.load();
+    return v;
   }
 
   private onFrame(f: MachinesFrame): void {

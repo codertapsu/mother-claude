@@ -65,6 +65,14 @@ export class RemoteSessionsService {
     return out.sort((a, b) => a.name.localeCompare(b.name));
   });
   readonly byId = computed(() => new Map(this.list().map((m) => [m.id, m])));
+
+  /** Whether one of another computer's sessions shows on this one (null
+   * while its list has not arrived): one this computer stopped syncing, or
+   * did not choose, is not in the list it is sent. Reactive. */
+  shownHere(machine: string, id: string): boolean | null {
+    const m = this.realtime.remote().get(machine);
+    return m?.loaded ? m.sessions.has(id) : null;
+  }
   /** Every one of their sessions (each with `machine`). */
   readonly sessions = computed(() => this.list().flatMap((m) => m.sessions));
   /** What waits on someone at the computers online now, oldest first. */

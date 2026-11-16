@@ -8,6 +8,7 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { sessionGroups } from '../../core/delete-data';
 import { computerNoun, tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
+import { MachinesService } from '../../core/machines.service';
 import { JobView, SessionSummary } from '../../core/models';
 import { anyTarget } from '../../core/move-data';
 import { storageGet, storageSet } from '../../core/platform';
@@ -110,6 +111,7 @@ export class SessionsComponent {
   private accounts = inject(AccountsService);
   private storage = inject(StorageService);
   private remote = inject(RemoteSessionsService);
+  private machinesView = inject(MachinesService);
   private route = inject(ActivatedRoute);
 
   protected readonly loaded = this.realtime.sessionsLoaded;
@@ -146,6 +148,29 @@ export class SessionsComponent {
   protected readonly machinesLoading = computed(() => {
     const m = this.machineInEffect();
     return this.machines().filter((x) => x.online && !x.loaded && (!m || x.id === m));
+  });
+  /** Other computers whose sessions don't all show here (this computer's
+   * choice, Computers › Choose sessions): a line each. */
+  protected readonly notShown = computed(() => {
+    const m = this.machineInEffect();
+    if (m === HERE) return [];
+    const out: { id: string; text: string }[] = [];
+    for (const x of this.machines()) {
+      if (m && x.id !== m) continue;
+      const shown = this.machinesView.peer(x.id)?.sessionsShown;
+      if (shown?.mode === 'chosen') {
+        out.push({
+          id: x.id,
+          text: tr('Showing {n} of {name}’s sessions', { n: x.sessions.length, name: x.name }),
+        });
+      } else if (shown?.hidden) {
+        out.push({
+          id: x.id,
+          text: tr('Not showing {n} of {name}’s sessions', { n: shown.hidden, name: x.name }),
+        });
+      }
+    }
+    return out;
   });
   /** Every session the page has, of every computer. */
   protected readonly everything = computed(() => [...this.all(), ...this.remote.sessions()]);

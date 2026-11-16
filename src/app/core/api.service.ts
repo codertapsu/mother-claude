@@ -42,6 +42,8 @@ import type {
   RemoteSessionsView,
   RootsChange,
   RootsView,
+  SessionsChoiceView,
+  SessionsShownMode,
   SetupView,
 } from './machines';
 import type { CopiesView, SessionCopiesView, TakeOverFromCopy } from './copies';
@@ -263,7 +265,9 @@ import {
  *             removeHostedRole(binding) ·
  *             getMachineAccounts() · getMachineFolders(fresh?) ·
  *             cloneHere(body) · checkProjectRemote(project) ·
- *             getRoots() · saveRoots(change)
+ *             getRoots() · saveRoots(change) ·
+ *             getSessionsChoice(machine) · setSessionsMode(machine, mode) ·
+ *             setSessionSynced(machine, session, synced)
  *   Startup   getAutostart() · setAutostart(enabled)
  *   Moves     moveSessionPreflight(id, body) · moveSession(id, body) ·
  *             takeOverSession(id, self, opts?) · listMoves() · getMove(id) ·
@@ -1702,6 +1706,30 @@ export class ApiService {
    * `revocations` say which took it. */
   revokeEverywhere(id: string): Promise<MachinesView> {
     return this.post<MachinesView>(`/machines/${enc(id)}/revoke-everywhere`, {});
+  }
+
+  /** Which of a paired computer's sessions show here, and every one of
+   * them as last heard (the hidden ones too). */
+  getSessionsChoice(machine: string): Promise<SessionsChoiceView> {
+    return this.req<SessionsChoiceView>(`/machines/${enc(machine)}/sessions/sync`);
+  }
+
+  /** The desktop or a paired device: every session of it shows here but
+   * the ones stopped (`all`), or only the ones chosen. */
+  setSessionsMode(machine: string, mode: SessionsShownMode): Promise<SessionsChoiceView> {
+    return this.req<SessionsChoiceView>(`/machines/${enc(machine)}/sessions/sync`, {
+      method: 'PUT',
+      body: JSON.stringify({ mode }),
+    });
+  }
+
+  /** The desktop or a paired device: one of its sessions shows here, or
+   * stops showing (nothing changes on that computer). */
+  setSessionSynced(machine: string, session: string, synced: boolean): Promise<SessionsChoiceView> {
+    return this.post<SessionsChoiceView>(
+      `/machines/${enc(machine)}/sessions/sync/${enc(session)}`,
+      { synced },
+    );
   }
 
   /** Desktop: introduce two paired computers to each other — `machine`

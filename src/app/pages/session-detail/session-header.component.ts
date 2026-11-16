@@ -40,6 +40,7 @@ import {
 } from '../../shared/delete-data-sheet.component';
 import { MoveDataSheetComponent, MoveStart } from '../../shared/move-data-sheet.component';
 import { MoveSessionSheetComponent } from '../../shared/move-session-sheet.component';
+import { MachinesService } from '../../core/machines.service';
 import { MovesService } from '../../core/moves.service';
 import { RemoteSessionsService } from '../../core/remote-sessions.service';
 import { sessionLink } from '../../core/session-links';
@@ -313,6 +314,22 @@ import { SessionContext } from './session-context';
               <mc-icon name="external" [size]="18" />
               <span>{{ 'Open in VS Code' | t }}</span>
             </a>
+          }
+          <!-- Another computer's: whether it shows on this one (this
+               computer's choice; it goes on there either way). -->
+          @if (machine; as m) {
+            @if (shownHere() === false) {
+              <button class="item" type="button" (click)="setShownHere(true)">
+                <mc-icon name="download" [size]="18" />
+                <span>{{ 'Sync to this {computer}' | t: { computer: computer() } }}</span>
+              </button>
+            } @else {
+              <button class="item" type="button" (click)="setShownHere(false)">
+                <mc-icon name="xCircle" [size]="18" />
+                <span>{{ 'Stop syncing to this {computer}' | t: { computer: computer() } }}</span>
+                <span class="note">{{ 'it goes on on {name}' | t: { name: m.name() } }}</span>
+              </button>
+            }
           }
           <button class="item" type="button" (click)="showInfo()">
             <mc-icon name="info" [size]="18" />
@@ -982,6 +999,45 @@ export class SessionHeaderComponent {
   protected openKeepCopy(): void {
     this.menu.set(false);
     this.keepCopy.set(true);
+  }
+
+  // ── Another computer's session: whether it shows on this one ──
+  private readonly machinesService = inject(MachinesService);
+  /** Null while that computer's list has not arrived. */
+  protected readonly shownHere = computed(() => {
+    const id = this.ctx.id();
+    return this.machine && id ? this.remoteSessions.shownHere(this.machine.id, id) : null;
+  });
+
+  /** Sync it to this computer, or stop (it goes on there either way; this
+   * computer's choice, saved on this computer). */
+  protected async setShownHere(synced: boolean): Promise<void> {
+    const m = this.machine;
+    const id = this.ctx.id();
+    if (!m || !id) return;
+    this.menu.set(false);
+    const words = {
+      title: this.name() || id.slice(0, 8),
+      computer: computerNoun(),
+      name: m.name(),
+    };
+    try {
+      await this.machinesService.setSessionSynced(m.id, id, synced);
+      if (synced) {
+        this.notices.success(tr('{title} shows on this {computer} again.', words));
+      } else {
+        this.notices.success(
+          tr('{title} no longer shows on this {computer}. It goes on on {name}.', words),
+          { action: { label: tr('Undo'), run: () => void this.setShownHere(true) } },
+        );
+      }
+    } catch (e) {
+      this.notices.error(
+        e,
+        undefined,
+        synced ? tr('Sync to this {computer}', words) : tr('Stop syncing'),
+      );
+    }
   }
 
   /** Delete this conversation, from the account it is recorded as. */

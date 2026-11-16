@@ -9,7 +9,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import { ApiService, describeError } from '../../core/api.service';
 import { AttentionService } from '../../core/attention.service';
@@ -41,6 +41,7 @@ import { ComputersHeadComponent } from './computers-head.component';
 import { CopiesCardComponent } from './copies-card.component';
 import { GrantsMatrixComponent } from './grants-matrix.component';
 import { IntroduceOfferComponent } from './introduce-offer.component';
+import { SessionsShownSheetComponent, shownLine } from './sessions-shown-sheet.component';
 import {
   capabilityList,
   grantShort,
@@ -79,6 +80,7 @@ import {
     PermissionsListComponent,
     RelativeTimePipe,
     ServicesDetailsComponent,
+    SessionsShownSheetComponent,
     SheetComponent,
     TPipe,
   ],
@@ -89,6 +91,7 @@ export class MachinesComponent {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   protected readonly machines = inject(MachinesService);
   private readonly remote = inject(RemoteSessionsService);
   private readonly attention = inject(AttentionService);
@@ -128,6 +131,13 @@ export class MachinesComponent {
   protected readonly readingServices = signal(false);
 
   protected readonly peers = computed(() => this.view()?.peers ?? []);
+  /** The paired computer whose sessions shown here are being chosen (its
+   * id; `?sessions=<id>` opens it, from the Sessions list's line). */
+  protected readonly choosing = signal<string | null>(null);
+  protected readonly choosingPeer = computed(() => {
+    const id = this.choosing();
+    return id ? (this.peers().find((p) => p.id === id) ?? null) : null;
+  });
   /** What your other computers asked of this one and is not answered yet:
    * it is answered in the Inbox (asks, introductions, a suggested setting). */
   protected readonly waiting = computed(
@@ -172,6 +182,40 @@ export class MachinesComponent {
       loaded = true;
       untracked(() => void this.machines.loadSetup());
     });
+    // `?sessions=<id>`: which of that computer's sessions show here, once
+    // it is known.
+    const wanted = this.route.snapshot.queryParamMap.get('sessions');
+    if (wanted) {
+      let opened = false;
+      effect(() => {
+        if (opened || !this.peers().some((p) => p.id === wanted)) return;
+        opened = true;
+        untracked(() => this.choosing.set(wanted));
+      });
+    }
+  }
+
+  // ─────────────────────────────────── Which of its sessions show here
+
+  protected shownText(p: PeerMachine): string {
+    const s = p.sessionsShown;
+    return s ? shownLine(s.mode, s.hidden, this.sessionCounts(p)?.total ?? 0) : '';
+  }
+
+  protected chooseSessions(p: PeerMachine): void {
+    this.choosing.set(p.id);
+  }
+
+  protected closeChoice(): void {
+    this.choosing.set(null);
+    if (this.route.snapshot.queryParamMap.has('sessions')) {
+      void this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { sessions: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+    }
   }
 
   // ───────────────────────────────────────────────────────────── Words

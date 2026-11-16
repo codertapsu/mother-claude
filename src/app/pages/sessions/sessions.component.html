@@ -158,6 +158,14 @@
         {{ "Loading {name}'s sessions…" | t: { name: m.name } }}
       </p>
     }
+    <!-- Another computer whose sessions don't all show here (this
+         computer's choice): said, so none disappears silently. -->
+    @for (n of notShown(); track n.id) {
+      <p class="muted small machine-loading machine-shown">
+        {{ n.text }} ·
+        <a [routerLink]="['/computers']" [queryParams]="{ sessions: n.id }">{{ 'Choose' | t }}</a>
+      </p>
+    }
   }
 
   @for (g of groups(); track g.key) {

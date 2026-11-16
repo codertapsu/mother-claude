@@ -85,6 +85,44 @@ export interface PeerMachine {
   skew?: MachineSkew;
   /** The computers it is paired with (their ids), as it last said. */
   pairedWith?: string[];
+  /** Which of its sessions show on this computer (absent from an older
+   * server: all of them). */
+  sessionsShown?: PeerSessionsShown;
+}
+
+/** Whether every session of a paired computer shows here but the ones
+ * stopped (`all`), or only the ones chosen. */
+export type SessionsShownMode = 'all' | 'chosen';
+
+/** This computer's choice of a paired computer's sessions. It only changes
+ * what this computer shows: nothing changes on the other one. */
+export interface PeerSessionsShown {
+  mode: SessionsShownMode;
+  /** How many of its sessions, as last heard, don't show here. */
+  hidden: number;
+}
+
+/** One of a paired computer's sessions, as the choice lists it. */
+export interface SessionChoice {
+  id: string;
+  name: string | null;
+  title: string | null;
+  projectName: string | null;
+  cwd: string | null;
+  live: boolean;
+  status: string | null;
+  lastActivityAt: number | null;
+  /** It shows on this computer. */
+  synced: boolean;
+}
+
+/** `GET /api/machines/{id}/sessions/sync`: every one of its sessions as
+ * last heard (the hidden ones too), most recently active first. */
+export interface SessionsChoiceView {
+  mode: SessionsShownMode;
+  /** A whole list of its sessions arrived. */
+  loaded: boolean;
+  sessions: SessionChoice[];
 }
 
 /** Another computer's version against this one's. */

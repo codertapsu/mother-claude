@@ -9,6 +9,7 @@
 // (asked about until they end, as the app does). Never bundled in production
 // builds.
 
+import { PeerSessionsShown, SessionsChoiceView, SessionsShownMode } from '../machines';
 import { MovePreflight, MoveRecord, MoveState, SessionMoveBody } from '../moves';
 import { ServerFrame, SessionDetail, SessionSummary, UiEvent } from '../models';
 import { ev, ownedCaps } from './fixtures';
@@ -64,7 +65,11 @@ interface Peer {
   sessions: Map<string, SessionSummary>;
   /** Its own move records (served through its proxy). */
   moves: Map<string, MoveRecord>;
+  /** Which of its sessions show here (this computer's choice). */
+  shown: { mode: SessionsShownMode; chosen: Set<string>; stopped: Set<string> };
 }
+
+const showAll = (): Peer['shown'] => ({ mode: 'all', chosen: new Set(), stopped: new Set() });
 
 export class MockMoves {
   /** This computer's move records. */
@@ -83,6 +88,7 @@ export class MockMoves {
         since: null,
         sessions: new Map(),
         moves: new Map(),
+        shown: showAll(),
       },
       {
         id: MOCK_BUILDBOX,
@@ -92,6 +98,7 @@ export class MockMoves {
         since: now - 40 * M,
         sessions: new Map(),
         moves: new Map(),
+        shown: showAll(),
       },
     ];
     this.seed(now);
@@ -284,14 +291,15 @@ export class MockMoves {
 
   // ─────────────────────────────────────────────────────────── Socket
 
-  /** The other computers' sessions as this computer republishes them. */
+  /** The other computers' sessions as this computer republishes them: the
+   * ones that show here. */
   initialFrames(): ServerFrame[] {
     const out: ServerFrame[] = [];
     for (const p of this.peers) {
       out.push({
         t: 'remote',
         machine: p.id,
-        frame: { t: 'sessions', full: true, sessions: [...p.sessions.values()], seq: 1 },
+        frame: { t: 'sessions', full: true, sessions: this.shownSessions(p), seq: 1 },
       });
       if (!p.online)
         out.push({ t: 'remote', machine: p.id, frame: { t: 'offline', since: p.since } });
@@ -301,11 +309,85 @@ export class MockMoves {
 
   private remoteUpsert(p: Peer, s: SessionSummary): void {
     p.sessions.set(s.id, s);
+    if (!this.shows(p, s.id)) return;
     this.host.broadcast({
       t: 'remote',
       machine: p.id,
       frame: { t: 'sessions', full: false, upsert: [s], seq: Date.now() },
     });
+  }
+
+  // ─────────────────────────────────────────── Which of its sessions show
+
+  private shows(p: Peer, id: string): boolean {
+    return p.shown.mode === 'chosen' ? p.shown.chosen.has(id) : !p.shown.stopped.has(id);
+  }
+
+  private shownSessions(p: Peer): SessionSummary[] {
+    return [...p.sessions.values()].filter((s) => this.shows(p, s.id));
+  }
+
+  /** A paired computer's card: whether every session of it shows here, and
+   * how many don't. */
+  shown(id: string): PeerSessionsShown | undefined {
+    const p = this.peer(id);
+    if (!p) return undefined;
+    const hidden = [...p.sessions.keys()].filter((s) => !this.shows(p, s)).length;
+    return { mode: p.shown.mode, hidden };
+  }
+
+  private choice(p: Peer): SessionsChoiceView {
+    const sessions = [...p.sessions.values()]
+      .sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0))
+      .map((s) => ({
+        id: s.id,
+        name: s.name ?? null,
+        title: s.title ?? null,
+        projectName: s.projectName ?? null,
+        cwd: s.cwd ?? null,
+        live: !!s.live,
+        status: s.status ?? null,
+        lastActivityAt: s.lastActivityAt ?? null,
+        synced: this.shows(p, s.id),
+      }));
+    return { mode: p.shown.mode, loaded: true, sessions };
+  }
+
+  /** The choice changed: every dashboard gets the list again (and whether
+   * it is online), and the view. */
+  private republish(p: Peer): void {
+    this.host.broadcast({
+      t: 'remote',
+      machine: p.id,
+      frame: { t: 'sessions', full: true, sessions: this.shownSessions(p), seq: Date.now() },
+    });
+    if (!p.online) {
+      this.host.broadcast({ t: 'remote', machine: p.id, frame: { t: 'offline', since: p.since } });
+    }
+    this.host.broadcast({ t: 'machines', what: 'peers' });
+  }
+
+  private sessionsSync(p: Peer, session: string | undefined, method: string, b: unknown): Response {
+    const body = (b ?? {}) as { mode?: unknown; synced?: unknown };
+    if (!session && method === 'GET') return json(this.choice(p));
+    if (!session && method === 'PUT') {
+      const mode: SessionsShownMode = body.mode === 'chosen' ? 'chosen' : 'all';
+      if (mode !== p.shown.mode) {
+        p.shown.mode = mode;
+        this.republish(p);
+      }
+      return json(this.choice(p));
+    }
+    if (session && method === 'POST') {
+      const chosen = p.shown.mode === 'chosen';
+      const list = chosen ? p.shown.chosen : p.shown.stopped;
+      const add = chosen ? body.synced === true : body.synced !== true;
+      if (add) list.add(session);
+      else list.delete(session);
+      this.republish(p);
+      return json(this.choice(p));
+    }
+    return err(405, 'method_not_allowed', `No mock for ${method}.`);
   }
 
   private publish(rec: MoveRecord): void {
@@ -315,6 +397,12 @@ export class MockMoves {
   // ─────────────────────────────────────────────────────────── REST
 
   route(path: string, method: string, body: unknown): Response | null {
+    const sync = /^\/machines\/([0-9a-f]{32})\/sessions\/sync(?:\/([^/]+))?$/.exec(path);
+    if (sync) {
+      const p = this.peer(sync[1]);
+      if (!p) return err(404, 'machines_unknown', 'Not a paired computer.');
+      return this.sessionsSync(p, sync[2], method, body);
+    }
     const b = (body ?? {}) as SessionMoveBody;
     const proxy = /^\/machines\/([0-9a-f]{32})\/proxy(\/.*)$/.exec(path);
     if (proxy) return this.proxied(proxy[1], proxy[2], method, b);
@@ -792,6 +880,7 @@ export class MockMoves {
       since: null,
       sessions: new Map(),
       moves: new Map(),
+      shown: showAll(),
     };
     const rec = this.record(s, self, Date.now(), { to: MOCK_SELF, keepDriving: false });
     rec.from = { id: p.id, name: p.name, os: p.os };

@@ -3,6 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 
+import { MachinesService } from '../../core/machines.service';
 import { FakeBackend, flush, useFakeServer } from '../../core/mock/fake-server.testing';
 import { setActiveMock } from '../../core/mock/mock-api';
 import {
@@ -18,7 +19,7 @@ import {
 import { storageRemove } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { pastClock } from '../../shared/util';
-import { SELF_ID } from '../machines/machines.testing';
+import { SELF_ID, machinesView, peer } from '../machines/machines.testing';
 import { SessionsComponent } from './sessions.component';
 
 @Component({ template: '' })
@@ -192,6 +193,43 @@ describe("SessionsComponent with other computers' sessions", () => {
     fixture.detectChanges();
     expect(el.querySelector('.machine-loading')).toBeNull();
     expect(names(el)).toEqual(['Fix tray icon']);
+  });
+
+  it("says when a computer's sessions don't all show here, and opens the choice", async () => {
+    const s = await goLive(backend);
+    s.frame({ t: 'sessions', full: true, sessions: [], seq: 1 });
+    // Only the chosen ones show: one of five.
+    TestBed.inject(MachinesService).apply(
+      machinesView({
+        enabled: true,
+        peers: [peer({ sessionsShown: { mode: 'chosen', hidden: 4 } })],
+      }),
+    );
+    remoteList(s, PEER_ID, [remoteSession('r1', { title: 'Fix tray icon' })]);
+    const el = await render();
+    const line = el.querySelector('.machine-shown');
+    expect(text(line)).toBe('Showing 1 of DESKTOP-PC’s sessions · Choose');
+    expect(line?.querySelector('a')?.getAttribute('href')).toBe(`/computers?sessions=${PEER_ID}`);
+
+    // All but the ones stopped: said only while one is.
+    TestBed.inject(MachinesService).apply(
+      machinesView({
+        enabled: true,
+        peers: [peer({ sessionsShown: { mode: 'all', hidden: 2 } })],
+      }),
+    );
+    fixture.detectChanges();
+    expect(text(el.querySelector('.machine-shown'))).toBe(
+      'Not showing 2 of DESKTOP-PC’s sessions · Choose',
+    );
+    TestBed.inject(MachinesService).apply(
+      machinesView({
+        enabled: true,
+        peers: [peer({ sessionsShown: { mode: 'all', hidden: 0 } })],
+      }),
+    );
+    fixture.detectChanges();
+    expect(el.querySelector('.machine-shown')).toBeNull();
   });
 
   it('is only this computer with no other computer paired', async () => {
