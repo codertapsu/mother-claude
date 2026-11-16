@@ -45,6 +45,7 @@ import { MockData } from './mock-data';
 import { MockDelete } from './mock-delete';
 import { MockMcp } from './mock-mcp';
 import { MockPermissions } from './mock-permissions';
+import { MockPlugins } from './mock-plugins';
 import { MockSwitch } from './mock-switch';
 import { MockMachines } from './mock-machines';
 import { MOCK_MACHINES, MockMoves } from './mock-moves';
@@ -135,6 +136,9 @@ class FixtureBackend implements MockBackend {
   private readonly capacity: MockCapacity;
   /** Mother Claude's MCP server, as the Services page shows it (`/mcp*`). */
   private readonly mcp: MockMcp;
+  /** Claude Code's plugins (`/plugins*`) and a session's MCP servers and
+   * plugins (docs/PLUGINS.md). */
+  private readonly plugins: MockPlugins;
   /** The browser extension (`/browser*`, docs/BROWSER.md). */
   private readonly browser: MockBrowser;
   /** Teams of sessions: templates, teams, boards (`/team-templates*`,
@@ -196,6 +200,7 @@ class FixtureBackend implements MockBackend {
         this.broadcast({ t: 'notice', level, text, ...(session ? { session } : {}) }),
     });
     this.mcp = new MockMcp(role === 'desktop', now);
+    this.plugins = new MockPlugins(role === 'desktop', now);
     if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit' || MOCK_SERVERS) {
       this.fx.accounts = buildAccounts(now, true);
       this.fx.accountUsage = buildAccountUsage(now);
@@ -382,6 +387,9 @@ class FixtureBackend implements MockBackend {
     // What Claude may do without asking
     const permissions = this.permissions.route(path, method, body);
     if (permissions) return permissions;
+    // Claude Code's plugins
+    const plugins = this.plugins.route(path, method, body, q);
+    if (plugins) return plugins;
 
     // Sessions
     if (path === '/sessions' && method === 'GET') {
@@ -496,14 +504,12 @@ class FixtureBackend implements MockBackend {
           201,
         );
       }
-      if (sub === 'mcp') {
-        return json({
-          servers: [
-            { name: 'github', status: 'connected' },
-            { name: 'linear', status: 'connected' },
-            { name: 'playwright', status: 'failed', error: 'npx exited with code 1' },
-          ],
+      if (s && (sub === 'mcp' || sub.startsWith('mcp/') || sub.startsWith('plugins'))) {
+        const own = this.plugins.routeSession(id, sub, method, body, {
+          owned: s.owned && s.live,
+          tmux: s.control.channel === 'tmux',
         });
+        if (own) return own;
       }
       if (sub.startsWith('media/')) return svgImage();
       if (sub === 'agents') {

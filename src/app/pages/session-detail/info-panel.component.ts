@@ -1,12 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  effect,
-  inject,
-  signal,
-  untracked,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 
 import { DEFAULT_ACCOUNT } from '../../core/accounts';
 import { ApiService } from '../../core/api.service';
@@ -19,7 +11,6 @@ import {
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { MachineContext } from '../../core/machine-context';
-import { McpServerStatus } from '../../core/models';
 import { MovesService } from '../../core/moves.service';
 import { NowService } from '../../core/now.service';
 import { PlanUsageService } from '../../core/plan-usage.service';
@@ -43,6 +34,7 @@ import {
   ultracodeWhen,
 } from '../../shared/session-settings';
 import { StatusPillComponent } from '../../shared/status-pill.component';
+import { SessionPluginsComponent } from './session-plugins.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
 import {
   channelLabel,
@@ -62,8 +54,10 @@ import { SessionContext } from './session-context';
  * ultracode, thinking and fast mode (each with how it is known), usage and
  * cost, context, timestamps, where its files are (each path copyable, its
  * folder shown on the desktop); the Claude plan's usage; what can be done
- * with it and why not (limits with their fixes); MCP servers of owned
- * sessions; its moves between computers. What can be done with it is the
+ * with it and why not (limits with their fixes); a running session's MCP
+ * servers and plugins, with *Reconnect* and *Reload plugins* — the one
+ * place for actions here, since they say why a tool is missing
+ * (`mc-session-plugins`); its moves between computers. What can be done with it is the
  * header's ⋮ menu (continue, rename, move, delete, the terminal view,
  * stop / restart / remove); keys go to the terminal from its view.
  */
@@ -80,6 +74,7 @@ import { SessionContext } from './session-context';
     IconComponent,
     MoveCardComponent,
     PlanUsageComponent,
+    SessionPluginsComponent,
     StatusPillComponent,
     TimeAgoComponent,
     TPipe,
@@ -348,27 +343,8 @@ import { SessionContext } from './session-context';
         <mc-cap-limits [session]="s" />
       </section>
 
-      @if (s.owned) {
-        <section class="card">
-          <h2 class="first">{{ 'MCP servers' | t }}</h2>
-          @if (mcpError()) {
-            <p class="muted small">{{ mcpError() }}</p>
-          } @else if (mcp(); as list) {
-            <ul class="mcp">
-              @for (m of list; track m.name) {
-                <li>
-                  <mc-icon name="plug" [size]="14" />
-                  <span class="grow">{{ m.name }}</span>
-                  <span class="mstatus" [attr.data-status]="m.status">{{ m.status | t }}</span>
-                </li>
-              } @empty {
-                <li class="muted">{{ 'No MCP servers.' | t }}</li>
-              }
-            </ul>
-          } @else {
-            <p class="muted small">{{ 'Loading…' | t }}</p>
-          }
-        </section>
+      @if (s.live) {
+        <mc-session-plugins />
       }
 
       @if (sessionMoves().length) {
@@ -448,31 +424,6 @@ import { SessionContext } from './session-context';
         min-width: 0;
         overflow-wrap: anywhere;
       }
-      .mcp {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-      }
-      .mcp li {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.4rem 0;
-        border-top: 1px solid var(--border);
-      }
-      .mcp li:first-child {
-        border-top: 0;
-      }
-      .mstatus {
-        font-size: 0.75rem;
-        color: var(--muted);
-      }
-      .mstatus[data-status='connected'] {
-        color: var(--green);
-      }
-      .mstatus[data-status='failed'] {
-        color: var(--red);
-      }
     `,
   ],
 })
@@ -488,8 +439,6 @@ export class InfoPanelComponent {
    * few. */
   protected readonly sessionMoves = computed(() => this.moves.history(this.ctx.id()).slice(0, 5));
 
-  protected readonly mcp = signal<McpServerStatus[] | null>(null);
-  protected readonly mcpError = signal('');
   /** Whose plan this session uses (the Default's when it names none). */
   protected readonly planAccount = computed(
     () => this.ctx.session()?.account?.id ?? DEFAULT_ACCOUNT,
@@ -570,24 +519,4 @@ export class InfoPanelComponent {
   protected readonly tokens = formatTokens;
   protected readonly channel = (c: string) =>
     c === 'owned' ? tr('Full control: everything works from here') : tr(channelLabel(c));
-
-  constructor() {
-    effect(() => {
-      const s = this.ctx.session();
-      const owned = !!s?.owned && !!s.live;
-      const id = s?.id;
-      untracked(() => {
-        if (owned && id && this.mcp() === null && !this.mcpError()) void this.loadMcp(id);
-      });
-    });
-  }
-
-  private async loadMcp(id: string): Promise<void> {
-    try {
-      const res = await this.api.getMcp(id);
-      this.mcp.set(res.servers ?? []);
-    } catch {
-      this.mcpError.set(tr('MCP status is not available for this session.'));
-    }
-  }
 }

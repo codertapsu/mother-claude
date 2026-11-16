@@ -53,6 +53,20 @@ import {
   normalizePermissions,
   normalizeRule,
 } from './permission-rules';
+import {
+  CatalogView,
+  PluginChange,
+  PluginReload,
+  PluginsView,
+  ReloadAllResult,
+  SessionPluginsView,
+  normalizeCatalog,
+  normalizeMcpServers,
+  normalizePlugins,
+  normalizeReload,
+  normalizeReloadAll,
+  normalizeSessionPlugins,
+} from './plugins';
 import type { MachineRun, RunsView } from './runs';
 import type { HostedRolesView, MachineTask, TaskRemoved, TasksView } from './tasks';
 import {
@@ -373,8 +387,41 @@ export class ApiService {
   }
 
   /** MCP servers of an owned session. */
-  getMcp(id: string): Promise<{ servers: McpServerStatus[] }> {
-    return this.req(`/sessions/${enc(id)}/mcp`);
+  async getMcp(id: string): Promise<{ servers: McpServerStatus[] }> {
+    return { servers: normalizeMcpServers(await this.req<unknown>(`/sessions/${enc(id)}/mcp`)) };
+  }
+
+  /** Connect one of an owned session's MCP servers again: its servers
+   * after. */
+  async reconnectMcp(id: string, server: string): Promise<McpServerStatus[]> {
+    return normalizeMcpServers(
+      await this.post<unknown>(`/sessions/${enc(id)}/mcp/reconnect`, { server }),
+    );
+  }
+
+  /** Turn one of an owned session's MCP servers on or off for it alone. */
+  async setMcpEnabled(id: string, server: string, enabled: boolean): Promise<McpServerStatus[]> {
+    return normalizeMcpServers(
+      await this.post<unknown>(`/sessions/${enc(id)}/mcp/enabled`, { server, enabled }),
+    );
+  }
+
+  /** A session's plugins, and how they are read again from here. */
+  async getSessionPlugins(id: string): Promise<SessionPluginsView> {
+    return normalizeSessionPlugins(await this.req<unknown>(`/sessions/${enc(id)}/plugins`));
+  }
+
+  /** The session reads its plugins again (`force`: even when its next
+   * message then re-reads the whole conversation). */
+  async reloadSessionPlugins(id: string, force = false): Promise<PluginReload> {
+    return normalizeReload(
+      await this.post<unknown>(`/sessions/${enc(id)}/plugins/reload`, force ? { force } : {}),
+    );
+  }
+
+  /** The session loads the plugin in this folder too, until it ends. */
+  async addSessionPlugin(id: string, path: string): Promise<PluginReload> {
+    return normalizeReload(await this.post<unknown>(`/sessions/${enc(id)}/plugins/add`, { path }));
   }
 
   /** Projects for the New session picker. */
@@ -534,6 +581,63 @@ export class ApiService {
   async removePermission(id: string): Promise<PermissionsView> {
     return normalizePermissions(
       await this.req<unknown>(`/permissions/${enc(id)}`, { method: 'DELETE' }),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────── Plugins
+
+  /** `GET /api/plugins`: what is installed (seen from `project`) and the
+   * marketplaces, for an account (none: the Default). */
+  async getPlugins(opts: { account?: string; project?: string } = {}): Promise<PluginsView> {
+    const q = new URLSearchParams();
+    if (opts.account) q.set('account', opts.account);
+    if (opts.project) q.set('project', opts.project);
+    const qs = q.toString();
+    return normalizePlugins(await this.req<unknown>(`/plugins${qs ? `?${qs}` : ''}`));
+  }
+
+  /** `GET /api/plugins/available?q=`: the marketplaces' plugins matching,
+   * most installed first. */
+  async searchPlugins(query: string, account?: string): Promise<CatalogView> {
+    const q = new URLSearchParams({ q: query });
+    if (account) q.set('account', account);
+    return normalizeCatalog(await this.req<unknown>(`/plugins/available?${q.toString()}`));
+  }
+
+  /** Install a plugin (desktop). `409 confirm_command {command, sha256}`
+   * when the marketplace runs a command for it: send again with
+   * `acceptCommand`. */
+  installPlugin(change: PluginChange): Promise<unknown> {
+    return this.post('/plugins/install', change);
+  }
+
+  uninstallPlugin(change: PluginChange): Promise<unknown> {
+    return this.post('/plugins/uninstall', change);
+  }
+
+  setPluginEnabled(change: PluginChange & { enabled: boolean }): Promise<unknown> {
+    return this.post('/plugins/enabled', change);
+  }
+
+  updatePlugin(change: PluginChange): Promise<unknown> {
+    return this.post('/plugins/update', change);
+  }
+
+  /** Add a marketplace: a GitHub owner/repo, a git URL or a folder. */
+  addMarketplace(source: string, account?: string): Promise<unknown> {
+    return this.post('/plugins/marketplaces', account ? { source, account } : { source });
+  }
+
+  removeMarketplace(name: string, account?: string): Promise<unknown> {
+    const qs = account ? `?account=${enc(account)}` : '';
+    return this.req(`/plugins/marketplaces/${enc(name)}${qs}`, { method: 'DELETE' });
+  }
+
+  /** Every session Mother Claude runs, between turns, reads its plugins
+   * again. */
+  async reloadPluginsEverywhere(account?: string): Promise<ReloadAllResult> {
+    return normalizeReloadAll(
+      await this.post<unknown>('/plugins/reload', account ? { account } : {}),
     );
   }
 

@@ -1269,9 +1269,15 @@ export interface PullSkip {
 /** `GET /sessions/{id}/mcp` (owned sessions). */
 export interface McpServerStatus {
   name: string;
+  /** `connected`, `failed`, `pending`, `needs-auth`, `disabled`, … */
   status: string;
   scope?: string;
+  /** Where it comes from (a plugin, a settings file). */
+  source?: string;
+  /** Why it failed, in Claude Code's words. */
   error?: string;
+  /** How many tools it brings. */
+  tools?: number;
 }
 
 /** `POST /sessions/{id}/uploads` answer: where the file was stored. */
