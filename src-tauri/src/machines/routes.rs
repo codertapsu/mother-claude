@@ -933,6 +933,16 @@ pub fn peer_route_grant(method: &axum::http::Method, path: &str) -> Option<Grant
             true,
         ) if *method == Method::POST => Grant::Control,
         (["sessions", _, "tasks", _, "stop"], _, true) if *method == Method::POST => Grant::Control,
+        // Its plugins and MCP servers (docs/PLUGINS.md): read, reconnected,
+        // switched, reloaded; a plugin folder of that computer loaded (the
+        // route asks the dangerous right, intersected there).
+        (["sessions", _, "plugins"], true, _) => Grant::View,
+        (
+            ["sessions", _, "mcp", "reconnect" | "enabled"]
+            | ["sessions", _, "plugins", "reload" | "add"],
+            _,
+            true,
+        ) if *method == Method::POST => Grant::Control,
         (["sessions", _, "queue", _], _, true) if *method == Method::DELETE => Grant::Control,
         (["sessions", _, "queue", _, "send-now"], _, true) if *method == Method::POST => {
             Grant::Control
@@ -1321,6 +1331,27 @@ async fn peer_bulk(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sessions_plugins_are_read_with_view_and_reloaded_with_control() {
+        use axum::http::Method;
+        let g = |m: Method, p: &str| peer_route_grant(&m, p);
+        assert_eq!(g(Method::GET, "sessions/s1/plugins"), Some(Grant::View));
+        for p in [
+            "sessions/s1/plugins/reload",
+            "sessions/s1/plugins/add",
+            "sessions/s1/mcp/reconnect",
+            "sessions/s1/mcp/enabled",
+        ] {
+            assert_eq!(g(Method::POST, p), Some(Grant::Control), "{p}");
+            assert_eq!(g(Method::GET, p), None, "{p}");
+        }
+        // The plugin manager stays this computer's own.
+        for p in ["plugins", "plugins/install", "plugins/marketplaces"] {
+            assert_eq!(g(Method::GET, p), None, "{p}");
+            assert_eq!(g(Method::POST, p), None, "{p}");
+        }
+    }
 
     #[test]
     fn a_text_message_to_a_session_is_told_apart() {
