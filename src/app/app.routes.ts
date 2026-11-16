@@ -190,6 +190,12 @@ const pages: Routes = [
     loadComponent: () =>
       import('./pages/permissions/permissions.component').then((m) => m.PermissionsComponent),
   },
+  // Claude Code's plugins: installed, found, marketplaces (docs/PLUGINS.md).
+  {
+    path: 'plugins',
+    loadComponent: () =>
+      import('./pages/plugins/plugins.component').then((m) => m.PluginsComponent),
+  },
   {
     path: 'more',
     loadComponent: () => import('./pages/more/more.component').then((m) => m.MoreComponent),

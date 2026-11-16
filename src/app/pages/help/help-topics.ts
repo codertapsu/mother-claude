@@ -3553,6 +3553,86 @@ const TOPICS: HelpTopicSource[] = [
     ],
   },
   {
+    id: 'plugins',
+    title: 'Plugins',
+    icon: 'puzzle',
+    group: 'settings',
+    summary:
+      "Install Claude Code's plugins for every session or one project, and reload them without restarting.",
+    intro:
+      'A plugin adds skills, slash commands, agents, hooks or MCP servers to Claude Code. **Plugins** shows what is installed and where, finds new ones in the marketplaces, and installs, turns off, updates or removes them, through Claude Code itself.',
+    keywords: [
+      'plugins',
+      'marketplace',
+      'install plugin',
+      'uninstall plugin',
+      'reload plugins',
+      'reload-plugins',
+      'mcp reconnect',
+      'mcp failed',
+      'figma',
+    ],
+    sections: [
+      {
+        heading: 'Install a plugin',
+        where: 'desktop',
+        steps: [
+          'Open **Plugins** in the sidebar.',
+          'Under **Find a plugin**, search by name or by what it does.',
+          'Press **Install…** and choose where it should be on: **Everywhere**, **One project, for everyone** or **One project, only you**, and the project.',
+          'Press **Install**.',
+        ],
+        points: [
+          '**Everywhere** is every session you start. **One project, for everyone** is saved in the project’s `.claude/settings.json`, so whoever works on it gets it too; **One project, only you** in its `.claude/settings.local.json`.',
+          'Some marketplaces install a plugin by running a command. Mother Claude shows that command first and runs it only when you press **Run it and install**.',
+          'A plugin can run commands on your computer (its hooks and MCP servers): install plugins only from marketplaces you trust.',
+        ],
+        links: [{ label: 'Open Plugins', path: '/plugins' }],
+      },
+      {
+        heading: 'Change or remove one',
+        where: 'desktop',
+        points: [
+          '**Installed** lists each plugin with where it is on, its version and the MCP servers it brings. **Show a project** adds that project’s own plugins.',
+          '**Turn off** keeps it installed but unused; **Update** gets its latest version; **Remove…** uninstalls it.',
+          'Plugins from claude.ai or set by your organization are changed where they come from.',
+          "Mother Claude's own plugin is turned on and off in **Sessions started elsewhere**.",
+        ],
+      },
+      {
+        heading: 'Marketplaces',
+        where: 'desktop',
+        points: [
+          'A marketplace is where plugins come from. Add one under **Marketplaces** with a GitHub repository (`owner/repo`), a git address (`https://…`) or the full path of a folder on this computer.',
+          'Its plugins then show under **Find a plugin**. **Remove…** takes a marketplace away.',
+        ],
+      },
+      {
+        heading: 'Load a change in running sessions',
+        points: [
+          'Claude Code loads plugins when a session starts. After a change, **Reload in running sessions** makes the sessions Mother Claude runs read them again; a session that works is left until it finishes.',
+          'A session started elsewhere loads them when you type `/reload-plugins` in it.',
+          'When a reload would change a session’s tools, its next message re-reads the whole conversation, which costs more: Mother Claude asks first.',
+        ],
+      },
+      {
+        heading: 'An MCP server that failed',
+        intro:
+          'An MCP server that talks to another app, such as a Figma plugin, fails when that app was not running yet as the session started.',
+        steps: [
+          'Start the other app (for example, open the plugin in Figma).',
+          'Open the session and its **Info** tab.',
+          'Under **MCP servers**, press **Reconnect** beside the server.',
+        ],
+        points: [
+          'It connects without restarting the session. **Turn off** and **Turn on** switch a server for this session only.',
+          '**Reload plugins** on the same tab reads its plugins again, and **Add a plugin folder to this session…** loads a plugin of yours for this session alone.',
+          'In a session started elsewhere, type `/mcp` in it to reconnect a server.',
+        ],
+      },
+    ],
+  },
+  {
     id: 'api',
     title: 'The HTTP API',
     icon: 'code',

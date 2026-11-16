@@ -92,7 +92,7 @@ describe('the map (core/nav.ts)', () => {
         'Connections',
         ['Computers', 'Phone & devices', 'Sessions started elsewhere', 'Browser', 'HTTP API'],
       ],
-      ['Manage', ['Accounts', 'Backups', 'Permissions', 'Settings']],
+      ['Manage', ['Accounts', 'Backups', 'Permissions', 'Plugins', 'Settings']],
     ]);
     // A phone's leave out the desktop's own place (the plugin's).
     expect(groups(false)[1]).toEqual([
@@ -145,6 +145,7 @@ describe('the map (core/nav.ts)', () => {
       ['Accounts', '/accounts'],
       ['Backups', '/backups'],
       ['Permissions', '/permissions'],
+      ['Plugins', '/plugins'],
       ['Settings', '/settings'],
     ]);
     // The plugin is installed from the desktop: a phone's sidebar leaves it
@@ -160,6 +161,7 @@ describe('the map (core/nav.ts)', () => {
       'accounts',
       'backups',
       'permissions',
+      'plugins',
       'settings',
     ]);
     // Computers keeps Machines' health dot; Agents is a tab of Sessions.
@@ -175,12 +177,18 @@ describe('the map (core/nav.ts)', () => {
         ['http-api', 'code'],
         ['backups', 'cloud'],
         ['permissions', 'shield'],
+        ['plugins', 'puzzle'],
       ]),
     );
     // Permissions: what Claude may do without asking, one page.
     expect(PLACES.find((p) => p.id === 'permissions')).toEqual(
       expect.objectContaining({ path: '/permissions', group: 'manage', help: 'permissions' }),
     );
+    // Plugins: Claude Code's plugins, read on a phone too.
+    expect(PLACES.find((p) => p.id === 'plugins')).toEqual(
+      expect.objectContaining({ path: '/plugins', group: 'manage', help: 'plugins' }),
+    );
+    expect(PLACES.find((p) => p.id === 'plugins')?.desktopOnly).toBeUndefined();
   });
 
   it('gives each place its tabs', () => {
@@ -223,6 +231,7 @@ describe('the map (core/nav.ts)', () => {
       'http-api',
       'backups',
       'permissions',
+      'plugins',
       'settings',
     ]) {
       expect(tabsOf(id), id).toEqual([]);
@@ -244,6 +253,7 @@ describe('the map (core/nav.ts)', () => {
       'Accounts',
       'Backups',
       'Permissions',
+      'Plugins',
       'Settings',
       'Help',
     ]);
@@ -255,6 +265,7 @@ describe('the map (core/nav.ts)', () => {
       'accounts',
       'backups',
       'permissions',
+      'plugins',
       'settings',
       'help',
     ]);

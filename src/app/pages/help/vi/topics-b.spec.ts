@@ -15,6 +15,7 @@ const IDS = [
   'teams',
   'capacity',
   'claude-code-tools',
+  'plugins',
   'api',
   'troubleshooting',
 ];

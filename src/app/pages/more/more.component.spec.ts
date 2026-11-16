@@ -74,6 +74,7 @@ describe('MoreComponent', () => {
       'Accounts',
       'Backups',
       'Permissions',
+      'Plugins',
       'Settings',
       'Help',
     ]);
@@ -85,6 +86,7 @@ describe('MoreComponent', () => {
       '/accounts',
       '/backups',
       '/permissions',
+      '/plugins',
       '/settings',
       '/help',
     ]);
@@ -107,7 +109,7 @@ describe('MoreComponent', () => {
       ]),
     ).toEqual([
       ['Connections', 'Computers', 'Phone & devices', 'Browser', 'HTTP API'],
-      ['Manage', 'Accounts', 'Backups', 'Permissions', 'Settings'],
+      ['Manage', 'Accounts', 'Backups', 'Permissions', 'Plugins', 'Settings'],
       ['', 'Help'],
     ]);
     expect([...el.querySelectorAll('h2')].map((h) => text(h))).toEqual(['Connections', 'Manage']);

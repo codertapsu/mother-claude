@@ -97,6 +97,7 @@ describe('AppComponent: the navigation, from the map', () => {
       '/accounts',
       '/backups',
       '/permissions',
+      '/plugins',
       '/settings',
     ]);
     // A line between two groups; each group names itself (for screen
@@ -115,7 +116,7 @@ describe('AppComponent: the navigation, from the map', () => {
       '—',
       ['Connections', 'Computers', 'Phone & devices', 'Browser', 'HTTP API'],
       '—',
-      ['Manage', 'Accounts', 'Backups', 'Permissions', 'Settings'],
+      ['Manage', 'Accounts', 'Backups', 'Permissions', 'Plugins', 'Settings'],
     ]);
     for (const group of nav.querySelectorAll('.nav-group')) {
       expect(group.getAttribute('role')).toBe('group');

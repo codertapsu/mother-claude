@@ -1018,6 +1018,84 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       },
     ],
   },
+  plugins: {
+    id: 'plugins',
+    title: 'Plugin',
+    icon: 'puzzle',
+    group: 'settings',
+    summary:
+      'Cài plugin của Claude Code cho mọi phiên hoặc cho một dự án, và tải lại chúng mà không cần khởi động lại.',
+    intro:
+      'Một plugin thêm kỹ năng, lệnh gạch chéo, tác tử, hook hoặc máy chủ MCP cho Claude Code. **Plugin** cho biết những gì đã được cài và ở đâu, tìm plugin mới trong các chợ plugin, và cài, tắt, cập nhật hoặc gỡ chúng, thông qua chính Claude Code.',
+    keywords: [
+      'cài plugin',
+      'gỡ plugin',
+      'tải lại plugin',
+      'chợ plugin',
+      'kết nối lại máy chủ MCP',
+      'máy chủ MCP lỗi',
+      'tiện ích mở rộng',
+    ],
+    sections: [
+      {
+        heading: 'Cài một plugin',
+        where: 'desktop',
+        steps: [
+          'Mở **Plugin** trong thanh bên.',
+          'Ở **Tìm plugin**, tìm theo tên hoặc theo việc nó làm.',
+          'Nhấn **Cài…** và chọn nơi bật nó: **Mọi nơi**, **Một dự án, cho mọi người** hoặc **Một dự án, chỉ bạn**, cùng với dự án.',
+          'Nhấn **Cài**.',
+        ],
+        points: [
+          '**Mọi nơi** là mọi phiên bạn khởi chạy. **Một dự án, cho mọi người** được lưu trong `.claude/settings.json` của dự án, nên ai làm việc với dự án đó cũng có nó; **Một dự án, chỉ bạn** được lưu trong `.claude/settings.local.json` của dự án.',
+          'Một số chợ plugin cài plugin bằng cách chạy một lệnh. Mother Claude hiện lệnh đó trước và chỉ chạy khi bạn nhấn **Chạy lệnh và cài**.',
+          'Một plugin có thể chạy lệnh trên máy tính của bạn (qua hook và máy chủ MCP của nó): chỉ cài plugin từ những chợ plugin bạn tin cậy.',
+        ],
+        links: [{ label: 'Mở Plugin', path: '/plugins' }],
+      },
+      {
+        heading: 'Thay đổi hoặc gỡ một plugin',
+        where: 'desktop',
+        points: [
+          '**Đã cài** liệt kê từng plugin cùng nơi nó được bật, phiên bản và các máy chủ MCP nó mang theo. **Xem một dự án** thêm các plugin riêng của dự án đó.',
+          '**Tắt** giữ plugin đã cài nhưng không dùng; **Cập nhật** lấy phiên bản mới nhất; **Gỡ…** gỡ cài đặt nó.',
+          'Plugin từ claude.ai hoặc do tổ chức của bạn đặt thì được thay đổi ở nơi chúng đến.',
+          'Plugin riêng của Mother Claude được bật và tắt trong **Phiên bắt đầu ở nơi khác**.',
+        ],
+      },
+      {
+        heading: 'Chợ plugin',
+        where: 'desktop',
+        points: [
+          'Chợ plugin là nơi plugin đến từ đó. Thêm một chợ ở **Chợ plugin** bằng một kho GitHub (`owner/repo`), một địa chỉ git (`https://…`) hoặc đường dẫn đầy đủ của một thư mục trên máy tính này.',
+          'Sau đó các plugin của nó hiện ở **Tìm plugin**. **Gỡ…** bỏ một chợ plugin.',
+        ],
+      },
+      {
+        heading: 'Nạp thay đổi vào các phiên đang chạy',
+        points: [
+          'Claude Code nạp plugin khi một phiên bắt đầu. Sau một thay đổi, **Tải lại trong các phiên đang chạy** khiến các phiên do Mother Claude chạy đọc lại plugin; phiên đang làm việc được để yên cho tới khi xong.',
+          'Phiên bắt đầu ở nơi khác nạp chúng khi bạn gõ `/reload-plugins` trong phiên đó.',
+          'Khi việc tải lại sẽ thay đổi công cụ của một phiên, tin nhắn tiếp theo của phiên đó sẽ đọc lại toàn bộ cuộc trò chuyện, tốn hơn: Mother Claude sẽ hỏi trước.',
+        ],
+      },
+      {
+        heading: 'Một máy chủ MCP bị lỗi',
+        intro:
+          'Một máy chủ MCP làm việc với ứng dụng khác, chẳng hạn một plugin Figma, sẽ lỗi nếu ứng dụng đó chưa chạy lúc phiên bắt đầu.',
+        steps: [
+          'Mở ứng dụng kia (ví dụ, mở plugin trong Figma).',
+          'Mở phiên và thẻ **Thông tin** của nó.',
+          'Ở **Máy chủ MCP**, nhấn **Kết nối lại** bên cạnh máy chủ đó.',
+        ],
+        points: [
+          'Máy chủ kết nối mà không cần khởi động lại phiên. **Tắt** và **Bật** chuyển một máy chủ chỉ cho phiên này.',
+          '**Tải lại plugin** trên cùng thẻ đó đọc lại plugin của phiên, và **Thêm thư mục plugin cho phiên này…** nạp một plugin của bạn chỉ cho riêng phiên này.',
+          'Trong phiên bắt đầu ở nơi khác, hãy gõ `/mcp` trong phiên đó để kết nối lại một máy chủ.',
+        ],
+      },
+    ],
+  },
   api: {
     id: 'api',
     title: 'HTTP API',

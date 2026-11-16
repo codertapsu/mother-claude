@@ -75,6 +75,7 @@ describe('HelpComponent', () => {
       ['backups', 'data'],
       // Permissions sit with the approvals that make them.
       ['permissions', 'sessions'],
+      ['plugins', 'settings'],
       ['settings', 'settings'],
     ]);
     for (const p of SETTINGS_PAGES) expect(groupOf(p.help), p.id).toBe('settings');
@@ -110,6 +111,7 @@ describe('HelpComponent', () => {
       'foreign-sessions',
       'browser',
       'claude-code-tools',
+      'plugins',
       'api',
     ]);
     expect(idsOf('troubleshooting')).toEqual(['troubleshooting', 'machines-troubleshooting']);
