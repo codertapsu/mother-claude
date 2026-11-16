@@ -1331,3 +1331,213 @@ async fn while_machines_is_off_another_computer_only_pairs_and_runs_the_setup() 
     assert_eq!(s, StatusCode::FORBIDDEN, "{v}");
     assert_eq!(v["error"]["code"], "machines_off");
 }
+
+// ─── which of another computer's sessions show here ─────────────────────────────
+
+const SID2: &str = "fed00000-1111-4222-8333-444455556667";
+
+/// A full list of `from`'s sessions on a dashboard, as `ids` exactly.
+fn full_list_of(v: &Value, from: &str, ids: &[&str]) -> bool {
+    if v["t"] != "remote"
+        || v["machine"] != from
+        || v["frame"]["t"] != "sessions"
+        || v["frame"]["full"] != true
+    {
+        return false;
+    }
+    let mut got: Vec<&str> = v["frame"]["sessions"]
+        .as_array()
+        .map(|l| l.iter().filter_map(|s| s["id"].as_str()).collect())
+        .unwrap_or_default();
+    got.sort();
+    let mut want = ids.to_vec();
+    want.sort();
+    got == want
+}
+
+/// A pending item of `m`'s session `sid`, raised as a channel raises one.
+async fn waiting_in(m: &Machine, sid: &str) -> (pending::PendingGuard, String) {
+    let (guard, _rx) = pending::raise(
+        &m.st,
+        pending::PendingItem {
+            session_id: sid.into(),
+            tool_name: Some("Bash".into()),
+            title: "Run ls".into(),
+            input: Some(json!({ "command": "ls" })),
+            ..Default::default()
+        },
+    )
+    .await;
+    let id = guard.id().to_string();
+    (guard, id)
+}
+
+/// A computer chooses which of another's sessions show on it: one stopped
+/// leaves its dashboards' lists, counts and Inbox at once and comes back
+/// when synced again; *only the ones you choose* shows none until one is
+/// chosen. The other computer is never told.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_computer_chooses_which_of_anothers_sessions_show_on_it() {
+    let lookup = MemoryLookup::new();
+    let a = machine(&lookup).await;
+    let b = machine(&lookup).await;
+    pair(&a, &b, grants(false), grants(false)).await;
+    turn_on(&[&a, &b]);
+    // A second session on B, beside [`SID`].
+    let dir = b._dir.path().join("home").join("projects").join("-tmp-fed");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(format!("{SID2}.jsonl")),
+        format!(
+            "{}\n",
+            json!({"type":"user","uuid":"g-u1","timestamp":"2026-11-16T09:00:00.000Z","cwd":"/tmp/fed","origin":{"kind":"human"},"message":{"role":"user","content":"the other one"}})
+        ),
+    )
+    .unwrap();
+    session_on(&b);
+    let from = b.id();
+    let mut ws = dashboard(&a).await;
+    a.wait("both of B's sessions counted on A", |v| {
+        v["peers"][0]["sessions"]["total"] == 2
+    })
+    .await;
+    let sync = format!("/machines/{from}/sessions/sync");
+
+    // Everything shows to begin with.
+    let (s, v) = a.call("GET", &sync, None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["mode"], "all");
+    assert_eq!(v["loaded"], true);
+    assert_eq!(v["sessions"].as_array().map(Vec::len), Some(2), "{v}");
+    assert!(v["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|s| s["synced"] == true));
+
+    // Stop syncing one: the dashboards' list loses it at once.
+    let (s, v) = a
+        .call(
+            "POST",
+            &format!("{sync}/{SID}"),
+            Some(json!({ "synced": false })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let stopped = v["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["id"] == SID)
+        .unwrap();
+    assert_eq!(stopped["synced"], false, "{v}");
+    frame_where(&mut ws, "B's list without the stopped session", |v| {
+        full_list_of(v, &from, &[SID2])
+    })
+    .await;
+    // The view's counts and the polling fallback leave it out too.
+    let view = a
+        .wait("the counts without it", |v| {
+            v["peers"][0]["sessions"]["total"] == 1
+        })
+        .await;
+    assert_eq!(view["peers"][0]["sessionsShown"]["mode"], "all");
+    assert_eq!(view["peers"][0]["sessionsShown"]["hidden"], 1);
+    let token = a.st.auth.token.clone();
+    let (_, _, polled) = remote_sessions(&a, &token, None).await;
+    let ids: Vec<&str> = polled["machines"][0]["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s["id"].as_str())
+        .collect();
+    assert_eq!(ids, [SID2]);
+
+    // What waits on someone there reaches A only for the sessions shown:
+    // the stopped one's is raised first and never arrives.
+    let (_g1, hidden_item) = waiting_in(&b, SID).await;
+    let (_g2, shown_item) = waiting_in(&b, SID2).await;
+    let arrived = frame_where(&mut ws, "a pending item from B", |v| {
+        v["t"] == "remote" && v["machine"] == from && v["frame"]["t"] == "pending"
+    })
+    .await;
+    assert_eq!(arrived["frame"]["item"]["id"], shown_item.as_str());
+    assert_ne!(arrived["frame"]["item"]["id"], hidden_item.as_str());
+
+    // Nothing changed on B: it never knew, and the page still opens from
+    // here, through B.
+    let (s, v) = proxied(&a, &token, "GET", &b, "/sessions", None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(
+        v["sessions"]
+            .as_array()
+            .is_some_and(|l| l.iter().any(|s| s["id"] == SID)),
+        "{v}"
+    );
+    let (s, _) = proxied(&a, &token, "GET", &b, &format!("/sessions/{SID}"), None).await;
+    assert_eq!(s, StatusCode::OK);
+
+    // Synced again: it is back.
+    let (s, _) = a
+        .call(
+            "POST",
+            &format!("{sync}/{SID}"),
+            Some(json!({ "synced": true })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    frame_where(&mut ws, "both again", |v| {
+        full_list_of(v, &from, &[SID, SID2])
+    })
+    .await;
+
+    // Only the ones chosen: none until one is.
+    let (s, v) = a
+        .call("PUT", &sync, Some(json!({ "mode": "chosen" })))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["mode"], "chosen");
+    frame_where(&mut ws, "none chosen yet", |v| full_list_of(v, &from, &[])).await;
+    let (s, _) = a
+        .call(
+            "POST",
+            &format!("{sync}/{SID2}"),
+            Some(json!({ "synced": true })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    frame_where(&mut ws, "the chosen one", |v| {
+        full_list_of(v, &from, &[SID2])
+    })
+    .await;
+    // Kept in machines.json, on B's entry.
+    let kept =
+        a.st.machines
+            .store_read(|f| serde_json::to_value(&f.peer(&from).unwrap().sessions).unwrap());
+    assert_eq!(kept, json!({ "mode": "chosen", "chosen": [SID2] }));
+
+    // Who may choose: the desktop or a paired device, never the
+    // local-script token; only a paired computer, only a session id.
+    let script = a.st.auth.script_token.clone();
+    let (s, _) = a
+        .call_as(&script, "PUT", &sync, Some(json!({ "mode": "all" })))
+        .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let (s, v) = a
+        .call(
+            "GET",
+            &format!("/machines/{}/sessions/sync", "c".repeat(32)),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{v}");
+    assert_eq!(v["error"]["code"], "machines_unknown");
+    let (s, _) = a
+        .call(
+            "POST",
+            &format!("{sync}/not-a-session"),
+            Some(json!({ "synced": true })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}

@@ -65,6 +65,15 @@ pub fn api_router() -> Router<AppState> {
         .route("/machines/introduce", post(introduce))
         .route("/machines/introductions/{id}", post(answer_introduction))
         .route("/machines/{id}/revoke-everywhere", post(revoke_everywhere))
+        // Which of its sessions show here (this computer's choice).
+        .route(
+            "/machines/{id}/sessions/sync",
+            get(get_sessions_sync).put(put_sessions_sync),
+        )
+        .route(
+            "/machines/{id}/sessions/sync/{session}",
+            post(set_session_sync),
+        )
         .route("/machines/{id}", patch(update_peer).delete(revoke_peer))
         .route(
             "/machines/{id}/proxy/{*rest}",
@@ -678,6 +687,135 @@ async fn update_peer(
     }
     super::publish(&state, "peers");
     view_json(&state).await
+}
+
+// ─── which of a paired computer's sessions show here ────────────────────────────
+
+/// `404 machines_unknown` unless `id` is a paired computer's; its name.
+fn paired_name(state: &AppState, id: &str) -> ApiResult<String> {
+    if super::ids::is_machine_id(id) {
+        if let Some(name) = state
+            .machines
+            .store_read(|f| f.peer(id).map(|p| p.display_name().to_string()))
+        {
+            return Ok(name);
+        }
+    }
+    Err(ApiError::not_found(
+        "machines_unknown",
+        "Not a paired computer.",
+    ))
+}
+
+/// `GET /api/machines/{id}/sessions/sync`: whether every one of its
+/// sessions shows here or only the ones chosen, and each of them as last
+/// heard (the hidden ones too) with whether it shows (`federation::
+/// choices`). Reading, as the rest of Machines: `Authed`.
+async fn get_sessions_sync(
+    Authed(_): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    paired_name(&state, &id)?;
+    Ok(Json(super::federation::choices(&state, &id)))
+}
+
+#[derive(Deserialize)]
+struct SessionsModeBody {
+    mode: super::store::ShowMode,
+}
+
+/// The choice changed: an audit line (ids only), the desktop told when a
+/// device made it, every dashboard's list and the view again.
+fn sessions_choice_changed(
+    state: &AppState,
+    ctx: &ClientContext,
+    machine: &str,
+    name: &str,
+    detail: Value,
+) {
+    state
+        .devices
+        .audit
+        .record(crate::server::devices::audit::AuditEntry {
+            detail: Some(json!({ "machine": machine, "name": name, "choice": detail })),
+            ..crate::server::devices::audit::AuditEntry::from_ctx(ctx, "machine.sessions.shown")
+        });
+    crate::server::auth::note_device_action(
+        state,
+        ctx,
+        &format!("changed which of {name}'s sessions show on this computer"),
+    );
+    super::federation::republish(state, machine);
+    super::publish(state, "peers");
+}
+
+/// `PUT /api/machines/{id}/sessions/sync {mode: "all"|"chosen"}`: every
+/// one of its sessions shows here but the ones stopped, or only the ones
+/// chosen (both lists are kept). The desktop or a paired device
+/// (`ManageData`).
+async fn put_sessions_sync(
+    ManageData(ctx): ManageData,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(req): Body<SessionsModeBody>,
+) -> ApiResult<Json<Value>> {
+    let name = paired_name(&state, &id)?;
+    let changed = state.machines.store_write(|f| {
+        f.peer_mut(&id)
+            .is_some_and(|p| std::mem::replace(&mut p.sessions.mode, req.mode) != req.mode)
+    });
+    if changed {
+        sessions_choice_changed(&state, &ctx, &id, &name, json!({ "mode": req.mode }));
+    }
+    Ok(Json(super::federation::choices(&state, &id)))
+}
+
+#[derive(Deserialize)]
+struct SessionSyncBody {
+    synced: bool,
+}
+
+/// `POST /api/machines/{id}/sessions/sync/{session} {synced}`: one of its
+/// sessions shows here, or stops showing — in the list of the mode in
+/// effect (`all`: the ones stopped; `chosen`: the ones chosen). The
+/// session need not be known yet: a choice can come first. The desktop or
+/// a paired device (`ManageData`).
+async fn set_session_sync(
+    ManageData(ctx): ManageData,
+    State(state): State<AppState>,
+    Path((id, session)): Path<(String, String)>,
+    Body(req): Body<SessionSyncBody>,
+) -> ApiResult<Json<Value>> {
+    let name = paired_name(&state, &id)?;
+    crate::claude::ids::require_session_id(&session)?;
+    let changed = state
+        .machines
+        .store_write(|f| {
+            f.peer_mut(&id)
+                .map(|p| p.sessions.set(&session, req.synced))
+        })
+        .unwrap_or(Ok(false))
+        .map_err(|_| {
+            ApiError::unprocessable(
+                "too_many_sessions",
+                format!(
+                    "This choice already names {} sessions. Show all of {name}'s sessions, or \
+                     take some out of the list first.",
+                    super::store::SHOWN_MAX
+                ),
+            )
+        })?;
+    if changed {
+        sessions_choice_changed(
+            &state,
+            &ctx,
+            &id,
+            &name,
+            json!({ "session": session, "synced": req.synced }),
+        );
+    }
+    Ok(Json(super::federation::choices(&state, &id)))
 }
 
 async fn revoke_peer(

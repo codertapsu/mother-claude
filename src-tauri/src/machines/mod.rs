@@ -1075,7 +1075,13 @@ fn peer_view(state: &AppState, p: &PeerRecord, mine: &Versions) -> Value {
         "skew": versions::skew(p, mine),
         // The computers it is paired with (their ids), as it last said.
         "pairedWith": p.paired_with,
-        "sessions": state.machines.federation.counts(&p.id).map(|(total, running)| json!({ "total": total, "running": running })),
+        // Its sessions shown here (this computer's choice), and how many
+        // are not.
+        "sessions": state.machines.federation.counts(&p.id, &p.sessions).map(|(total, running)| json!({ "total": total, "running": running })),
+        "sessionsShown": {
+            "mode": p.sessions.mode,
+            "hidden": state.machines.federation.hidden(&p.id, &p.sessions),
+        },
     })
 }
 

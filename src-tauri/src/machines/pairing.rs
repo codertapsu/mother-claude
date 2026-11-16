@@ -1638,6 +1638,7 @@ pub fn peer_record(info: &MachineInfo, grants: Grants, their: Option<Grants>) ->
         relay_url: None,
         shell: info.shell.clone(),
         paired_with: Vec::new(),
+        sessions: Default::default(),
         extra: Default::default(),
     }
 }

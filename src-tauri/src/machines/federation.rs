@@ -18,6 +18,15 @@
 //! and its sessions stay listed, greyed, until it is back. Nothing is copied
 //! to disk: seeing is remote.
 //!
+//! Which of its sessions show here is this computer's choice
+//! (`PeerRecord::sessions`: all but the ones stopped, or only the ones
+//! chosen): every list, count and pending item republished here leaves the
+//! others out — a diff left with nothing for them is not sent — while the
+//! cache keeps them all, for the choice's own list ([`choices`]). A changed
+//! choice sends every dashboard the list again ([`republish`]). The other
+//! computer is never told, and a hidden session's page still opens: its
+//! subscriptions are not filtered.
+//!
 //! The links run only while Machines is on here: none is dialled while it
 //! is off, they start when it turns on ([`wake`]) and close when it turns
 //! off ([`stop`]). (The other computer refuses its `/ws` while Machines is
@@ -32,6 +41,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use ws_client::tungstenite::Message;
 
+use super::store::SessionsShown;
 use crate::server::ws::ServerEvent;
 use crate::state::{AppState, Inner};
 
@@ -73,19 +83,106 @@ impl Federation {
         self.with(|r| r.get(machine).is_some_and(|m| m.online))
     }
 
-    /// How many of `machine`'s sessions are known, and how many run.
-    pub fn counts(&self, machine: &str) -> Option<(usize, usize)> {
+    /// How many of `machine`'s sessions show here (`shown`, its choice),
+    /// and how many of those run.
+    pub fn counts(&self, machine: &str, shown: &SessionsShown) -> Option<(usize, usize)> {
         self.with(|r| {
             r.get(machine).map(|m| {
-                let running = m
-                    .sessions
-                    .values()
+                let list = shown_list(m.sessions.iter(), shown);
+                let running = list
+                    .iter()
                     .filter(|s| s.get("live").and_then(Value::as_bool).unwrap_or(false))
                     .count();
-                (m.sessions.len(), running)
+                (list.len(), running)
             })
         })
     }
+
+    /// How many of `machine`'s sessions, as last heard, do not show here.
+    pub fn hidden(&self, machine: &str, shown: &SessionsShown) -> usize {
+        if shown.is_default() {
+            return 0;
+        }
+        self.with(|r| {
+            r.get(machine)
+                .map(|m| shown.hidden(m.sessions.keys().map(String::as_str)))
+                .unwrap_or(0)
+        })
+    }
+}
+
+/// This computer's choice of `machine`'s sessions. Read before the
+/// federation's lock is taken, never under it (the view reads the store,
+/// then the federation).
+fn shown_of(state: &AppState, machine: &str) -> SessionsShown {
+    state.machines.store_read(|f| {
+        f.peer(machine)
+            .map(|p| p.sessions.clone())
+            .unwrap_or_default()
+    })
+}
+
+/// Every paired computer's choice, by id.
+fn shown_all(state: &AppState) -> HashMap<String, SessionsShown> {
+    state.machines.store_read(|f| {
+        f.peers
+            .iter()
+            .map(|p| (p.id.clone(), p.sessions.clone()))
+            .collect()
+    })
+}
+
+/// The sessions of a list that show here.
+fn shown_list<'a>(
+    sessions: impl Iterator<Item = (&'a String, &'a Value)>,
+    shown: &SessionsShown,
+) -> Vec<&'a Value> {
+    sessions
+        .filter(|(id, _)| shown.shows(id))
+        .map(|(_, s)| s)
+        .collect()
+}
+
+/// What dashboards here get of a `sessions` frame from another computer:
+/// only the sessions that show here; a diff left with nothing to upsert or
+/// remove is not sent.
+fn shown_sessions_frame(frame: &Value, shown: &SessionsShown) -> Option<Value> {
+    if shown.is_default() {
+        return Some(frame.clone());
+    }
+    let full = frame.get("full").and_then(Value::as_bool).unwrap_or(false);
+    let mut out = frame.clone();
+    if let Some(list) = out
+        .get_mut(if full { "sessions" } else { "upsert" })
+        .and_then(Value::as_array_mut)
+    {
+        list.retain(|s| {
+            s.get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| shown.shows(id))
+        });
+    }
+    let empty = |key: &str| {
+        out.get(key)
+            .and_then(Value::as_array)
+            .is_none_or(|a| a.is_empty())
+    };
+    if !full && empty("upsert") && empty("remove") {
+        return None;
+    }
+    Some(out)
+}
+
+/// Whether a `pending` or `pendingResolved` frame from another computer is
+/// about a session that shows here (one it does not name: yes).
+fn pending_shows(frame: &Value, shown: &SessionsShown) -> bool {
+    let session = match frame.get("t").and_then(Value::as_str) {
+        Some("pending") => frame.pointer("/item/sessionId"),
+        _ => frame.get("session"),
+    };
+    session
+        .and_then(Value::as_str)
+        .is_none_or(|id| shown.shows(id))
 }
 
 /// Whether `machine`'s session `session` runs there, as its sessions last
@@ -102,15 +199,17 @@ pub fn session_live(state: &AppState, machine: &str, session: &str) -> Option<bo
 /// The frames a dashboard gets when it connects: every other machine's
 /// sessions as last heard, then whether it is online.
 pub fn initial_frames(state: &AppState) -> Vec<ServerEvent> {
+    let shown = shown_all(state);
     state.machines.federation.with(|r| {
         let mut out = Vec::new();
         for (machine, m) in r.iter() {
+            let choice = shown.get(machine).cloned().unwrap_or_default();
             out.push(ServerEvent::Remote {
                 machine: machine.clone(),
                 frame: json!({
                     "t": "sessions",
                     "full": true,
-                    "sessions": m.sessions.values().collect::<Vec<_>>(),
+                    "sessions": shown_list(m.sessions.iter(), &choice),
                     "seq": 0,
                 }),
                 session: None,
@@ -143,15 +242,16 @@ pub fn snapshot(state: &AppState) -> Vec<Value> {
             .map(|p| (p.id.clone(), p.display_name().to_string()))
             .collect()
     });
+    let shown = shown_all(state);
     state.machines.federation.with(|r| {
         let mut ids: Vec<&String> = r.keys().filter(|id| names.contains_key(*id)).collect();
         ids.sort();
         ids.into_iter()
             .map(|id| {
                 let m = &r[id];
-                let sessions: Vec<Value> = m
-                    .sessions
-                    .values()
+                let choice = shown.get(id).cloned().unwrap_or_default();
+                let sessions: Vec<Value> = shown_list(m.sessions.iter(), &choice)
+                    .into_iter()
                     .map(|s| {
                         let mut s = s.clone();
                         if let Some(o) = s.as_object_mut() {
@@ -244,6 +344,74 @@ pub fn forget(state: &AppState, machine: &str) {
         frame: json!({ "t": "forgotten" }),
         session: None,
     });
+}
+
+// ─── which of its sessions show here ────────────────────────────────────────────
+
+/// `machine`'s sessions as last heard, every one — the ones not shown here
+/// too — each with whether it shows here (`synced`), most recently active
+/// first: `{mode, loaded, sessions: [{id, name, title, projectName, cwd,
+/// live, status, lastActivityAt, synced}]}` (`GET /api/machines/{id}/
+/// sessions/sync`).
+pub fn choices(state: &AppState, machine: &str) -> Value {
+    let shown = shown_of(state, machine);
+    let (loaded, mut sessions) = state.machines.federation.with(|r| {
+        let Some(m) = r.get(machine) else {
+            return (false, Vec::new());
+        };
+        let list: Vec<Value> = m
+            .sessions
+            .iter()
+            .map(|(id, s)| {
+                let field = |k: &str| s.get(k).cloned().unwrap_or(Value::Null);
+                json!({
+                    "id": id,
+                    "name": field("name"),
+                    "title": field("title"),
+                    "projectName": field("projectName"),
+                    "cwd": field("cwd"),
+                    "live": s.get("live").and_then(Value::as_bool).unwrap_or(false),
+                    "status": field("status"),
+                    "lastActivityAt": field("lastActivityAt"),
+                    "synced": shown.shows(id),
+                })
+            })
+            .collect();
+        (m.loaded, list)
+    });
+    let at = |v: &Value| v["lastActivityAt"].as_i64().unwrap_or(0);
+    sessions.sort_by_key(|s| std::cmp::Reverse(at(s)));
+    json!({ "mode": shown.mode, "loaded": loaded, "sessions": sessions })
+}
+
+/// Which of `machine`'s sessions show here changed: every dashboard gets
+/// its list again (sessions newly hidden leave it, newly shown join it),
+/// then whether it is online (a list alone would say it is).
+pub fn republish(state: &AppState, machine: &str) {
+    let shown = shown_of(state, machine);
+    let frames = state.machines.federation.with(|r| {
+        let m = r.get(machine)?;
+        Some([
+            json!({
+                "t": "sessions",
+                "full": true,
+                "sessions": shown_list(m.sessions.iter(), &shown),
+                "seq": 0,
+            }),
+            if m.online {
+                json!({ "t": "online" })
+            } else {
+                json!({ "t": "offline", "since": m.since })
+            },
+        ])
+    });
+    for frame in frames.into_iter().flatten() {
+        state.broadcast(ServerEvent::Remote {
+            machine: machine.to_string(),
+            frame,
+            session: None,
+        });
+    }
 }
 
 // ─── the links ─────────────────────────────────────────────────────────────────
@@ -420,23 +588,33 @@ fn handle(state: &AppState, machine: &str, tx: &mpsc::UnboundedSender<String>, f
             .and_then(Value::as_str)
             .map(str::to_string)
     };
-    let publish = |session: Option<String>| {
+    let send = |frame: Value, session: Option<String>| {
         state.broadcast(ServerEvent::Remote {
             machine: machine.to_string(),
-            frame: frame.clone(),
+            frame,
             session,
         });
     };
+    let publish = |session: Option<String>| send(frame.clone(), session);
     match t {
         "ping" => {
             let _ = tx.send(json!({ "t": "pong" }).to_string());
         }
         "sessions" => {
+            // Kept whole; passed on with only the sessions shown here.
             cache_sessions(state, machine, &frame);
-            publish(None);
+            if let Some(f) = shown_sessions_frame(&frame, &shown_of(state, machine)) {
+                send(f, None);
+            }
+        }
+        // What waits on someone there, for the sessions shown here.
+        "pending" | "pendingResolved" => {
+            if pending_shows(&frame, &shown_of(state, machine)) {
+                publish(None);
+            }
         }
         // A move it runs (to or from anywhere), as its own dashboards see it.
-        "pending" | "pendingResolved" | "resync" | "move" => publish(None),
+        "resync" | "move" => publish(None),
         "transcript" | "transcriptReset" | "stream" | "agents" => {
             if let Some(session) = session_scoped() {
                 publish(Some(session));
@@ -628,6 +806,207 @@ mod tests {
             }
         }
         assert_eq!(got, ["runs", "tasks"]);
+    }
+
+    const S1: &str = "a0ee0000-1111-4222-8333-444455556661";
+    const S2: &str = "a0ee0000-1111-4222-8333-444455556662";
+
+    /// A state with `B` paired, its sessions shown as `choice` says.
+    fn paired_with_choice(
+        choice: crate::machines::store::SessionsShown,
+    ) -> (tempfile::TempDir, AppState) {
+        const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let tmp = tempfile::tempdir().unwrap();
+        let st = crate::state::Inner::new(
+            crate::claude::ClaudeHome::with_base(tmp.path().join("home")),
+            crate::state::ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+            },
+            crate::server::auth::Auth::ephemeral(),
+        );
+        let mut peer = crate::machines::pairing::peer_record(
+            &crate::machines::protocol::MachineInfo {
+                id: B.into(),
+                name: "DESKTOP-PC".into(),
+                os: "windows".into(),
+                os_version: None,
+                versions: crate::machines::protocol::Versions {
+                    app: "0.15.0".into(),
+                    protocol: crate::machines::protocol::PROTOCOL,
+                    claude: None,
+                },
+                key: "d".repeat(64),
+                shell: None,
+            },
+            crate::machines::grants::Grants::defaults(),
+            None,
+        );
+        peer.sessions = choice;
+        st.machines.store_write(|f| f.peers.push(peer));
+        (tmp, st)
+    }
+
+    /// The `remote` frames dashboards got, in order.
+    fn got(rx: &mut tokio::sync::broadcast::Receiver<std::sync::Arc<ServerEvent>>) -> Vec<Value> {
+        let mut out = Vec::new();
+        while let Ok(e) = rx.try_recv() {
+            if let ServerEvent::Remote { frame, .. } = &*e {
+                out.push(frame.clone());
+            }
+        }
+        out
+    }
+
+    fn ids(list: &Value) -> Vec<&str> {
+        list.as_array()
+            .map(|l| l.iter().filter_map(|s| s["id"].as_str()).collect())
+            .unwrap_or_default()
+    }
+
+    /// A session stopped here leaves every list, count and pending item
+    /// dashboards get, while the cache keeps it for the choice's own list;
+    /// a diff left with nothing for them is not sent.
+    #[test]
+    fn a_stopped_session_is_left_out_of_what_dashboards_get() {
+        const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let mut choice = crate::machines::store::SessionsShown::default();
+        choice.set(S1, false).unwrap();
+        let (_tmp, st) = paired_with_choice(choice);
+        let mut rx = st.bus.subscribe();
+        let tx = mpsc::unbounded_channel().0;
+
+        handle(
+            &st,
+            B,
+            &tx,
+            json!({"t": "sessions", "full": true, "seq": 1, "sessions": [
+                {"id": S1, "live": true, "lastActivityAt": 2, "title": "Hidden"},
+                {"id": S2, "live": true, "lastActivityAt": 1, "title": "Shown"},
+            ]}),
+        );
+        let frames = got(&mut rx);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(ids(&frames[0]["sessions"]), [S2]);
+
+        // Diffs: one only about the stopped session is not sent; one about
+        // both carries the shown one; a removal passes.
+        handle(
+            &st,
+            B,
+            &tx,
+            json!({"t": "sessions", "seq": 2, "upsert": [{"id": S1, "live": false}]}),
+        );
+        assert!(got(&mut rx).is_empty());
+        handle(
+            &st,
+            B,
+            &tx,
+            json!({"t": "sessions", "seq": 3, "upsert": [{"id": S1}, {"id": S2, "live": true, "lastActivityAt": 3}]}),
+        );
+        let frames = got(&mut rx);
+        assert_eq!(ids(&frames[0]["upsert"]), [S2]);
+        handle(
+            &st,
+            B,
+            &tx,
+            json!({"t": "sessions", "seq": 4, "upsert": [], "remove": [S1]}),
+        );
+        assert_eq!(got(&mut rx)[0]["remove"], json!([S1]));
+        handle(
+            &st,
+            B,
+            &tx,
+            json!({"t": "sessions", "seq": 5, "upsert": [
+                {"id": S1, "live": true, "lastActivityAt": 2, "title": "Hidden"},
+            ]}),
+        );
+        assert!(got(&mut rx).is_empty());
+
+        // What waits on someone there: only for the shown session.
+        for frame in [
+            json!({"t": "pending", "item": {"id": "p1", "sessionId": S1}}),
+            json!({"t": "pending", "item": {"id": "p2", "sessionId": S2}}),
+            json!({"t": "pendingResolved", "id": "p1", "session": S1}),
+            json!({"t": "pendingResolved", "id": "p2", "session": S2}),
+            json!({"t": "pending", "item": {"id": "p3"}}),
+        ] {
+            handle(&st, B, &tx, frame);
+        }
+        let frames = got(&mut rx);
+        let seen: Vec<String> = frames
+            .iter()
+            .map(|f| {
+                f.pointer("/item/id")
+                    .or_else(|| f.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(seen, ["p2", "p2", "p3"]);
+
+        // Counts, the first frames of a dashboard, the polling fallback.
+        let shown = shown_of(&st, B);
+        assert_eq!(st.machines.federation.counts(B, &shown), Some((1, 1)));
+        assert_eq!(st.machines.federation.hidden(B, &shown), 1);
+        let first = initial_frames(&st);
+        let ServerEvent::Remote { frame, .. } = &first[0] else {
+            panic!("a remote frame")
+        };
+        assert_eq!(ids(&frame["sessions"]), [S2]);
+        assert_eq!(ids(&snapshot(&st)[0]["sessions"]), [S2]);
+
+        // The choice's own list has both, most recently active first.
+        let c = choices(&st, B);
+        assert_eq!(c["mode"], "all");
+        assert_eq!(c["loaded"], true);
+        assert_eq!(ids(&c["sessions"]), [S2, S1]);
+        assert_eq!(c["sessions"][1]["synced"], false);
+        assert_eq!(c["sessions"][1]["title"], "Hidden");
+
+        // Synced again: every dashboard gets the whole list, then the link's
+        // state (a list alone would say it is online).
+        st.machines.store_write(|f| {
+            f.peer_mut(B).unwrap().sessions.set(S1, true).unwrap();
+        });
+        republish(&st, B);
+        let frames = got(&mut rx);
+        assert_eq!(frames.len(), 2);
+        let mut both = ids(&frames[0]["sessions"]);
+        both.sort();
+        assert_eq!(both, [S1, S2]);
+        assert_eq!(frames[1]["t"], "offline");
+    }
+
+    /// Only the chosen ones: nothing shows until one is chosen, and a new
+    /// session there stays out.
+    #[test]
+    fn only_the_chosen_sessions_show_in_chosen_mode() {
+        const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let mut choice = crate::machines::store::SessionsShown {
+            mode: crate::machines::store::ShowMode::Chosen,
+            ..Default::default()
+        };
+        choice.set(S2, true).unwrap();
+        let (_tmp, st) = paired_with_choice(choice);
+        let mut rx = st.bus.subscribe();
+        let tx = mpsc::unbounded_channel().0;
+        handle(
+            &st,
+            B,
+            &tx,
+            json!({"t": "sessions", "full": true, "seq": 1,
+                   "sessions": [{"id": S1}, {"id": S2}]}),
+        );
+        assert_eq!(ids(&got(&mut rx)[0]["sessions"]), [S2]);
+        assert_eq!(
+            st.machines.federation.hidden(B, &shown_of(&st, B)),
+            1,
+            "the one not chosen"
+        );
+        // An unknown computer's frames are untouched (nothing chosen there).
+        assert!(shown_of(&st, "cccccccccccccccccccccccccccccccc").shows(S1));
     }
 
     #[test]

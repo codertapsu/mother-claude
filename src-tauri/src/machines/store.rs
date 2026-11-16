@@ -4,7 +4,7 @@
 //! peer, or root) never loses the rest; fields from a newer version survive
 //! a save.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::de::DeserializeOwned;
@@ -469,6 +469,10 @@ pub struct PeerRecord {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub paired_with: Vec<String>,
+    /// Which of its sessions this computer shows (lists, counts, Inbox):
+    /// this computer's own choice, never sent to it.
+    #[serde(default, skip_serializing_if = "SessionsShown::is_default")]
+    pub sessions: SessionsShown,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -477,6 +481,114 @@ impl PeerRecord {
     /// The name to show.
     pub fn display_name(&self) -> &str {
         self.alias.as_deref().unwrap_or(&self.name)
+    }
+}
+
+/// The most sessions of one computer a choice names (each list): a choice,
+/// not a log.
+pub const SHOWN_MAX: usize = 5000;
+
+/// Whether a paired computer's sessions show here unless stopped, or only
+/// when chosen.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShowMode {
+    /// Every session of it but the ones stopped (the default).
+    #[default]
+    All,
+    /// Only the sessions chosen.
+    Chosen,
+}
+
+/// Which of a paired computer's sessions sync to this one — show in its
+/// lists, counts and Inbox (docs/MACHINES.md, "Choosing which sessions
+/// show here"): all but the ones stopped, or only the ones chosen. This
+/// computer's own choice: the other one is never told, and nothing of it
+/// changes there. Both lists are kept across a change of mode, so going
+/// back finds the earlier choices. Read field by field: a bad mode is
+/// `all`, a bad id is left out, so a damaged choice never loses the peer.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionsShown {
+    pub mode: ShowMode,
+    /// Shown in `chosen` mode.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub chosen: BTreeSet<String>,
+    /// Not shown in `all` mode.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub stopped: BTreeSet<String>,
+}
+
+/// A choice's list is full ([`SHOWN_MAX`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShownFull;
+
+impl SessionsShown {
+    pub fn from_value(v: &Value) -> Self {
+        let ids = |key: &str| -> BTreeSet<String> {
+            v.get(key)
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .filter_map(Value::as_str)
+                        .filter(|id| crate::claude::ids::is_session_id(id))
+                        .take(SHOWN_MAX)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        Self {
+            mode: match v.get("mode").and_then(Value::as_str) {
+                Some("chosen") => ShowMode::Chosen,
+                _ => ShowMode::All,
+            },
+            chosen: ids("chosen"),
+            stopped: ids("stopped"),
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Whether the session shows here.
+    pub fn shows(&self, id: &str) -> bool {
+        match self.mode {
+            ShowMode::All => !self.stopped.contains(id),
+            ShowMode::Chosen => self.chosen.contains(id),
+        }
+    }
+
+    /// How many of `ids` do not show here.
+    pub fn hidden<'a>(&self, ids: impl IntoIterator<Item = &'a str>) -> usize {
+        ids.into_iter().filter(|id| !self.shows(id)).count()
+    }
+
+    /// Syncs a session here, or stops it, in the list of the mode in effect
+    /// (`all`: the ones stopped; `chosen`: the ones chosen). Whether the
+    /// choice changed.
+    pub fn set(&mut self, id: &str, synced: bool) -> Result<bool, ShownFull> {
+        let (list, add) = match self.mode {
+            ShowMode::All => (&mut self.stopped, !synced),
+            ShowMode::Chosen => (&mut self.chosen, synced),
+        };
+        if !add {
+            return Ok(list.remove(id));
+        }
+        if list.contains(id) {
+            return Ok(false);
+        }
+        if list.len() >= SHOWN_MAX {
+            return Err(ShownFull);
+        }
+        Ok(list.insert(id.to_string()))
+    }
+}
+
+impl<'de> Deserialize<'de> for SessionsShown {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_value(&Value::deserialize(d)?))
     }
 }
 
@@ -679,6 +791,76 @@ mod tests {
         let saved = serde_json::to_value(&f).unwrap();
         assert_eq!(saved["later"], 3);
         assert_eq!(saved["peers"][0]["futureField"]["x"], 1);
+    }
+
+    const S1: &str = "a0ee0000-1111-4222-8333-444455556661";
+    const S2: &str = "a0ee0000-1111-4222-8333-444455556662";
+
+    #[test]
+    fn a_peers_sessions_choice_defaults_to_all_and_is_read_leniently() {
+        // None stored: every session shows, and nothing is written.
+        let f = MachinesFile::from_value(&json!({ "peers": [peer_json()] }));
+        let p = &f.peers[0];
+        assert!(p.sessions.is_default());
+        assert!(p.sessions.shows(S1));
+        let saved = serde_json::to_value(&f).unwrap();
+        assert!(saved["peers"][0].get("sessions").is_none());
+
+        // A damaged choice never loses the peer: a bad mode is `all`, bad
+        // ids are left out, a list that is not one is empty.
+        let mut bad = peer_json();
+        bad["sessions"] = json!({
+            "mode": "sometimes",
+            "stopped": [S1, "../etc", 7, S1.to_uppercase()],
+            "chosen": "nope",
+        });
+        let f = MachinesFile::from_value(&json!({ "peers": [bad] }));
+        assert_eq!(f.peers.len(), 1, "the peer is kept");
+        let s = &f.peers[0].sessions;
+        assert_eq!(s.mode, ShowMode::All);
+        assert_eq!(s.stopped.iter().collect::<Vec<_>>(), [S1]);
+        assert!(s.chosen.is_empty());
+        assert!(!s.shows(S1) && s.shows(S2));
+        let mut garbage = peer_json();
+        garbage["sessions"] = json!(42);
+        let f = MachinesFile::from_value(&json!({ "peers": [garbage] }));
+        assert!(f.peers[0].sessions.is_default());
+    }
+
+    #[test]
+    fn syncing_and_stopping_follow_the_mode_in_effect_and_survive_a_save() {
+        let mut s = SessionsShown::default();
+        assert_eq!(s.set(S1, false), Ok(true), "stopped");
+        assert_eq!(s.set(S1, false), Ok(false), "already");
+        assert!(!s.shows(S1) && s.shows(S2));
+        assert_eq!(s.hidden([S1, S2]), 1);
+
+        // Only the chosen ones: none yet; the stopped list is kept.
+        s.mode = ShowMode::Chosen;
+        assert!(!s.shows(S2));
+        assert_eq!(s.set(S2, true), Ok(true));
+        assert!(s.shows(S2) && !s.shows(S1));
+        // Back to all: the earlier choice holds again.
+        s.mode = ShowMode::All;
+        assert!(!s.shows(S1) && s.shows(S2));
+        assert_eq!(s.set(S1, true), Ok(true), "synced again");
+        assert!(s.shows(S1));
+
+        s.mode = ShowMode::Chosen;
+        let mut p = peer_json();
+        p["sessions"] = serde_json::to_value(&s).unwrap();
+        assert_eq!(p["sessions"], json!({ "mode": "chosen", "chosen": [S2] }));
+        let f = MachinesFile::from_value(&json!({ "peers": [p] }));
+        assert_eq!(f.peers[0].sessions, s);
+
+        // A list is capped.
+        let mut full = SessionsShown::default();
+        for i in 0..SHOWN_MAX {
+            full.stopped
+                .insert(format!("{i:08x}-1111-4222-8333-444455556666"));
+        }
+        assert_eq!(full.set(S1, false), Err(ShownFull));
+        assert_eq!(full.set(S1, true), Ok(false), "taking one out still works");
     }
 
     #[test]
