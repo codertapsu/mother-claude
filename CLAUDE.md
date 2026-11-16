@@ -470,6 +470,27 @@ sites) — `src-tauri/src/pending/rules.rs`. Invariants:
   under a config directory. Audits keep each pattern's SHA-256, never its
   text. Changes go out as `{t:"permissions"}`.
 
+## Claude Code's plugins (docs/PLUGINS.md)
+
+- **Claude Code changes its own settings.** The Plugins page (`claude/
+  plugins.rs`, `/api/plugins*`) reads with `claude plugin list --json`
+  (`--available` for the catalog) and changes only by running `claude plugin
+  install|uninstall|enable|disable|update` or `marketplace add|remove` on an
+  explicit action from the desktop (`DesktopOnly` + `ctx.local`), with the
+  account's environment and, for the `project`/`local` scopes, in the
+  project's folder. Never a settings file of ours, never `claude plugin
+  configure`. Every id and source is checked first (nothing that reads as an
+  option); a marketplace's command runs only with the `--accept-command`
+  SHA-256 of the command the person was shown (`409 confirm_command`).
+  Mother Claude's own plugin is `409 plugin_is_ours` there. A plugin's MCP
+  servers are shown as name, kind, host or program only.
+- **A session reloads through its own channel.** Owned sessions:
+  `mcp_status`, `mcp_reconnect`, `mcp_toggle`, `reload_plugins`
+  (`refuse_if_busy`, `hold_on_cache_impact` unless the person forces it;
+  `add_plugins` for one folder, the dangerous right) — their plugins come
+  from `system/init`. A tmux session gets `/reload-plugins` typed; any other
+  is told to type it. Tests use the fake CLI only (`FAKE_PLUGINS_STATE`).
+
 ## Mother Claude's MCP server (docs/MCP.md)
 
 - **`POST /mcp` on the loopback listener only**: `404` on the LAN and tunnel
