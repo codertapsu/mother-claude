@@ -1126,7 +1126,8 @@ pub async fn mcp_enabled(
 /// `GET /api/sessions/{id}/plugins` → `{plugins, errors, known, reload}`:
 /// what an owned session loaded, and how its plugins are read again from
 /// here — `control` (asked of the session), `tmux` (`/reload-plugins`
-/// typed into its pane) or `none` (type it in the session).
+/// typed into its pane), `start` (a conversation of the HTTP API: when it
+/// starts again) or `none` (type it in the session).
 pub async fn session_plugins(
     Authed(_ctx): Authed,
     State(state): State<AppState>,
@@ -1141,6 +1142,8 @@ pub async fn session_plugins(
             v
         }
         Route::Tmux(_) => none("tmux"),
+        // A conversation of the HTTP API reads them when it starts.
+        Route::Bridge => none("start"),
         _ => none("none"),
     }))
 }

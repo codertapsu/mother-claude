@@ -108,8 +108,9 @@ export interface SessionPlugin {
 }
 
 /** How a session's plugins are read again from here: asked of it, typed
- * into its tmux pane, or by typing /reload-plugins in it. */
-export type ReloadVia = 'control' | 'tmux' | 'none';
+ * into its tmux pane, when it starts again (a conversation of the HTTP
+ * API), or by typing /reload-plugins in it. */
+export type ReloadVia = 'control' | 'tmux' | 'start' | 'none';
 
 export interface SessionPluginsView {
   plugins: SessionPlugin[];
@@ -256,7 +257,7 @@ export function normalizeSessionPlugins(v: unknown): SessionPluginsView {
       .filter((p): p is SessionPlugin => !!p),
     errors: strings(o['errors']),
     known: o['known'] === true,
-    reload: via === 'control' || via === 'tmux' ? via : 'none',
+    reload: via === 'control' || via === 'tmux' || via === 'start' ? via : 'none',
   };
 }
 

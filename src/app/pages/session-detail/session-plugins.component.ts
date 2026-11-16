@@ -128,7 +128,7 @@ import { SessionContext } from './session-context';
     <section class="card" aria-labelledby="sp-plugins">
       <div class="head">
         <h2 id="sp-plugins" class="first">{{ 'Plugins' | t }}</h2>
-        @if (via() !== 'none') {
+        @if (via() === 'control' || via() === 'tmux') {
           <button
             class="btn small"
             type="button"
@@ -161,6 +161,10 @@ import { SessionContext } from './session-context';
                 | t
             }}
             <mc-copy-button text="/reload-plugins" label="Copy the command" />
+          </p>
+        } @else if (v.reload === 'start') {
+          <p class="muted small">
+            {{ 'A conversation of the HTTP API loads plugin changes when it starts again.' | t }}
           </p>
         } @else if (v.reload === 'tmux') {
           <p class="muted small">

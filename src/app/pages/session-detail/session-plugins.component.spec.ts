@@ -222,6 +222,18 @@ describe('SessionPluginsComponent', () => {
     expect(button(el, 'Copy the command')).toBeTruthy();
   });
 
+  it('says a conversation of the HTTP API loads plugin changes when it starts again', async () => {
+    backend.routes.set('/sessions/s1/mcp', () => ({ status: 409, body: {} }));
+    backend.routes.set('/sessions/s1/plugins', () => ({
+      status: 200,
+      body: { plugins: [], errors: [], known: false, reload: 'start' },
+    }));
+    const { el } = await render(session());
+    expect(words(el)).toContain('loads plugin changes when it starts again');
+    expect(button(el, 'Reload plugins')).toBeUndefined();
+    expect(words(el)).not.toContain('type /reload-plugins');
+  });
+
   it('types /reload-plugins into a tmux session', async () => {
     backend.routes.set('/sessions/s1/plugins', () => ({
       status: 200,
