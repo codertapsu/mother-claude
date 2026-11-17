@@ -101,6 +101,7 @@ describe('HelpComponent', () => {
       'approvals',
       'permissions',
       'new-session',
+      'sessions-together',
     ]);
     expect(idsOf('teams')).toEqual(['teams', 'capacity']);
     expect(idsOf('data')).toEqual(['accounts', 'move-data', 'backup']);

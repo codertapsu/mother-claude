@@ -1038,6 +1038,76 @@ const TOPICS: HelpTopicSource[] = [
       },
     ],
   },
+  {
+    id: 'sessions-together',
+    title: 'Các phiên làm việc cùng nhau',
+    icon: 'sessions',
+    group: 'sessions',
+    summary:
+      'Cho một phiên đọc, nhắn tin, hỏi hoặc khởi động các phiên khác của bạn, trên máy tính này hoặc các máy khác.',
+    intro:
+      'Nhờ các công cụ của Mother Claude, một phiên Claude Code có thể làm việc với các phiên khác của bạn: tìm chúng, đọc những gì một phiên đã nói, gửi tin nhắn cho nó, hỏi nó và chờ câu trả lời, hoặc khởi động một phiên mới trong một dự án. Việc này dùng được cho các phiên trên máy tính này và trên các máy tính khác của bạn.',
+    keywords: [
+      'phiên khác',
+      'nhắn tin giữa các phiên',
+      'hỏi phiên khác',
+      'đọc phiên khác',
+      'chia sẻ dữ liệu',
+      'cộng tác',
+      'làm việc cùng nhau',
+    ],
+    sections: [
+      {
+        heading: 'Nhờ một phiên làm việc đó',
+        steps: [
+          'Trong một phiên, hãy yêu cầu bằng lời của bạn, ví dụ "Hỏi phiên f6a178a5 xem nó đã thiết lập phần lồng tiếng thế nào" hoặc "Khởi động một phiên trong multilingual-dubbed-video trên DESKTOP-PC và nhờ nó chạy các bài kiểm thử".',
+          'Phiên đó dùng các công cụ: `session_list` tìm các phiên khác, `session_read` đọc một phiên, `session_send` gửi tin nhắn, `session_ask` hỏi và chờ câu trả lời, `session_start` khởi động một phiên mới.',
+          'Trả lời thẻ hiện ra (xem bên dưới).',
+        ],
+        tips: [
+          'Một phiên được gọi bằng id của nó, 8 ký tự đầu của id, hoặc đúng tên của nó.',
+          'Các phiên có những công cụ này giống như có trình duyệt và bảng tác vụ: xem **Công cụ cho Claude Code**.',
+        ],
+        links: [{ label: 'Xem “Công cụ Claude Code”', path: '/help/claude-code-tools' }],
+      },
+      {
+        heading: 'Phiên kia nhận được gì',
+        points: [
+          'Mỗi tin nhắn bắt đầu bằng một dòng cho biết nó đến từ phiên nào, dự án và máy tính của phiên đó, và cách trả lời.',
+          '`session_ask` chờ đến khi lượt của phiên kia kết thúc và trả về câu trả lời của nó: 5 phút, trừ khi phiên hỏi muốn chờ lâu hơn, tối đa 30 phút. Nếu lúc đó phiên kia vẫn đang làm, `session_read` cho xem câu trả lời sau.',
+          'Một phiên đã kết thúc sẽ được tiếp tục với tin nhắn, thành một phiên do Mother Claude chạy. Nếu một ứng dụng khác vẫn đang giữ nó, một bản sao sẽ tiếp tục thành phiên mới.',
+          'Một phiên không bao giờ tự đọc, tự nhắn tin hay tự hỏi chính nó.',
+        ],
+      },
+      {
+        heading: 'Duyệt, hoặc cho phép từ nay về sau',
+        points: [
+          'Mỗi lần đọc, nhắn tin, hỏi hay khởi động đều hiện một thẻ trên phiên đang yêu cầu: phiên nào, ở đâu, và nội dung tin nhắn.',
+          'Nhấn **Cho phép một lần**, hoặc **Cho phép và ghi nhớ…** rồi chọn **Từ phiên này**, **Từ …** cho dự án của nó, hoặc **Từ mọi phiên trên máy Mac này** (**Từ mọi phiên trên máy PC này**). Một dự án hay mọi phiên cần ứng dụng máy tính hoặc một thiết bị được phép thực hiện thao tác nguy hiểm.',
+          'Tin nhắn cho một phiên chạy không có lời nhắc xin quyền (**Bỏ qua quyền**) được đánh dấu **nguy hiểm**: chỉ ứng dụng máy tính hoặc thiết bị được phép thực hiện thao tác nguy hiểm mới cho phép được, và nó không bao giờ được ghi nhớ.',
+          'Những gì bạn đã cho phép nằm trong **Quyền**, với tên **Trao đổi với các phiên khác**.',
+        ],
+        links: [{ label: 'Mở trang Quyền', path: '/permissions' }],
+      },
+      {
+        heading: 'Trên các máy tính khác của bạn',
+        points: [
+          'Một phiên tìm thấy các phiên mà máy tính khác của bạn cho hiện trên máy này, và bất kỳ phiên nào khác ở đó theo id của nó.',
+          'Đọc cần quyền **Xem** mà máy tính đó cấp cho máy này; nhắn tin, hỏi và khởi động cần **Điều khiển**.',
+          'Phiên mới ở đó chỉ khởi động được trong thư mục mà Claude Code đã từng dùng trên máy tính đó.',
+        ],
+        links: [{ label: 'Xem “Dùng phiên của máy khác”', path: '/help/machines-sessions' }],
+      },
+      {
+        heading: 'Tin nhắn đến được những phiên nào',
+        points: [
+          'Các phiên do Mother Claude chạy, và các cuộc hội thoại của HTTP API: ngay lập tức.',
+          'Các phiên bắt đầu trong terminal, VS Code hoặc JetBrains: qua plugin Mother Claude, ở bước tiếp theo của chúng, hoặc được gõ vào ô tmux của chúng.',
+          'Mỗi lần đọc, nhắn tin, hỏi và khởi động đều được ghi vào nhật ký kiểm tra với các phiên và máy tính, không bao giờ kèm nội dung.',
+        ],
+      },
+    ],
+  },
 
   // ───────────────────────── Cài đặt và kết nối: điện thoại, nơi khác
   {

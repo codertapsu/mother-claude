@@ -218,6 +218,7 @@ Each area registers its own tools and documents them:
 | `browser_*` | the user's browser, through the extension | [BROWSER.md](BROWSER.md), [BROWSER-PROTOCOL.md](BROWSER-PROTOCOL.md) |
 | `task_*`, `team_*`, `session_summary` | a team's board | [TEAMS.md](TEAMS.md) "Tools" |
 | `machine_*` | the user's other computers | below |
+| `session_*` | the user's other sessions, here and on paired computers | below, "Sessions working together" |
 
 ### Machines
 
@@ -322,6 +323,105 @@ How a call goes:
   `mcp.call` line; every run and task is audited by Machines on both
   computers (MACHINES.md, SECURITY.md "Running commands", "Handing a task
   over").
+
+### Sessions working together
+
+`src-tauri/src/mcp/sessions/` (tests: `mcp/sessions/tests.rs`,
+`tests/sessions.rs` with the fake CLI and two paired app states; the user
+guide is Help › *Sessions working together*). A session finds the user's
+other sessions — on this computer and on the paired computers that show
+theirs here — reads one, messages it, asks it something and waits for the
+answer, or starts a new one in a project. Beside Claude Code's own
+`SendMessage` (sessions that run now), these reach ended ones (continued
+as owned sessions), HTTP API conversations, sessions in other apps through
+the hooks plugin or tmux, and the paired computers — each with an
+approval and an audit line.
+
+| Tool | Input | Answer |
+|---|---|---|
+| `session_list` | `{computer?, query?, live_only?, limit?, projects?}` | JSON, also as `structuredContent`: `{you: {id, name, computer}, sessions: [{id, name, project, folder, computer, here, live, status, waitingFor, lastActive, reach, permissionMode, surface}], computers: [{name, here, online}], reach, projects?: [{name, folder, computer, here, lastActive}], notes?}`. Without `query`: running, waiting or active in the last 24 hours; with it: every session whose name, project, folder, branch, last prompt or id holds it. The caller is never listed. No approval |
+| `session_read` | `{session, computer?, last?, include_tools?}` | text: who it is (name, project, computer, running or not, last active, folder, id), then its last `last` messages (10 by default, at most 50), oldest first, each `[user · <time>]`/`[assistant · <time>]` and its text (4000 characters at most, 60 000 all told); `include_tools` adds `[tool <name>] <summary>` and `[result] …` lines between them |
+| `session_send` | `{session, computer?, message, start_if_ended?}` | JSON: `{delivered: sent\|queued\|relayed\|started, session, name, computer, forked?, approvedBy?, note}`; `started`: it had ended and was continued with the message (`session` is a fork's new id when another process held it) |
+| `session_ask` | `{session, computer?, question, timeout_s?, start_if_ended?}` | `session_send`'s answer plus `{finished, answer?, status?, waitingFor?, waitedSeconds, note?}`: its reply once its turn ended, or what is known at `timeout_s` (300 by default, at most 1800) |
+| `session_start` | `{folder? \| project?, computer?, prompt, model?, wait?, timeout_s?}` | JSON: `{started, session, computer, folder, approvedBy?}`; with `wait`, `session_ask`'s answer fields too |
+
+The arguments:
+
+* `session` — an id, its first characters (6 or more), or a session's
+  exact title or name (any case). Here and on every paired computer that
+  shows its sessions here, unless `computer` says where: `here` (or this
+  computer's name or id) or a paired computer's name or id — then that
+  computer is asked itself, so a session it does not show here is found by
+  its id. One conversation on two computers (a copy, a moved session) is
+  the one its lease names, else the one running; `session_read` otherwise
+  takes the most recent, a write answers `ambiguous` (say `computer`).
+  Several sessions with one name: `ambiguous`, with their ids.
+* `message`, `question`, `prompt` — text, at most 100 000 bytes (a session
+  reached through the hooks takes 8000).
+* `folder` — an absolute path on that computer; `project` — a project's
+  name from that computer's list (`GET /api/projects`). Neither, here: the
+  calling session's project. The folder must be one Claude Code trusts or
+  ran in there (`untrusted_cwd`).
+
+How a call goes:
+
+* **The caller** must be a session the server can name (see Identity),
+  else `unknown_session` (`session_list` works without one). A session
+  never reads, messages or asks itself, nor a copy of its own conversation
+  on another computer (`self`).
+* **Another computer**: Machines on here, the computer paired and online,
+  and its `view` grant for this one (reading, finding) or `control`
+  (messaging, asking, starting) on the path in use — else `not_allowed`,
+  saying which permission to tick there. Requests go to its own
+  `/api/sessions/*` routes over the Machines link (`machines::moves::call`)
+  with `X-MC-Acting: machine`: `dangerous=1` only after a dangerous
+  approval here, intersected there with its own `dangerous` grant. Its
+  refusals come back in its words (`grant_missing`, `machines_off`,
+  `untrusted_cwd`, …).
+* **The approval**: a `crate::pending` item on the *calling* session
+  (`source: "session"`, `toolName: "session_read|send|ask|start"`, its
+  `input` `{action, session, sessionName, sessionProject, folder, computer,
+  machine?, here, live, status, permissionMode, message, last, from,
+  fromSession, project, projectName}` — `project` is the caller's, what a
+  permission compares), with the offer `grant: {kind: "sessions"}` (no
+  patterns, no computer; docs/PERMISSIONS.md) — unless a permission covers
+  it already (`RuleKind::Sessions`, "talking to other sessions": from this
+  session, its project, or any session on this computer; the answer then
+  names it in `approvedBy`). A target in `bypassPermissions` or `dontAsk`
+  makes the card dangerous: never covered, never remembered, allowed only
+  by someone with the dangerous right (the delivery then carries it, as a
+  dangerous `machine_run` does). Denied: `denied`, with the user's note;
+  unanswered for 10 minutes: `approval_timeout`.
+* **Delivery here** is the dashboard composer's
+  (`routes::control::deliver_message`): an owned session (queued behind a
+  running turn and taken at its next step), an HTTP API conversation, tmux
+  (argv only, never while a dialog is open), the hooks relay (at the next
+  tool call, or at once through a wake listener). A session nothing reaches
+  answers `unreachable`; one that ended is continued with the message
+  (`owned::continue_as`, a fork when another process holds it) unless
+  `start_if_ended: false` (`ended`).
+* **Every message is attributed**: its first line is `[Message from the
+  session “<name>” (<project>, on <computer>) through Mother Claude — reply
+  with session_send to <id> on <computer>]` (`[Question from …]` for an ask,
+  `[Started by …]` for a start), then a blank line and the text. Names lose
+  control characters; the line never starts with `!` or `/`.
+* **Waiting** (`session_ask`, `session_start {wait}`): a session Mother
+  Claude runs here is done when its stream's `result` arrives with nothing
+  queued behind it (`mcp::sessions::turn_ended`, from `claude::control`);
+  its `result` text is the answer. Any other session is watched — its status
+  (busy, then not, `waiting` not counted as done) and its transcript from
+  where it ended before the message (after its last prompt for a
+  conversation that starts with the message) — every second here, every
+  3 seconds on another computer. A hooks relay queued for a session that
+  runs nothing returns at once (it is taken at its next tool call).
+* **Long calls**: `session_read` and `session_send` may wait 12 minutes (an
+  approval), `session_ask` and `session_start` 42 (an approval and the
+  wait); `session_list` keeps the 120 s ceiling.
+* **Records**: each read, send, ask and start is an audit line
+  (`session.read`, `session.send`, `session.ask`, `session.start`: the two
+  sessions, the paired computer, the delivery, the rule that allowed it,
+  and the text's SHA-256 and length — never the text). The other computer
+  audits its side as any request from a paired computer.
 
 ## The panel (Settings › Claude Code tools)
 

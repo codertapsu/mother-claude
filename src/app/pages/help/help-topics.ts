@@ -1035,6 +1035,79 @@ const TOPICS: HelpTopicSource[] = [
       },
     ],
   },
+  {
+    id: 'sessions-together',
+    title: 'Sessions working together',
+    icon: 'sessions',
+    group: 'sessions',
+    summary:
+      'Let a session read, message, ask or start your other sessions, on this computer or your other ones.',
+    intro:
+      "With Mother Claude's tools, a Claude Code session can work with your other sessions: find them, read what one said, send it a message, ask it something and wait for the answer, or start a new session in a project. It works for sessions on this computer and on your other computers.",
+    keywords: [
+      'session_list',
+      'session_read',
+      'session_send',
+      'session_ask',
+      'session_start',
+      'another session',
+      'talk to',
+      'share',
+      'collaborate',
+      'cross-session',
+    ],
+    sections: [
+      {
+        heading: 'Ask a session to do it',
+        steps: [
+          'In a session, ask for it in your own words, such as "Ask the session f6a178a5 how it set up the dubbing" or "Start a session in multilingual-dubbed-video on DESKTOP-PC and ask it to run the tests".',
+          'The session uses the tools: `session_list` finds the others, `session_read` reads one, `session_send` sends a message, `session_ask` asks and waits for the answer, `session_start` starts a new session.',
+          'Answer the card that appears (below).',
+        ],
+        tips: [
+          'A session is named by its id, the first 8 characters of it, or its exact name.',
+          'Sessions get the tools as they get the browser and the task board: see **Claude Code tools**.',
+        ],
+        links: [{ label: 'See Claude Code tools', path: '/help/claude-code-tools' }],
+      },
+      {
+        heading: 'What the other session gets',
+        points: [
+          'Every message starts with a line that names the session it comes from, its project and computer, and how to answer.',
+          "`session_ask` waits for the end of the other session's turn and returns its answer: 5 minutes unless the session asks for longer, 30 at most. If it is still working then, `session_read` shows the answer later.",
+          'A session that ended is continued with the message, as a session Mother Claude runs. If another app still holds it, a copy continues as a new session.',
+          'A session never reads, messages or asks itself.',
+        ],
+      },
+      {
+        heading: 'Approve it, or allow it from now on',
+        points: [
+          'Reading, messaging, asking and starting each show a card on the session that asks: which session, where, and the message.',
+          'Press **Allow once**, or **Allow for…** and choose **From this session**, **From …** for its project, or **From every session on this Mac** (**From every session on this PC**). A project or every session needs the desktop app or a device allowed dangerous actions.',
+          'A message to a session that runs without permission prompts (**Bypass permissions**) is marked **dangerous**: only the desktop app or a device allowed dangerous actions can allow it, and it is never remembered.',
+          'What you allowed is on **Permissions**, as **Talking to other sessions**.',
+        ],
+        links: [{ label: 'Open Permissions', path: '/permissions' }],
+      },
+      {
+        heading: 'On your other computers',
+        points: [
+          'A session finds the sessions your other computers show on this one, and any other one there by its id.',
+          'Reading needs the **See** permission that computer gave this one; messaging, asking and starting need **Drive**.',
+          'A new session there starts only in a folder Claude Code already used on that computer.',
+        ],
+        links: [{ label: "See Use another computer's sessions", path: '/help/machines-sessions' }],
+      },
+      {
+        heading: 'Which sessions a message reaches',
+        points: [
+          'Sessions Mother Claude runs, and conversations of the HTTP API: at once.',
+          'Sessions started in a terminal, VS Code or JetBrains: through the Mother Claude plugin, at their next step, or typed into their tmux pane.',
+          'Each read, message, question and start is kept in the audit log with the sessions and the computer, never the text.',
+        ],
+      },
+    ],
+  },
 
   // ───────────────── Settings and connections: the phone, sessions elsewhere
   {
@@ -3520,7 +3593,7 @@ const TOPICS: HelpTopicSource[] = [
     group: 'settings',
     summary: "Mother Claude's own tools for your sessions: the browser, the task board and more.",
     intro:
-      'Mother Claude gives every Claude Code session on your computer its own tools: the browser, the team task board, teams, your other computers (`machine_run` and the rest), and Mother Claude itself. Sessions see them as `mcp__plugin_mother-claude_mc__<tool>`.',
+      'Mother Claude gives every Claude Code session on your computer its own tools: the browser, the team task board, teams, your other computers (`machine_run` and the rest), your other sessions (`session_ask` and the rest), and Mother Claude itself. Sessions see them as `mcp__plugin_mother-claude_mc__<tool>`.',
     keywords: ['mcp', 'tools', 'server', 'services', 'plugin', 'reload-plugins'],
     sections: [
       {

@@ -16,6 +16,7 @@ const IDS = [
   'approvals',
   'permissions',
   'new-session',
+  'sessions-together',
   'phone',
   'internet',
   'foreign-sessions',

@@ -1,8 +1,8 @@
 # Permissions: what Claude may do without asking
 
 When a session asks to do something — run a command, edit a file, fetch a
-page, run a command or hand a task to another computer — Mother Claude
-shows a card. **Allow** answers it once. **Allow for…** answers it and
+page, run a command or hand a task to another computer, talk to another
+session — Mother Claude shows a card. **Allow** answers it once. **Allow for…** answers it and
 remembers the answer as a *permission*, so the same kind of request is
 allowed from then on without a card. Everything else — and everything
 dangerous — still asks. Permissions are listed, paused, changed and
@@ -17,9 +17,9 @@ Code: `src-tauri/src/pending/rules.rs` (the rules, matching, the store),
 
 | Part | Choices |
 |---|---|
-| **Kind** | a session's tool call — by family: `Bash`, `PowerShell`, `Edit` (Edit, Write, MultiEdit, NotebookEdit), `Read` (Read, Glob, Grep, LS), `WebFetch`, `WebSearch`, or one exact tool such as `mcp__github__create_issue` · a **run**: a command a session runs on another computer (`machine_run`) · a **task** handed to another computer (`machine_task`) |
-| **Where** | **this session** · **this project** (every session whose project folder is this one: the repository's top, a worktree under `.claude/worktrees/` counting as its project, else the folder itself) · **this computer** (every project; for runs and tasks: every project, on the computer they run on) |
-| **Patterns** (optional) | commands: their first words at a word boundary (`cargo test` covers `cargo test --lib`, never `cargo test-foo`; a trailing `*` means the same) · files: globs relative to the session's folder (`src/**`, `*.md`; never a path outside it) · sites: a host (`docs.rs`) or its subdomains (`*.github.com`) · tasks take none |
+| **Kind** | a session's tool call — by family: `Bash`, `PowerShell`, `Edit` (Edit, Write, MultiEdit, NotebookEdit), `Read` (Read, Glob, Grep, LS), `WebFetch`, `WebSearch`, or one exact tool such as `mcp__github__create_issue` · a **run**: a command a session runs on another computer (`machine_run`) · a **task** handed to another computer (`machine_task`) · **sessions**: talking to other sessions — reading, messaging, asking or starting one, here or on another computer (`session_read`, `session_send`, `session_ask`, `session_start`; docs/MCP.md "Sessions working together") |
+| **Where** | **this session** · **this project** (every session whose project folder is this one: the repository's top, a worktree under `.claude/worktrees/` counting as its project, else the folder itself) · **this computer** (every project; for runs and tasks: every project, on the computer they run on; for sessions: every session here, whichever session it talks to) |
+| **Patterns** (optional) | commands: their first words at a word boundary (`cargo test` covers `cargo test --lib`, never `cargo test-foo`; a trailing `*` means the same) · files: globs relative to the session's folder (`src/**`, `*.md`; never a path outside it) · sites: a host (`docs.rs`) or its subdomains (`*.github.com`) · tasks and sessions take none |
 
 No patterns means *any* of that kind there. A command pattern never covers a
 command holding a shell metacharacter (`;` `&` `|` `` ` `` `$` `(` `)` `{`
@@ -35,7 +35,8 @@ interpreter alone (`python`, `node`, `npx` — name what it runs:
   an account's config directory, `.mcp.json`, shell startup files, git hooks,
   launch agents, Mother Claude's data, credentials…; a run another computer
   calls dangerous; a task that would run in `bypassPermissions` or
-  `dontAsk`). Its card says it can't be remembered.
+  `dontAsk`; a message, question or start for a session that runs in one).
+  Its card says it can't be remembered.
 - Questions, plans and elicitation forms: a permission only answers a
   permission request.
 - Browser actions keep their own standing grants (docs/BROWSER.md).

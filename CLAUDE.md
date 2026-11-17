@@ -445,7 +445,7 @@ bridge's Messages API client (an API key).
 
 What Claude may do without asking: rules the user saves by answering a card
 with *Allow for…* (`remember` on respond), each a kind (a tool family, a
-run on another computer, a task there), a place (one session, one
+run on another computer, a task there, talking to other sessions), a place (one session, one
 project folder, the whole computer) and optional patterns (command
 prefixes at a word boundary, file globs relative to the session's folder,
 sites) — `src-tauri/src/pending/rules.rs`. Invariants:
@@ -522,6 +522,16 @@ sites) — `src-tauri/src/pending/rules.rs`. Invariants:
   `mc-mcp-headers.ps1`, started by Windows PowerShell by full path, and it
   names the first ancestor that is not a shell (docs/MCP.md "On Windows").
   Owned sessions' copy carries no hooks on Windows.
+- **Sessions working together** (`mcp::sessions`, docs/MCP.md): the
+  `session_*` tools read, message, ask and start the user's other sessions
+  here and on paired computers (their `view`/`control` grant, `X-MC-Acting:
+  machine`). Each read, send, ask and start is a `crate::pending` card on
+  the *calling* session (`source: session`) unless a `RuleKind::Sessions`
+  permission covers it; a target without permission prompts makes it
+  dangerous (never covered or remembered). Delivery is the composer's
+  (`routes::control::deliver_message`; an ended session is continued as
+  owned), every message's first line names its sender, a session never
+  talks to itself, and the audit keeps the text's SHA-256, never the text.
 
 ## The browser extension (docs/BROWSER.md)
 
