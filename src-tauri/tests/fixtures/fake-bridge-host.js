@@ -18,7 +18,11 @@
 // ", seeded" when the message carries a history. "TOOL" calls the first client
 // tool (a `client_tool` request, the answer streamed after its result);
 // "STOPTEST" says "alpha STOP beta" and keeps its turn open until it is
-// interrupted; "AUTHFAIL" answers as a signed-out Claude Code does.
+// interrupted; "AUTHFAIL" answers as a signed-out Claude Code does. With an
+// `outputFormat` it answers as Claude Code 2.1.326 does, through its
+// StructuredOutput tool: `{"reply": "Echo (turn N): <line>"}`, the tool's
+// result before the message's end; "SORETRY" first sends an output the
+// schema refuses (tried again), "PREAMBLE" writes a sentence before the call.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -61,7 +65,7 @@ const lastLine = (content) => {
 
 // One API message as Claude Code passes it on: its stream events, then the
 // whole message.
-const apiMessage = (sessionId, turnId, blocks, stopReason) => {
+const apiMessage = (sessionId, turnId, blocks, stopReason, between) => {
   const ev = (event) =>
     send({
       t: 'event',
@@ -92,11 +96,48 @@ const apiMessage = (sessionId, turnId, blocks, stopReason) => {
     }
     ev({ type: 'content_block_stop', index });
   });
+  const assistant = () =>
+    send({ t: 'event', sessionId, turnId, message: { type: 'assistant', message: { id, content: blocks } } });
+  // A tool Claude Code runs itself answers before the message's end.
+  if (between) {
+    assistant();
+    between();
+  }
   if (stopReason) {
     ev({ type: 'message_delta', delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: 5 } });
     ev({ type: 'message_stop' });
   }
-  send({ t: 'event', sessionId, turnId, message: { type: 'assistant', message: { id, content: blocks } } });
+  if (!between) assistant();
+};
+
+// An answer through Claude Code's StructuredOutput tool.
+const structuredTurn = (c, conv, line, all) => {
+  const output = { reply: `Echo (turn ${conv.turns}): ${line}` };
+  const attempt = (input, taken, preamble) => {
+    const toolUseId = 'toolu_so' + crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+    const blocks = [];
+    if (preamble) blocks.push({ type: 'text', text: 'Here is the JSON.' });
+    blocks.push({ type: 'tool_use', id: toolUseId, name: 'StructuredOutput', input });
+    apiMessage(c.sessionId, c.turnId, blocks, 'tool_use', () =>
+      send({
+        t: 'event', sessionId: c.sessionId, turnId: c.turnId,
+        message: {
+          type: 'user', parent_tool_use_id: null, session_id: c.sessionId,
+          message: { role: 'user', content: [taken
+            ? { type: 'tool_result', tool_use_id: toolUseId, content: 'Structured output provided successfully' }
+            : { type: 'tool_result', tool_use_id: toolUseId, is_error: true,
+                content: 'Output does not match required schema: must have required property \'reply\'' }] },
+        },
+      }),
+    );
+  };
+  if (all.includes('SORETRY')) attempt({ answer: 'wrong shape' }, false, false);
+  attempt(output, true, all.includes('PREAMBLE'));
+  send({
+    t: 'event', sessionId: c.sessionId, turnId: c.turnId,
+    message: { type: 'result', subtype: 'success', is_error: false, result: JSON.stringify(output), structured_output: output },
+  });
+  send({ t: 'turn', sessionId: c.sessionId, turnId: c.turnId, status: 'completed' });
 };
 
 const bareTurn = (c) => {
@@ -115,6 +156,10 @@ const bareTurn = (c) => {
     event({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login' });
     send({ t: 'turn', sessionId: c.sessionId, turnId: c.turnId, status: 'failed',
            error: { code: 'claude_login_required', message: 'Not logged in · Please run /login' } });
+    return;
+  }
+  if (conv.options.outputFormat) {
+    structuredTurn(c, conv, line, all);
     return;
   }
   const tools = conv.options.clientTools || [];
@@ -174,6 +219,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     clientTools: (c.options && c.options.clientTools && c.options.clientTools.map((t) => t.name)) || null,
     maxOutputTokens: (c.options && c.options.maxOutputTokens) || null,
     thinkingConfig: (c.options && c.options.thinkingConfig) || null,
+    outputFormat: (c.options && c.options.outputFormat) || null,
     env: env
       ? {
           set: Object.keys(set).sort(),

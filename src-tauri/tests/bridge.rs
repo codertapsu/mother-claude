@@ -1864,4 +1864,33 @@ async fn live_claude_api_messages() {
     let c: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(c["stop_reason"], "stop_sequence", "{c}");
     assert!(!text_of(&c).contains('6'), "{c}");
+
+    // A structured output: the API's text block of JSON, `end_turn`.
+    let (s, _, body) = call(
+        json!({ "model": "haiku", "max_tokens": 1000,
+                "output_config": { "format": { "type": "json_schema", "schema": {
+                    "type": "object",
+                    "properties": { "lang": { "type": "string" }, "greeting": { "type": "string" } },
+                    "required": ["lang", "greeting"], "additionalProperties": false,
+                }}},
+                "messages": [{ "role": "user", "content": "Give a greeting in French." }] }),
+        None,
+    )
+    .await;
+    assert_eq!(s, reqwest::StatusCode::OK);
+    let so: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(so["stop_reason"], "end_turn", "{so}");
+    let texts: Vec<&Value> = so["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|b| b["type"] != "thinking")
+        .collect();
+    assert_eq!(texts.len(), 1, "{so}");
+    assert_eq!(texts[0]["type"], "text", "{so}");
+    let out: Value = serde_json::from_str(texts[0]["text"].as_str().unwrap()).unwrap();
+    assert!(
+        out["lang"].is_string() && out["greeting"].is_string(),
+        "{so}"
+    );
 }

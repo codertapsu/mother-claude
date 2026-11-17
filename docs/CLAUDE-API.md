@@ -163,7 +163,7 @@ Claude, an AI assistant made by Anthropic."). It runs in its client's folder
 | `stop_sequences` | honoured here: the text is cut where one begins, `stop_reason: "stop_sequence"`, the turn interrupted. The model's own record of that answer may run past the stop. |
 | `max_tokens` | the process's output cap (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`); `0` answers an empty message (the API's cache warm-up) |
 | `thinking` | `enabled` (`budget_tokens` ≥ 1024, below `max_tokens`), `adaptive` (with `display`), `disabled` (`between_tools` too). Left out, as in the API: adaptive on the Claude 5 models (and Claude Code's aliases, which name them), off on the models before them. Where a model cannot turn thinking off, Claude Code leaves it on rather than fail. |
-| `output_config` | `effort` and `format` (`json_schema`) as in the API |
+| `output_config` | `effort` and `format` (`json_schema`) as in the API: a structured answer is a text block of the JSON, `end_turn`. Claude Code writes it through its StructuredOutput tool and checks it against the schema, trying again when it does not match (within the same message), so the JSON comes whole once checked rather than token by token, and words the model writes before it are left out. |
 | A last `assistant` message (prefill) | refused (400): Claude Code takes user messages only |
 | `container`, `mcp_servers`, Files API `file_id` sources | refused (400) |
 | `count_tokens` | an estimate (four bytes of text a token; an image by its size) |

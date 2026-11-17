@@ -918,7 +918,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --test bridge -- --ignored --noc
 The live suite covers a conversation round trip, `/chat` context recall across
 turns, a vision turn with an inline PNG, and the Claude API (an answer, a
 conversation found by its history, a stream, a client tool there and back, a
-stop sequence). It spends a few cents. Run from inside a session Mother Claude
+stop sequence, a structured output). It spends a few cents. Run from inside a session Mother Claude
 started, set `MOTHER_CLAUDE_BRIDGE_HOST_PATH=$PWD/sidecar/dist/bridge-host.js`:
 such a session inherits `MOTHER_CLAUDE_SIDECAR_PATH`, which points at the
 installed app's host.

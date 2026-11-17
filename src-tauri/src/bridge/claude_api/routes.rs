@@ -1256,7 +1256,8 @@ fn answer(
 ) {
     tokio::spawn(async move {
         let mut cursor = cursor;
-        let mut tr = Translator::new(req.stop_sequences.clone());
+        let mut tr =
+            Translator::new(req.stop_sequences.clone()).structured(req.output_format.is_some());
         // The message's last event waits until the answer is recorded.
         let mut last_event: Option<Event> = None;
         let result = drive(&op, &mut cursor, &mut tr, |ev| match (&frames, ev) {

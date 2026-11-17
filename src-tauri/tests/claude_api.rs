@@ -520,6 +520,81 @@ async fn client_tools_go_to_the_client_and_back() {
     assert_eq!(a2["stop_reason"], "end_turn");
 }
 
+/// `output_config.format`: Claude Code answers through its StructuredOutput
+/// tool; the client gets the API's answer, a text block of the JSON
+/// (`end_turn`) — whole or streamed, words before it left out, an output
+/// the schema refused tried again within the same message.
+#[tokio::test]
+async fn structured_outputs_answer_as_the_api_does() {
+    let f = boot().await;
+    let api = f.start(BridgeDefaults::default()).await;
+    let format = json!({ "format": { "type": "json_schema", "schema": {
+        "type": "object", "properties": { "reply": { "type": "string" } },
+        "required": ["reply"], "additionalProperties": false,
+    }}});
+    let (s, h, v) = messages(
+        &api,
+        json!({ "model": "claude-opus-5-5", "max_tokens": 1000, "output_config": format,
+                "messages": [{ "role": "user", "content": "PREAMBLE Hello" }] }),
+        &[],
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["stop_reason"], "end_turn", "{v}");
+    let content = v["content"].as_array().unwrap();
+    assert_eq!(content.len(), 1, "{v}");
+    assert_eq!(content[0]["type"], "text");
+    let answer: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(answer, json!({ "reply": "Echo (turn 1): PREAMBLE Hello" }));
+    let created = &host_ops("session.create", &conversation(&h))[0];
+    assert_eq!(created["outputFormat"]["type"], "json_schema");
+
+    // Streamed, with a first output the schema refused: one message.
+    let resp = reqwest::Client::new()
+        .post(format!("{api}/v1/messages"))
+        .header("anthropic-version", "2023-06-01")
+        .json(&json!({
+            "model": "claude-opus-5-5", "max_tokens": 1000, "stream": true, "output_config": format,
+            "messages": [{ "role": "user", "content": "SORETRY Bonjour" }],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = resp.text().await.unwrap();
+    let names: Vec<&str> = body
+        .lines()
+        .filter_map(|l| l.strip_prefix("event: "))
+        .filter(|n| *n != "ping")
+        .collect();
+    assert_eq!(
+        names.iter().filter(|n| **n == "message_start").count(),
+        1,
+        "{body}"
+    );
+    assert_eq!(names.last(), Some(&"message_stop"), "{body}");
+    let data: Vec<Value> = body
+        .lines()
+        .filter_map(|l| l.strip_prefix("data: "))
+        .filter_map(|d| serde_json::from_str(d).ok())
+        .collect();
+    assert!(
+        !data
+            .iter()
+            .any(|d| d["content_block"]["type"] == "tool_use"),
+        "{body}"
+    );
+    let text: String = data
+        .iter()
+        .filter_map(|d| d.pointer("/delta/text").and_then(Value::as_str))
+        .collect();
+    let answer: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(answer, json!({ "reply": "Echo (turn 1): SORETRY Bonjour" }));
+    assert!(data
+        .iter()
+        .any(|d| d["type"] == "message_delta" && d["delta"]["stop_reason"] == "end_turn"));
+}
+
 /// A stop sequence cuts the answer where it begins, and the turn that went
 /// on is interrupted.
 #[tokio::test]

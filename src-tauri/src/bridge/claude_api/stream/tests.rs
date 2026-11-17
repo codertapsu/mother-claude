@@ -217,3 +217,211 @@ fn frames_are_server_sent_events() {
     );
     assert!(PING_FRAME.starts_with("event: ping\n"));
 }
+
+fn tool_start(index: u64, id: &str, name: &str) -> Value {
+    se(json!({ "type": "content_block_start", "index": index,
+               "content_block": { "type": "tool_use", "id": id, "name": name, "input": {} } }))
+}
+
+fn json_delta(index: u64, part: &str) -> Value {
+    se(json!({ "type": "content_block_delta", "index": index,
+               "delta": { "type": "input_json_delta", "partial_json": part } }))
+}
+
+fn tool_result(id: &str, error: bool) -> Value {
+    json!({ "type": "user", "parent_tool_use_id": null, "message": { "role": "user", "content": [{
+        "type": "tool_result", "tool_use_id": id, "is_error": error,
+        "content": if error { "Output does not match required schema" } else { "Structured output provided successfully" },
+    }]}})
+}
+
+fn names(events: &[Event]) -> Vec<&str> {
+    events.iter().map(|e| e.name.as_str()).collect()
+}
+
+fn structured() -> Translator {
+    Translator::new(Vec::new()).structured(true)
+}
+
+/// As Claude Code 2.1.326 sends it: the call's blocks, its tool result,
+/// then the message's end.
+#[test]
+fn a_structured_answer_is_the_apis_text_of_json() {
+    let mut tr = structured();
+    let mut msgs = vec![
+        start(),
+        se(json!({ "type": "content_block_start", "index": 0,
+                   "content_block": { "type": "thinking", "thinking": "", "signature": "" } })),
+        se(json!({ "type": "content_block_delta", "index": 0,
+                   "delta": { "type": "signature_delta", "signature": "sig" } })),
+        stop(0),
+        text_start(1),
+        text_delta(1, "Here is the JSON."),
+        stop(1),
+        tool_start(2, "toolu_so", STRUCTURED_TOOL),
+        json_delta(2, "{\"lang\": \"fr\", "),
+        json_delta(2, "\"greeting\": \"Bonjour\"}"),
+        stop(2),
+        tool_result("toolu_so", false),
+    ];
+    msgs.extend(end("tool_use", 7));
+    let events = run(&mut tr, &msgs);
+    assert_eq!(
+        names(&events),
+        [
+            "message_start",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop",
+        ]
+    );
+    assert_eq!(events[4].data["index"], 1);
+    assert_eq!(events[4].data["content_block"]["type"], "text");
+    assert_eq!(
+        texts(&events),
+        "{\"lang\": \"fr\", \"greeting\": \"Bonjour\"}"
+    );
+    assert_eq!(events[7].data["delta"]["stop_reason"], "end_turn");
+    assert!(tr.ended());
+    assert_eq!(tr.stop_reason().as_deref(), Some("end_turn"));
+    assert!(tr.tool_calls().is_empty());
+    let m = tr.message();
+    assert_eq!(m["content"].as_array().unwrap().len(), 2);
+    assert_eq!(m["content"][0]["type"], "thinking");
+    let answer: Value = serde_json::from_str(m["content"][1]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(answer, json!({ "lang": "fr", "greeting": "Bonjour" }));
+}
+
+#[test]
+fn an_output_the_schema_refused_is_tried_again_in_the_same_message() {
+    let mut tr = structured();
+    let mut msgs = vec![
+        start(),
+        tool_start(0, "toolu_1", STRUCTURED_TOOL),
+        json_delta(0, "{\"lang\": 1}"),
+        stop(0),
+        tool_result("toolu_1", true),
+    ];
+    msgs.extend(end("tool_use", 5));
+    msgs.extend([
+        start(),
+        tool_start(0, "toolu_2", STRUCTURED_TOOL),
+        json_delta(0, "{\"lang\": \"fr\"}"),
+        stop(0),
+        tool_result("toolu_2", false),
+    ]);
+    msgs.extend(end("tool_use", 6));
+    let events = run(&mut tr, &msgs);
+    // One message for the client: an SDK refuses a second message_start.
+    assert_eq!(
+        names(&events)
+            .iter()
+            .filter(|n| **n == "message_start")
+            .count(),
+        1
+    );
+    assert_eq!(
+        names(&events)
+            .iter()
+            .filter(|n| **n == "message_stop")
+            .count(),
+        1
+    );
+    assert_eq!(texts(&events), "{\"lang\": \"fr\"}");
+    assert_eq!(events[1].data["index"], 0);
+    assert!(tr.ended());
+    assert_eq!(tr.message()["content"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn the_end_waits_for_claude_codes_verdict() {
+    let mut tr = structured();
+    let mut msgs = vec![
+        start(),
+        tool_start(0, "toolu_so", STRUCTURED_TOOL),
+        json_delta(0, "{}"),
+        stop(0),
+    ];
+    msgs.extend(end("tool_use", 3));
+    assert_eq!(names(&run(&mut tr, &msgs)), ["message_start"]);
+    assert!(!tr.ended());
+    let events = run(&mut tr, &[tool_result("toolu_so", false)]);
+    assert_eq!(
+        names(&events),
+        [
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop"
+        ]
+    );
+    assert_eq!(events[3].data["delta"]["stop_reason"], "end_turn");
+    assert!(tr.ended());
+}
+
+#[test]
+fn without_a_structured_output_the_text_answers() {
+    let mut tr = structured();
+    let mut msgs = vec![start(), text_start(0), text_delta(0, "I can't."), stop(0)];
+    msgs.extend(end("end_turn", 4));
+    let events = run(&mut tr, &msgs);
+    assert_eq!(texts(&events), "I can't.");
+    assert_eq!(tr.stop_reason().as_deref(), Some("end_turn"));
+    assert!(tr.ended());
+}
+
+#[test]
+fn a_structured_answer_cut_short_goes_out_as_it_is() {
+    let mut tr = structured();
+    let mut msgs = vec![
+        start(),
+        tool_start(0, "toolu_so", STRUCTURED_TOOL),
+        json_delta(0, "{\"lang\": \"f"),
+        stop(0),
+    ];
+    msgs.extend(end("max_tokens", 9));
+    let events = run(&mut tr, &msgs);
+    assert_eq!(texts(&events), "{\"lang\": \"f");
+    assert_eq!(tr.stop_reason().as_deref(), Some("max_tokens"));
+    assert!(tr.ended());
+}
+
+#[test]
+fn a_turn_that_ends_holding_a_structured_answer_closes_it() {
+    let mut tr = structured();
+    run(
+        &mut tr,
+        &[
+            start(),
+            tool_start(0, "toolu_so", STRUCTURED_TOOL),
+            json_delta(0, "{\"a\": 1}"),
+            stop(0),
+        ],
+    );
+    let events = tr.finish();
+    assert_eq!(texts(&events), "{\"a\": 1}");
+    assert_eq!(names(&events).last(), Some(&"message_stop"));
+    assert_eq!(tr.stop_reason().as_deref(), Some("end_turn"));
+}
+
+#[test]
+fn without_output_config_format_nothing_changes() {
+    let mut tr = Translator::new(Vec::new());
+    let mut msgs = vec![
+        start(),
+        tool_start(0, "toolu_so", STRUCTURED_TOOL),
+        json_delta(0, "{}"),
+        stop(0),
+        tool_result("toolu_so", false),
+    ];
+    msgs.extend(end("tool_use", 3));
+    let events = run(&mut tr, &msgs);
+    assert_eq!(events[1].data["content_block"]["type"], "tool_use");
+    assert_eq!(tr.stop_reason().as_deref(), Some("tool_use"));
+}
