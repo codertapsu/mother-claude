@@ -56,6 +56,8 @@ import {
   type PermissionUpdate,
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import * as readline from 'node:readline';
 import { randomUUID } from 'node:crypto';
 import { conversationEnv as composeEnv, StoreLock, type AccountEnvSpec } from './host-env.js';
@@ -203,7 +205,7 @@ const pendingRequests = new Map<string, Pending>();
 
 /** Raise a request to the Rust core and block until it answers. */
 function askHuman(
-  kind: 'permission' | 'question' | 'elicitation',
+  kind: 'permission' | 'question' | 'elicitation' | 'client_tool',
   sessionId: string,
   turnId: string | null,
   payload: Record<string, unknown>,
@@ -249,6 +251,71 @@ interface SessionOptions {
   agents?: Record<string, unknown>;
   /** The account's part of the environment (never logged). */
   env?: AccountEnvSpec;
+  /**
+   * A conversation of the Claude API (docs/CLAUDE-API.md): the model alone —
+   * `systemPrompt` instead of Claude Code's, no built-in tools (`tools`), no
+   * settings, hooks or MCP servers but the client's own tools, and those
+   * allowed without asking (the client runs them).
+   */
+  bare?: boolean;
+  /** The client's system prompt (bare conversations). */
+  systemPrompt?: string;
+  /** The built-in tools a bare conversation has (none by default). */
+  tools?: string[];
+  /** The thinking a bare conversation runs with, as the API names it. */
+  thinkingConfig?: { type: string; budgetTokens?: number; display?: string };
+  /** `CLAUDE_CODE_MAX_OUTPUT_TOKENS` for this conversation's process. */
+  maxOutputTokens?: number;
+  /** Tools the API client defines and runs: each call goes to the Rust side. */
+  clientTools?: ClientToolSpec[];
+}
+
+/** A tool an API client defines (`tools[]` of a Messages request). */
+interface ClientToolSpec {
+  name: string;
+  description?: string;
+  input_schema: Record<string, unknown>;
+}
+
+/** The MCP server name client tools live under: the model sees them as
+ * `mcp__client__<name>`, and the Rust side gives the client back `<name>`. */
+const CLIENT_TOOLS_SERVER = 'client';
+
+/** The system prompt of a bare conversation the client gave none. */
+const BARE_SYSTEM_PROMPT = 'You are Claude, an AI assistant made by Anthropic.';
+
+/**
+ * The client's tools as an in-process MCP server, schemas as the client wrote
+ * them. A call goes to the Rust side (`client_tool`), which hands it to the
+ * HTTP client as a `tool_use` block and answers with its `tool_result`.
+ */
+function clientToolsServer(
+  sessionId: string,
+  tools: ClientToolSpec[],
+  getTurnId: () => string | null,
+) {
+  const server = new McpServer(
+    { name: CLIENT_TOOLS_SERVER, version: '1.0.0' },
+    { capabilities: { tools: {} } },
+  );
+  server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: tools.map((t) => ({
+      name: t.name,
+      description: t.description ?? '',
+      inputSchema: { type: 'object', ...t.input_schema } as { type: 'object' },
+    })),
+  }));
+  server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const answer = (await askHuman('client_tool', sessionId, getTurnId(), {
+      tool: request.params.name,
+      input: request.params.arguments ?? {},
+    })) as { content?: unknown; is_error?: boolean } | null;
+    const content = Array.isArray(answer?.content)
+      ? answer.content
+      : [{ type: 'text', text: typeof answer?.content === 'string' ? answer.content : '' }];
+    return { content, isError: answer?.is_error === true } as never;
+  });
+  return { type: 'sdk' as const, name: CLIENT_TOOLS_SERVER, instance: server };
 }
 
 interface Session {
@@ -362,7 +429,68 @@ function askUserServer(sessionId: string, getTurnId: () => string | null) {
   });
 }
 
+/**
+ * The options of a bare conversation (a conversation of the Claude API): the
+ * client's system prompt, no Claude Code tools, settings, hooks or MCP
+ * servers but the client's tools, which are allowed without asking.
+ */
+function bareOptions(sessionId: string, opts: SessionOptions, session: () => Session): Options {
+  const env = conversationEnv(opts.env);
+  if (opts.maxOutputTokens && opts.maxOutputTokens > 0) {
+    env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(Math.floor(opts.maxOutputTokens));
+  }
+  const clientTools = opts.clientTools ?? [];
+  const prefix = `mcp__${CLIENT_TOOLS_SERVER}__`;
+  const options: Options = {
+    cwd: opts.cwd,
+    env,
+    permissionMode: 'default',
+    includePartialMessages: true,
+    systemPrompt: opts.systemPrompt?.trim() ? opts.systemPrompt : BARE_SYSTEM_PROMPT,
+    tools: opts.tools ?? [],
+    settingSources: [],
+    strictMcpConfig: true,
+    mcpServers: clientTools.length
+      ? { [CLIENT_TOOLS_SERVER]: clientToolsServer(sessionId, clientTools, () => session().turnId) }
+      : {},
+    canUseTool: async (toolName, input): Promise<PermissionResult> =>
+      toolName.startsWith(prefix)
+        ? { behavior: 'allow', updatedInput: input as Record<string, unknown> }
+        : { behavior: 'deny', message: 'This conversation has no tools but the client\'s own.' },
+  };
+  if (opts.model) options.model = opts.model;
+  if (opts.effort) options.effort = opts.effort as EffortLevel;
+  const t = opts.thinkingConfig;
+  if (t?.type === 'enabled') {
+    options.thinking = {
+      type: 'enabled',
+      ...(t.budgetTokens ? { budgetTokens: t.budgetTokens } : {}),
+      ...(t.display === 'summarized' || t.display === 'omitted' ? { display: t.display } : {}),
+    };
+  } else if (t?.type === 'adaptive') {
+    options.thinking = {
+      type: 'adaptive',
+      ...(t.display === 'summarized' || t.display === 'omitted' ? { display: t.display } : {}),
+    };
+  } else {
+    options.thinking = { type: 'disabled' };
+  }
+  if (opts.outputFormat) options.outputFormat = opts.outputFormat as Options['outputFormat'];
+  if (opts.title) options.title = opts.title;
+  if (opts.resume) {
+    options.resume = opts.resume;
+    if (opts.forkSession) {
+      options.forkSession = true;
+      options.sessionId = sessionId;
+    }
+  } else {
+    options.sessionId = sessionId;
+  }
+  return options;
+}
+
 function buildOptions(sessionId: string, opts: SessionOptions, session: () => Session): Options {
+  if (opts.bare) return bareOptions(sessionId, opts, session);
   const permissionMode = (opts.permissionMode ?? 'default') as PermissionMode;
   const options: Options = {
     cwd: opts.cwd,
