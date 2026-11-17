@@ -2455,10 +2455,16 @@ pub fn sidecar_requested() -> bool {
 
 /// The built sidecar entry point, when Path A is requested.
 /// `MOTHER_CLAUDE_SIDECAR_PATH` (set at startup for packaged builds) wins.
+/// The path comes plain: Node cannot start a script named by a Windows
+/// verbatim path (`\\?\C:\…`).
 fn sidecar_entry() -> Option<PathBuf> {
     if !sidecar_requested() {
         return None;
     }
+    find_sidecar_entry().map(|p| crate::claude::paths::plain(&p))
+}
+
+fn find_sidecar_entry() -> Option<PathBuf> {
     if let Ok(custom) = std::env::var("MOTHER_CLAUDE_SIDECAR_PATH") {
         let p = PathBuf::from(custom);
         if p.is_file() {

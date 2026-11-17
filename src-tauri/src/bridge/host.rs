@@ -103,8 +103,15 @@ impl std::fmt::Debug for RuntimeHost {
 }
 
 /// Locate the built host entry point, mirroring how `control.rs` finds the
-/// per-session sidecar (dev checkout, then the packaged resource dir).
+/// per-session sidecar (dev checkout, then the packaged resource dir). The
+/// path comes plain: Node cannot start a script named by a Windows verbatim
+/// path (`node \\?\C:\…\bridge-host.js` dies with `EISDIR … lstat 'C:'`), and
+/// Tauri gives the resource dir in that form.
 pub fn host_entry() -> Option<PathBuf> {
+    find_host_entry().map(|p| crate::claude::paths::plain(&p))
+}
+
+fn find_host_entry() -> Option<PathBuf> {
     if let Ok(custom) = std::env::var("MOTHER_CLAUDE_BRIDGE_HOST_PATH") {
         let p = PathBuf::from(custom);
         if p.is_file() {
@@ -895,6 +902,29 @@ fn pending_item(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Tauri gives the resource dir as `\\?\C:\…` on Windows; the host's entry
+    /// must reach Node plain, or it cannot start (v0.16.1 on Windows: every
+    /// request answered 503 within 0.1 s).
+    #[cfg(windows)]
+    #[test]
+    fn a_verbatim_entry_reaches_node_plain() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = dir.path().join("bridge-host.js");
+        std::fs::write(&entry, "").unwrap();
+        let verbatim = format!(r"\\?\{}", entry.display());
+        assert!(std::path::Path::new(&verbatim).is_file());
+        std::env::set_var("MOTHER_CLAUDE_BRIDGE_HOST_PATH", &verbatim);
+        let found = host_entry();
+        std::env::remove_var("MOTHER_CLAUDE_BRIDGE_HOST_PATH");
+        let found = found.expect("the entry is found");
+        assert!(
+            !found.to_string_lossy().starts_with(r"\\?\"),
+            "{}",
+            found.display()
+        );
+        assert_eq!(found, entry);
+    }
 
     #[test]
     fn host_errors_map_onto_bridge_statuses() {

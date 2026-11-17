@@ -288,7 +288,12 @@ pub fn run() {
             // In a packaged build the Path A sidecar is bundled under the app's
             // resource dir; point the control layer at it so owned sessions use
             // it automatically. In dev, control.rs falls back to the repo copy.
+            // On Windows Tauri gives the resource dir as a verbatim `\\?\C:\…`
+            // path, which Node cannot start a script from (the bridge host
+            // beside the sidecar died at once): its plain form names the same
+            // folder.
             if let Ok(resource_dir) = app.path().resource_dir() {
+                let resource_dir = claude::paths::plain(&resource_dir);
                 let bundled = resource_dir.join("sidecar/dist/agent-bridge.js");
                 if bundled.is_file() {
                     std::env::set_var("MOTHER_CLAUDE_SIDECAR_PATH", &bundled);
