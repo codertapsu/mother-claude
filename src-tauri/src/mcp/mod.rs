@@ -1,7 +1,8 @@
 //! Mother Claude's MCP server (docs/PLAN-BROWSER-AND-TEAMS.md §5.4): the tools
 //! Claude Code sessions call — the browser (`browser_*`), the task board and
 //! teams (`task_*`, `team_*`), the user's other computers (`machine_*`,
-//! docs/PLAN-MACHINES.md Phase 4) and Mother Claude itself (`mc_*`).
+//! docs/PLAN-MACHINES.md Phase 4), the user's other sessions (`session_*`,
+//! [`sessions`]) and Mother Claude itself (`mc_*`).
 //!
 //! This file is the **contract** the areas share. A tool is a [`ToolDef`]
 //! (what `tools/list` shows) and a handler (what `tools/call` runs). Each area
@@ -25,6 +26,7 @@ pub mod jsonrpc;
 pub mod plugin;
 pub mod server;
 mod session_tool;
+pub mod sessions;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -269,13 +271,14 @@ impl Registry {
 }
 
 /// Every tool Mother Claude serves. Each area adds its `register` call here,
-/// one line, in this order: core, browser, teams, machines.
+/// one line, in this order: core, browser, teams, machines, sessions.
 pub fn registry() -> Registry {
     let mut r = Registry::default();
     core_tools(&mut r);
     crate::extension::mcp::register(&mut r);
     crate::orchestration::mcp::register(&mut r);
     crate::machines::work::mcp::register(&mut r);
+    sessions::register(&mut r);
     r
 }
 

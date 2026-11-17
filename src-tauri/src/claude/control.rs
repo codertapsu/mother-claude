@@ -2233,6 +2233,15 @@ async fn on_result(state: &AppState, h: &OwnedHandle, v: &Value) {
         },
         Some(&h.id),
     );
+    // A session asked through `session_ask` waits for this (docs/MCP.md
+    // "Sessions working together").
+    crate::mcp::sessions::turn_ended(
+        state,
+        &h.id,
+        v.get("result").and_then(Value::as_str),
+        is_error,
+        still_busy,
+    );
     // A task another computer handed over: done when nothing waits
     // (docs/PLAN-MACHINES.md Phase 4); its last message is the summary.
     let text = v.get("result").and_then(Value::as_str).map(str::to_string);

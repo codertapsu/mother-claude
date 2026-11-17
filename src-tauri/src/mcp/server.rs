@@ -133,6 +133,8 @@ pub struct McpState {
     /// ([`SESSIONS_FILE`]).
     sessions: Mutex<HashMap<String, i64>>,
     sessions_path: Option<PathBuf>,
+    /// The turns owned sessions ended, for `session_ask` ([`super::sessions`]).
+    turns: super::sessions::Turns,
 }
 
 impl std::fmt::Debug for McpState {
@@ -184,7 +186,13 @@ impl McpState {
             bindings: Mutex::new(HashMap::new()),
             sessions: Mutex::new(sessions),
             sessions_path,
+            turns: super::sessions::Turns::default(),
         }
+    }
+
+    /// The turns owned sessions ended ([`super::sessions::turn_ended`]).
+    pub fn turns(&self) -> &super::sessions::Turns {
+        &self.turns
     }
 
     /// A session listed or called these tools now: it has them.

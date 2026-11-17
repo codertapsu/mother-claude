@@ -881,6 +881,14 @@ def run_turn(msg):
                                      "seven_day": {"utilization": 0.07, "resetsAt": 4071254400}}}})
         stream_text("limits", answered)
         result("limits", answered)
+    elif text.startswith(("[Question from the session", "[Message from the session", "[Started by the session")):
+        # Another session through Mother Claude's `session_*` tools: the
+        # answer repeats what it was asked (after the attribution line).
+        asked = text.split("\n\n", 1)[-1].strip()
+        if asked == "slow":
+            pump(time.time() + 1.5)
+        stream_text("You asked: " + asked, answered)
+        result("You asked: " + asked, answered)
     else:
         stream_text("ok", answered)
         result("ok", answered)
