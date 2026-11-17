@@ -1894,3 +1894,154 @@ async fn live_claude_api_messages() {
         "{so}"
     );
 }
+
+/// The shapes an Anthropic SDK client sends, as VideoDubber's translation
+/// does (its probe, 2026-11-18): a plain answer, a stream, a structured
+/// output, a long streamed structured answer with a system prompt, and a model
+/// alias. Claude Opus: run it when the Claude API changes, on each OS.
+#[tokio::test]
+#[ignore = "starts real Claude conversations and spends tokens"]
+async fn live_claude_api_sdk_shapes() {
+    let (base, token, state) = boot_live().await;
+    let data = tempfile::tempdir().unwrap();
+    mother_claude_lib::bridge::control::start(
+        &state,
+        BridgeDefaults {
+            api_data_dir: Some(data.path().to_string_lossy().into_owned()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("the bridge should start");
+    let http = client();
+    let post = |body: Value| {
+        let http = http.clone();
+        let base = base.clone();
+        let token = token.clone();
+        async move {
+            let resp = http
+                .post(format!("{base}/messages"))
+                .bearer_auth(&token)
+                .header("anthropic-version", "2023-06-01")
+                .json(&body)
+                .send()
+                .await
+                .unwrap();
+            let status = resp.status();
+            let text = resp.text().await.unwrap();
+            eprintln!("{status}\n{}\n", &text[..text.len().min(1500)]);
+            (status, text)
+        }
+    };
+    // The events of a stream, and the text its deltas carry.
+    let events = |sse: &str| -> (Vec<Value>, String) {
+        let data: Vec<Value> = sse
+            .lines()
+            .filter_map(|l| l.strip_prefix("data: "))
+            .filter_map(|d| serde_json::from_str(d).ok())
+            .collect();
+        let text = data
+            .iter()
+            .filter_map(|d| d.pointer("/delta/text").and_then(Value::as_str))
+            .collect();
+        (data, text)
+    };
+    let stopped = |data: &[Value]| -> Option<String> {
+        data.iter()
+            .rev()
+            .find(|d| d["type"] == "message_delta")
+            .and_then(|d| d.pointer("/delta/stop_reason"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    let text_of = |v: &Value| -> String {
+        v["content"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|b| b["text"].as_str())
+            .collect()
+    };
+    let schema = json!({
+        "type": "object",
+        "properties": { "segments": { "type": "array", "items": {
+            "type": "object",
+            "properties": { "id": { "type": "string" }, "text": { "type": "string" } },
+            "required": ["id", "text"], "additionalProperties": false,
+        }}},
+        "required": ["segments"], "additionalProperties": false,
+    });
+    let user = "Translate into Vietnamese. Reply as JSON {\"segments\":[{\"id\",\"text\"}]}.\nseg_0001: 你好，朋友";
+    let ok = json!({ "role": "user", "content": "Reply with the single word: ok" });
+    let segments = |json_text: &str| {
+        let v: Value =
+            serde_json::from_str(json_text).unwrap_or_else(|e| panic!("{e}: {json_text}"));
+        let list = v["segments"].as_array().cloned().unwrap_or_default();
+        assert!(!list.is_empty(), "{v}");
+        assert!(
+            list.iter()
+                .all(|s| s["id"].is_string() && s["text"].is_string()),
+            "{v}"
+        );
+    };
+
+    // Plain.
+    let (s, body) =
+        post(json!({ "model": "claude-opus-5-5", "max_tokens": 200, "messages": [ok.clone()] }))
+            .await;
+    assert_eq!(s, reqwest::StatusCode::OK, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["stop_reason"], "end_turn", "{v}");
+    assert!(text_of(&v).to_lowercase().contains("ok"), "{v}");
+
+    // Streamed: one message, its end, its stop reason.
+    let (s, sse) = post(json!({ "model": "claude-opus-5-5", "max_tokens": 200, "stream": true, "messages": [ok.clone()] })).await;
+    assert_eq!(s, reqwest::StatusCode::OK, "{sse}");
+    let (data, text) = events(&sse);
+    assert_eq!(
+        data.iter().filter(|d| d["type"] == "message_start").count(),
+        1,
+        "{sse}"
+    );
+    assert_eq!(
+        data.last().map(|d| d["type"].clone()),
+        Some(json!("message_stop")),
+        "{sse}"
+    );
+    assert_eq!(stopped(&data).as_deref(), Some("end_turn"), "{sse}");
+    assert!(text.to_lowercase().contains("ok"), "{sse}");
+
+    // Structured: the JSON as a text block.
+    let (s, body) = post(json!({ "model": "claude-opus-5-5", "max_tokens": 400,
+        "output_config": { "format": { "type": "json_schema", "schema": schema } },
+        "messages": [{ "role": "user", "content": user }] }))
+    .await;
+    assert_eq!(s, reqwest::StatusCode::OK, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["stop_reason"], "end_turn", "{v}");
+    segments(&text_of(&v));
+
+    // Long, streamed and structured, with a system prompt.
+    let (s, sse) = post(
+        json!({ "model": "claude-opus-5-5", "max_tokens": 16000 + 4096, "stream": true,
+        "system": "You are a professional subtitle/dubbing translator.",
+        "output_config": { "format": { "type": "json_schema", "schema": schema } },
+        "messages": [{ "role": "user", "content": user }] }),
+    )
+    .await;
+    assert_eq!(s, reqwest::StatusCode::OK, "{sse}");
+    let (data, text) = events(&sse);
+    assert_eq!(
+        data.iter().filter(|d| d["type"] == "message_start").count(),
+        1,
+        "{sse}"
+    );
+    assert_eq!(stopped(&data).as_deref(), Some("end_turn"), "{sse}");
+    segments(&text);
+
+    // An alias Claude Code knows.
+    let (s, body) = post(json!({ "model": "opus", "max_tokens": 200, "messages": [ok] })).await;
+    assert_eq!(s, reqwest::StatusCode::OK, "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["stop_reason"], "end_turn", "{v}");
+}
