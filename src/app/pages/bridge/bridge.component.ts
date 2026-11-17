@@ -160,9 +160,15 @@ interface ClaudeLine {
             <dt>{{ 'Claude account' | t }}</dt>
             <dd [class.warn]="!claudeLine().ok">{{ claudeLine().text }}</dd>
             <dt>{{ 'Runtime' | t }}</dt>
-            <dd>
+            <dd [class.warn]="!!s.hostError && !s.hostRunning">
               {{
-                s.hostBuilt ? (s.hostRunning ? ('running' | t) : ('ready' | t)) : ('not built' | t)
+                s.hostBuilt
+                  ? s.hostRunning
+                    ? ('running' | t)
+                    : s.hostError
+                      ? ('failed to start' | t)
+                      : ('ready' | t)
+                  : ('not built' | t)
               }}
               @if (!s.hostBuilt) {
                 <span class="muted small"
@@ -181,6 +187,21 @@ interface ClaudeLine {
               }
             }
           </dl>
+
+          @if (s.hostError && !s.hostRunning) {
+            <p class="warn host-error">
+              <strong>{{ 'Claude cannot answer through this API right now.' | t }}</strong>
+              {{
+                'The runtime that runs Claude Code for it stopped as it started, so requests get an error (503). Its last message:'
+                  | t
+              }}
+              <code>{{ s.hostError }}</code>
+              {{
+                'Stop and start the API to try again. If it keeps happening, update Mother Claude under Settings › Software updates.'
+                  | t
+              }}
+            </p>
+          }
 
           @if (s.tokenPolicy === 'never') {
             <p class="warn">

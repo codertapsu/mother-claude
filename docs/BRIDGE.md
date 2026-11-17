@@ -873,6 +873,15 @@ for a headless run.
 npm run sidecar:build
 ```
 
+**`503 runtime_unavailable`, "The bridge host exited while this request was
+in flight: …"** — the host died; the text after the colon is its last error
+line, and the HTTP API page shows the same under **Runtime: failed to start**
+(`hostError` in `GET /api/bridge`) until a host starts again. Mother Claude
+0.16.1 on Windows hit this on every request: Tauri named the resource folder
+`\\?\C:\…`, and Node cannot start a script from such a path (`Error: EISDIR:
+illegal operation on a directory, lstat 'C:'`). The host's path is now always
+given plain (`host::host_entry`, `paths::plain`).
+
 **`409 port_unavailable` when starting** — something else holds 5612. Change
 `MOTHER_CLAUDE_BRIDGE_PORT`, or set it to `0` to serve only the `/v1` mount on
 the main app port.

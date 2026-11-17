@@ -2064,6 +2064,11 @@ export interface BridgeStatus {
   tunnelUrl?: string;
   hostBuilt: boolean;
   hostRunning: boolean;
+  /**
+   * Why the runtime (the helper that runs Claude Code for the API) died the
+   * last time it did, while none has started since: its last error line.
+   */
+  hostError?: string;
   messagesApi: boolean;
   claudeAuthenticated: boolean;
   claudeAccount: string;

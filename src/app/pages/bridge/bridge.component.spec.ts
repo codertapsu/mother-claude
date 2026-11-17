@@ -115,6 +115,56 @@ describe('BridgeComponent accounts', () => {
   });
 });
 
+describe('BridgeComponent runtime', () => {
+  let backend: FakeBackend;
+
+  beforeEach(() => {
+    backend = new FakeBackend();
+    useFakeServer(backend, [provideRouter([])]);
+    backend.routes.set('/defaults', () => ({ status: 200, body: { models: [], efforts: [] } }));
+    backend.routes.set('/sessions', () => ({ status: 200, body: { sessions: [] } }));
+    serveAccounts(backend, buildAccounts(Date.now(), false));
+  });
+
+  afterEach(() => setActiveMock(null));
+
+  const render = async (s: BridgeStatus) => {
+    backend.routes.set('/bridge', () => ({ status: 200, body: s }));
+    const fixture = TestBed.createComponent(BridgeComponent);
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  };
+
+  const runtime = (el: HTMLElement) =>
+    ([...el.querySelectorAll('dt')].find((dt) => dt.textContent?.trim() === 'Runtime')
+      ?.nextElementSibling?.textContent ?? ''
+    ).trim();
+
+  it('says why Claude cannot answer when the runtime died, and what to do', async () => {
+    const error = "Error: EISDIR: illegal operation on a directory, lstat 'C:'";
+    const el = await render({ ...status([]), hostRunning: false, hostError: error });
+    expect(runtime(el)).toBe('failed to start');
+    const warning = el.querySelector('.host-error');
+    expect(warning?.textContent).toContain('Claude cannot answer through this API right now.');
+    expect(warning?.querySelector('code')?.textContent).toBe(error);
+    expect(warning?.textContent).toContain('Stop and start the API to try again.');
+  });
+
+  it('says nothing of an old error while the runtime runs', async () => {
+    const el = await render({ ...status([]), hostRunning: true, hostError: 'Error: old' });
+    expect(runtime(el)).toBe('running');
+    expect(el.querySelector('.host-error')).toBeNull();
+  });
+
+  it('reads ready when the runtime is not running and nothing went wrong', async () => {
+    const el = await render({ ...status([]), hostRunning: false });
+    expect(runtime(el)).toBe('ready');
+    expect(el.querySelector('.host-error')).toBeNull();
+  });
+});
+
 describe('BridgeComponent conversations on disk', () => {
   let backend: FakeBackend;
   let fixture: ComponentFixture<BridgeComponent>;

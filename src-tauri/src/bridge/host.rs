@@ -9,7 +9,7 @@
 //! The host is started lazily on first use and respawned after a crash, so the
 //! desktop app pays nothing for the bridge until something actually calls it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -83,6 +83,56 @@ struct Running {
     /// Which host process this is. In-flight RPCs are tagged with it so a dead
     /// generation can be cleaned up without touching its replacement's work.
     generation: u64,
+    /// The last lines the host wrote to stderr: why it died, when it did.
+    stderr_tail: Mutex<VecDeque<String>>,
+    /// Stderr reached its end (the process is gone or going).
+    stderr_done: tokio::sync::Notify,
+}
+
+/// How many of the host's last stderr lines are kept, and how long each may be.
+const STDERR_LINES: usize = 40;
+const STDERR_LINE_MAX: usize = 400;
+
+impl Running {
+    /// The error the host's stderr ended with, if it ended with one: Node's
+    /// `Error: …` (or `TypeError: …`, …) line of an uncaught exception, else
+    /// the last line that is not a stack frame.
+    fn failure(&self) -> Option<String> {
+        let tail = match self.stderr_tail.lock() {
+            Ok(t) => t,
+            Err(p) => p.into_inner(),
+        };
+        failure_line(tail.iter().map(String::as_str))
+    }
+}
+
+/// The line that says why a Node process failed, from its last stderr lines:
+/// the last `Error: …`, `TypeError: …` or `Error [ERR_…]: …` line, else the
+/// last line that is not part of a stack trace or Node's own footer.
+fn failure_line<'a>(lines: impl DoubleEndedIterator<Item = &'a str> + Clone) -> Option<String> {
+    let is_error = |l: &str| {
+        let head = l.split(':').next().unwrap_or("");
+        let head = head.split(" [").next().unwrap_or(head);
+        !head.is_empty()
+            && head.len() < 40
+            && head.ends_with("Error")
+            && head.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    let is_noise = |l: &str| {
+        l.is_empty()
+            || l.starts_with("at ")
+            || l.starts_with("Node.js v")
+            || l.chars().all(|c| c == '^' || c == ' ')
+            || l.ends_with('{')
+            || l == "}"
+    };
+    let line = lines
+        .clone()
+        .rev()
+        .map(str::trim)
+        .find(|l| is_error(l))
+        .or_else(|| lines.rev().map(str::trim).find(|l| !is_noise(l)))?;
+    Some(line.chars().take(STDERR_LINE_MAX).collect())
 }
 
 /// The lazily-started host process and its in-flight RPCs.
@@ -92,6 +142,10 @@ pub struct RuntimeHost {
     inflight: Mutex<HashMap<String, InFlight>>,
     seq: AtomicU64,
     generations: AtomicU64,
+    /// Why the last host died, while no host has started since (`hostError`
+    /// in the HTTP API's status): a host that cannot start fails every
+    /// request, and this says why.
+    last_failure: Mutex<Option<String>>,
     /// Requests blocked on a human, keyed by request id.
     pub requests: Mutex<HashMap<String, PendingRequest>>,
 }
@@ -143,6 +197,23 @@ impl RuntimeHost {
     /// Whether a host process is currently up.
     pub async fn is_running(&self) -> bool {
         matches!(&*self.running.lock().await, Some(r) if r.alive.load(Ordering::SeqCst))
+    }
+
+    /// Why the last host died (its last error line), while none has started
+    /// since.
+    pub fn last_failure(&self) -> Option<String> {
+        match self.last_failure.lock() {
+            Ok(f) => f.clone(),
+            Err(p) => p.into_inner().clone(),
+        }
+    }
+
+    fn set_last_failure(&self, failure: Option<String>) {
+        let mut slot = match self.last_failure.lock() {
+            Ok(f) => f,
+            Err(p) => p.into_inner(),
+        };
+        *slot = failure;
     }
 
     /// Start the host if it is not already up. Idempotent and racy-safe: the
@@ -215,6 +286,8 @@ impl RuntimeHost {
             child: AsyncMutex::new(child),
             alive: AtomicBool::new(true),
             generation: self.generations.fetch_add(1, Ordering::Relaxed),
+            stderr_tail: Mutex::new(VecDeque::with_capacity(STDERR_LINES)),
+            stderr_done: tokio::sync::Notify::new(),
         });
 
         // Reader: the one place host frames are interpreted.
@@ -235,18 +308,42 @@ impl RuntimeHost {
                     }
                 }
                 running.alive.store(false, Ordering::SeqCst);
+                // Its last words reach stderr as it goes: let them arrive, so
+                // the requests it fails say why.
+                let _ = tokio::time::timeout(
+                    Duration::from_millis(1500),
+                    running.stderr_done.notified(),
+                )
+                .await;
                 st.bridge.host.retire(&running, &st).await;
-                tracing::warn!("bridge host stdout closed; runtime marked down");
+                tracing::warn!(
+                    cause = running.failure().as_deref().unwrap_or("none on stderr"),
+                    "bridge host stdout closed; runtime marked down"
+                );
             });
         }
 
-        if let Some(stderr) = stderr {
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    tracing::debug!("bridge host stderr: {line}");
-                }
-            });
+        match stderr {
+            Some(stderr) => {
+                let running = running.clone();
+                tokio::spawn(async move {
+                    let mut lines = BufReader::new(stderr).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        tracing::debug!("bridge host stderr: {line}");
+                        let mut tail = match running.stderr_tail.lock() {
+                            Ok(t) => t,
+                            Err(p) => p.into_inner(),
+                        };
+                        if tail.len() == STDERR_LINES {
+                            tail.pop_front();
+                        }
+                        tail.push_back(line.chars().take(STDERR_LINE_MAX).collect());
+                    }
+                    // A permit, so a reader that waits after this still wakes.
+                    running.stderr_done.notify_one();
+                });
+            }
+            None => running.stderr_done.notify_one(),
         }
 
         // Reap so a dead host is noticed even if stdout lingers.
@@ -274,7 +371,7 @@ impl RuntimeHost {
         if !is_current {
             // Already replaced; still release this generation's own RPCs.
             drop(guard);
-            self.abandon_generation(dead.generation);
+            self.abandon_generation(dead.generation, dead.failure().as_deref());
             return;
         }
         guard.take();
@@ -284,7 +381,11 @@ impl RuntimeHost {
     /// The cleanup itself. Call with the `running` lock held (or after
     /// establishing that this generation is no longer installed).
     fn retire_locked(&self, dead: &Arc<Running>, state: &AppState) {
-        self.abandon_generation(dead.generation);
+        let failure = dead.failure();
+        if failure.is_some() {
+            self.set_last_failure(failure.clone());
+        }
+        self.abandon_generation(dead.generation, failure.as_deref());
         // Conversations do not survive their host, so every operation still
         // running against it is dead too.
         state
@@ -293,8 +394,9 @@ impl RuntimeHost {
             .fail_all("runtime_unavailable", "The bridge host exited.");
     }
 
-    /// Fail the in-flight RPCs belonging to one host generation.
-    fn abandon_generation(&self, generation: u64) {
+    /// Fail the in-flight RPCs belonging to one host generation, saying why
+    /// when the host's stderr did.
+    fn abandon_generation(&self, generation: u64, failure: Option<&str>) {
         let mut map = match self.inflight.lock() {
             Ok(m) => m,
             Err(p) => p.into_inner(),
@@ -306,10 +408,12 @@ impl RuntimeHost {
             .collect();
         let senders: Vec<_> = ids.iter().filter_map(|id| map.remove(id)).collect();
         drop(map);
+        let message = match failure {
+            Some(why) => format!("The bridge host exited while this request was in flight: {why}"),
+            None => "The bridge host exited while this request was in flight.".to_string(),
+        };
         for (_, tx) in senders {
-            let _ = tx.send(Err(BridgeError::runtime_unavailable(
-                "The bridge host exited while this request was in flight.",
-            )));
+            let _ = tx.send(Err(BridgeError::runtime_unavailable(message.clone())));
         }
     }
 
@@ -468,7 +572,10 @@ impl RuntimeHost {
 /// Dispatch one frame from the host.
 async fn handle_frame(state: &AppState, frame: Value) {
     match frame.get("t").and_then(Value::as_str).unwrap_or_default() {
-        "ready" => tracing::info!(pid = ?frame.get("pid"), "bridge host ready"),
+        "ready" => {
+            tracing::info!(pid = ?frame.get("pid"), "bridge host ready");
+            state.bridge.host.set_last_failure(None);
+        }
 
         "reply" => {
             let Some(id) = frame.get("id").and_then(Value::as_str) else {
@@ -902,6 +1009,67 @@ fn pending_item(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What `node \\?\C:\…\bridge-host.js` printed on Windows (Node 24.15)
+    /// before it exited 1: the error line is what a failed request reports.
+    #[test]
+    fn a_dying_hosts_error_line_is_found() {
+        let stderr = [
+            "node:fs:2734",
+            "    const out = binding.lstat(base, false, undefined, true /* throwIfNoEntry */);",
+            "                        ^",
+            "",
+            "Error: EISDIR: illegal operation on a directory, lstat 'C:'",
+            "    at Object.realpathSync (node:fs:2734:25)",
+            "    at toRealPath (node:internal/modules/helpers:63:13)",
+            "    at node:internal/main/run_main_module:33:47 {",
+            "  errno: -4068,",
+            "  code: 'EISDIR',",
+            "  syscall: 'lstat',",
+            "  path: 'C:'",
+            "}",
+            "",
+            "Node.js v24.15.0",
+        ];
+        assert_eq!(
+            failure_line(stderr.iter().copied()).as_deref(),
+            Some("Error: EISDIR: illegal operation on a directory, lstat 'C:'")
+        );
+        let missing = [
+            "node:internal/modules/run_main:123",
+            "Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@anthropic-ai/claude-agent-sdk'",
+            "    at packageResolve (node:internal/modules/esm/resolve:873:9) {",
+            "  code: 'ERR_MODULE_NOT_FOUND'",
+            "}",
+            "Node.js v24.15.0",
+        ];
+        assert!(failure_line(missing.iter().copied())
+            .unwrap()
+            .starts_with("Error [ERR_MODULE_NOT_FOUND]: Cannot find package"));
+        assert_eq!(
+            failure_line(
+                [
+                    "TypeError: x is not a function",
+                    "    at main (file:///h.js:1:1)"
+                ]
+                .iter()
+                .copied()
+            )
+            .as_deref(),
+            Some("TypeError: x is not a function")
+        );
+        // No error line: the last line that says something.
+        assert_eq!(
+            failure_line(
+                ["[bridge-host] warn: low memory", "", "Node.js v24.15.0"]
+                    .iter()
+                    .copied()
+            )
+            .as_deref(),
+            Some("[bridge-host] warn: low memory")
+        );
+        assert_eq!(failure_line(["", "Node.js v24.15.0"].iter().copied()), None);
+    }
 
     /// Tauri gives the resource dir as `\\?\C:\…` on Windows; the host's entry
     /// must reach Node plain, or it cannot start (v0.16.1 on Windows: every

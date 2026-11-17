@@ -807,6 +807,11 @@ pub async fn status(state: &AppState) -> Value {
     if std::env::var_os("MOTHER_CLAUDE_BRIDGE_PORT").is_some() {
         out["portFromEnv"] = json!(true);
     }
+    // Why the runtime died the last time it did, while none has started
+    // since (left out otherwise, so the answer reads as before).
+    if let Some(why) = state.bridge.host.last_failure() {
+        out["hostError"] = json!(why);
+    }
     // Started whenever Mother Claude opens, with these defaults. Left out
     // while it is not, so the answer reads as before.
     if main.autostart() {
