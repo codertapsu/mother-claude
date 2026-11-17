@@ -1,7 +1,8 @@
 // Permissions: what Claude may do without asking you (`/api/permissions`).
 // Each one is an answer you remembered on a card (*Allow for…*): a tool in a
 // session, in a project or everywhere on this computer; a command or a task
-// a session sends to another computer. Anything else, and anything
+// a session sends to another computer; a session talking to other sessions
+// (reading, messaging, asking, starting them). Anything else, and anything
 // dangerous, still asks. The words for them live here, shared by the card,
 // the Permissions page and its sheet.
 
@@ -88,7 +89,7 @@ const num = (v: unknown): number | undefined =>
 const oneOf = <T extends string>(v: unknown, list: readonly T[]): T | undefined =>
   list.includes(v as T) ? (v as T) : undefined;
 
-const KINDS: readonly GrantKind[] = ['tool', 'run', 'task'];
+const KINDS: readonly GrantKind[] = ['tool', 'run', 'task', 'sessions'];
 const PATTERN_KINDS: readonly PatternKind[] = ['command', 'path', 'domain'];
 
 /** One rule as the server sent it, read field by field (null: not one). */
@@ -186,6 +187,7 @@ const machineOf = (t: GrantTarget) => t.machineName || tr('the other computer');
 export function anyOf(t: GrantTarget): string {
   if (t.kind === 'run') return tr('Any command on {name}', { name: machineOf(t) });
   if (t.kind === 'task') return tr('Any task handed to {name}', { name: machineOf(t) });
+  if (t.kind === 'sessions') return tr('Talking to other sessions');
   const tool = t.tool || tr('this tool');
   switch (familyOf(t.tool)) {
     case 'shell':
@@ -207,6 +209,8 @@ export function anyOf(t: GrantTarget): string {
  * commands that start with", "Changing files that match". */
 export function matchingOf(t: GrantTarget & { patternKind?: PatternKind }): string {
   if (t.kind === 'run') return tr('Commands on {name} that start with', { name: machineOf(t) });
+  // Talking to sessions takes no patterns.
+  if (t.kind === 'sessions') return anyOf(t);
   const tool = t.tool || tr('this tool');
   const family = t.kind === 'task' ? 'other' : familyOf(t.tool);
   switch (family) {
@@ -285,9 +289,15 @@ export interface ScopeNames {
 
 /** A scope as a choice: a tool's "In this session", "In shop (every
  * session)", "Everywhere on this Mac"; a run's or a task's "From this
- * session", "From shop", "From every project". */
+ * session", "From shop", "From every project"; talking to sessions: "From
+ * every session on this Mac" for the computer. */
 export function scopeLabel(kind: GrantKind, scope: GrantScope, names: ScopeNames = {}): string {
   const project = names.project || tr('this project');
+  if (kind === 'sessions' && scope === 'computer') {
+    return names.host
+      ? tr('From every session on {name}', { name: names.host })
+      : tr('From every session on this {computer}', { computer: computerNoun() });
+  }
   if (kind === 'tool') {
     switch (scope) {
       case 'session':
@@ -347,6 +357,23 @@ export function quickChoices(offer: GrantOffer, host: string | null = null): Qui
               : scope === 'project'
                 ? tr('Any command a session of {project} runs on {name}.', { project, name })
                 : tr('From every session, in every project.'),
+        };
+      case 'sessions':
+        return {
+          scope,
+          label: scopeLabel('sessions', scope, { project, host }),
+          hint:
+            scope === 'session'
+              ? tr('This session may read, message, ask and start other sessions without asking.')
+              : scope === 'project'
+                ? tr(
+                    'Every session of {project} may read, message, ask and start other sessions without asking.',
+                    { project },
+                  )
+                : tr(
+                    'Every session on this {computer} may read, message, ask and start other sessions without asking.',
+                    { computer: computerNoun() },
+                  ),
         };
       case 'task':
         return {

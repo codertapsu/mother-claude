@@ -120,6 +120,32 @@ describe('permission words (core/permission-rules.ts)', () => {
     );
   });
 
+  it('words talking to other sessions: who talks, never patterns', () => {
+    const talk: GrantOffer = {
+      kind: 'sessions',
+      session: 's1',
+      project: '/Users/me/dev/shop',
+      projectName: 'shop',
+    };
+    expect(quickChoices(talk).map((c) => c.label)).toEqual([
+      'From this session',
+      'From shop',
+      'From every session on this Mac',
+    ]);
+    expect(quickChoices(talk)[1].hint).toBe(
+      'Every session of shop may read, message, ask and start other sessions without asking.',
+    );
+    expect(quickChoices(talk, 'DESKTOP-PC')[2].label).toBe('From every session on DESKTOP-PC');
+    const r = rule({ kind: 'sessions', tool: undefined, scope: 'computer' });
+    expect(ruleAction(r)).toBe('Talking to other sessions');
+    expect(ruleAction({ ...r, patterns: ['x'] })).toBe('Talking to other sessions');
+    expect(rememberedText(talk, 'session')).toBe('Allowed and remembered: From this session');
+    expect(
+      normalizePermissions({ rules: [{ id: 'pr_9', kind: 'sessions', scope: 'project' }] }).rules
+        .length,
+    ).toBe(1);
+  });
+
   it('cleans patterns, ranks scopes and reads the list tolerantly', () => {
     expect(cleanPatterns([' cargo test ', '', 'cargo test', 'npm run'])).toEqual([
       'cargo test',
@@ -163,6 +189,11 @@ describe('permission words (core/permission-rules.ts)', () => {
         'Mọi nơi trên máy Mac này',
       ]);
       expect(quickChoices(run)[2].label).toBe('Mọi lệnh trên MacBook');
+      expect(
+        quickChoices({ kind: 'sessions', session: 's1', projectName: 'shop', project: '/x' }).map(
+          (c) => c.label,
+        ),
+      ).toEqual(['Từ phiên này', 'Từ shop', 'Từ mọi phiên trên máy Mac này']);
     } finally {
       await useLanguage('en');
     }

@@ -10,6 +10,7 @@ import permissions from './permissions.json';
 import plugins from './plugins.json';
 import platform from './platform.json';
 import runs from './runs.json';
+import sessions from './sessions.json';
 import shared from './shared.json';
 import shell from './shell.json';
 
@@ -34,4 +35,5 @@ export const VI: Dict = {
   ...runs,
   ...permissions,
   ...plugins,
+  ...sessions,
 };

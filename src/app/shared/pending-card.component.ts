@@ -37,6 +37,12 @@ import { rememberedText } from '../core/permission-rules';
 import { machineRunInput } from '../core/runs';
 import { machineTaskInput } from '../core/tasks';
 import { RealtimeService } from '../core/realtime.service';
+import {
+  sessionTalkDetail,
+  sessionTalkHeading,
+  sessionTalkInput,
+  sessionTalkTitle,
+} from '../core/session-talk';
 import { sessionLink } from '../core/session-links';
 import { AccountChipComponent } from './account-chip.component';
 import { BrowserActionComponent } from './browser-action.component';
@@ -48,6 +54,7 @@ import { MachineRunActionComponent } from './machine-run-action.component';
 import { MachineTaskActionComponent } from './machine-task-action.component';
 import { renderMarkdown } from './markdown';
 import { RememberPanelComponent } from './remember-panel.component';
+import { SessionTalkActionComponent } from './session-talk-action.component';
 import { SheetComponent } from './sheet.component';
 import { TimeAgoComponent } from './time-ago.component';
 import { ToolPreviewComponent } from './tool-preview.component';
@@ -136,6 +143,7 @@ interface SchemaField {
     MachineRunActionComponent,
     MachineTaskActionComponent,
     RememberPanelComponent,
+    SessionTalkActionComponent,
     SheetComponent,
     TimeAgoComponent,
     ToolPreviewComponent,
@@ -318,6 +326,11 @@ export class PendingCardComponent {
   protected readonly isMachineTask = computed(
     () => this.isMachineRun() && this.toolName() === 'machine_task',
   );
+  /** A session asks to read, message, ask or start another session
+   * (docs/MCP.md "Sessions working together"). */
+  protected readonly isSessionTalk = computed(
+    () => (this.full()?.source ?? this.item().source) === 'session',
+  );
   /** What Mother Claude can remember of the answer (the server's offer). */
   protected readonly offer = computed<GrantOffer | null>(() => this.full()?.grant ?? null);
   /** *Allow for…*: an offer nothing blocks. */
@@ -350,6 +363,7 @@ export class PendingCardComponent {
   protected readonly detailText = computed(() => {
     const d = this.item().detail ?? '';
     if (this.isMachineTask()) return taskDetail(d);
+    if (this.isSessionTalk()) return sessionTalkDetail(d);
     return this.isMachineRun() ? runDetail(d) : d;
   });
   protected readonly toolName = computed(() => this.full()?.toolName ?? this.item().toolName ?? '');
@@ -401,7 +415,13 @@ export class PendingCardComponent {
       case 'elicitation':
         return 'info';
       default:
-        return this.isMachineRun() ? 'monitor' : this.isBrowser() ? 'globe' : 'shield';
+        return this.isMachineRun()
+          ? 'monitor'
+          : this.isBrowser()
+            ? 'globe'
+            : this.isSessionTalk()
+              ? 'sessions'
+              : 'shield';
     }
   });
   protected readonly heading = computed(() => {
@@ -422,6 +442,8 @@ export class PendingCardComponent {
         if (task) return tr('Hand a task to {name}?', { name: task.machineName });
         const run = this.isMachineRun() ? machineRunInput(this.full()?.input) : null;
         if (run) return tr('Run a command on {name}?', { name: run.machineName });
+        const talk = this.isSessionTalk() ? sessionTalkInput(this.full()?.input) : null;
+        if (talk) return sessionTalkHeading(talk);
         return (
           pendingTitle(it.title) ||
           (it.toolName ? tr('Allow {tool}?', { tool: it.toolName }) : tr('Allow this tool?'))
@@ -799,6 +821,8 @@ export function pendingTitle(title: string | undefined): string {
   if (run) return tr('Run on {name}: {command}', { name: run[1], command: run[2] });
   const task = /^Hand a task to (.+?): (.+)$/s.exec(t);
   if (task) return tr('Hand a task to {name}: {task}', { name: task[1], task: task[2] });
+  const talk = sessionTalkTitle(t);
+  if (talk) return talk;
   return title ?? '';
 }
 

@@ -54,6 +54,9 @@ let sheets = 0;
           <p class="for">
             @if (r.kind === 'tool') {
               <span class="tag mono">{{ r.tool }}</span>
+            } @else if (r.kind === 'sessions') {
+              <mc-icon name="sessions" [size]="14" />
+              <span>{{ 'Talking to other sessions' | t }}</span>
             } @else {
               <mc-icon name="monitor" [size]="14" />
               <span>{{ r.machineName }}</span>

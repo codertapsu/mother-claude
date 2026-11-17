@@ -62,7 +62,9 @@ export interface WhereGroup {
 export function groupRules(rules: readonly PermissionRule[]): WhereGroup[] {
   const wheres = new Map<string, { here: boolean; name: string; rules: PermissionRule[] }>();
   for (const r of rules) {
-    const here = r.kind === 'tool';
+    // A session's tools, and its talking to other sessions, apply here;
+    // runs and tasks, on the computer they go to.
+    const here = r.kind === 'tool' || r.kind === 'sessions';
     const key = here ? 'here' : `m:${r.machine ?? r.machineName ?? ''}`;
     const w = wheres.get(key) ?? { here, name: r.machineName ?? '', rules: [] };
     w.rules.push(r);
@@ -88,12 +90,15 @@ export function groupRules(rules: readonly PermissionRule[]): WhereGroup[] {
 function scopeGroups(rules: PermissionRule[]): ScopeGroup[] {
   const groups = new Map<string, ScopeGroup & { rank: number; sort: string }>();
   for (const r of rules) {
+    // Talking to sessions is worded from who talks ("From shop"): its own
+    // groups beside the tools' ("In shop").
     const key =
-      r.scope === 'computer'
+      (r.kind === 'sessions' ? 'talk:' : '') +
+      (r.scope === 'computer'
         ? 'computer'
         : r.scope === 'project'
           ? `p:${r.project ?? ''}`
-          : `s:${r.session ?? ''}`;
+          : `s:${r.session ?? ''}`);
     let g = groups.get(key);
     if (!g) {
       const session = r.sessionName || r.session?.slice(0, 8);
@@ -412,7 +417,7 @@ export class PermissionsComponent {
   );
   /** Some are for other computers: the chips are worth showing. */
   protected readonly hasOthers = computed(() =>
-    this.permissions.rules().some((r) => r.kind !== 'tool'),
+    this.permissions.rules().some((r) => r.kind === 'run' || r.kind === 'task'),
   );
   protected readonly groups = computed(() => {
     const show = this.show();
@@ -437,6 +442,7 @@ export class PermissionsComponent {
   protected icon(r: PermissionRule): IconName {
     if (r.kind === 'run') return 'terminal';
     if (r.kind === 'task') return 'send';
+    if (r.kind === 'sessions') return 'sessions';
     switch (familyOf(r.tool)) {
       case 'shell':
         return 'terminal';

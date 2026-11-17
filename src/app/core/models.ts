@@ -335,8 +335,9 @@ export interface PermissionSuggestion {
 }
 
 /** What a remembered answer allows: a session's tool call, a command a
- * session runs on another computer, or a task it hands to one. */
-export type GrantKind = 'tool' | 'run' | 'task';
+ * session runs on another computer, a task it hands to one, or talking to
+ * other sessions (reading, messaging, asking, starting them). */
+export type GrantKind = 'tool' | 'run' | 'task' | 'sessions';
 
 /** Where a remembered answer applies: this session only, every session of
  * its project, or every project on the computer (a run's or a task's: every
@@ -396,7 +397,10 @@ export type PendingSource =
   | 'observed'
   | 'browser'
   /** A command a session asks to run on another computer (Machines). */
-  | 'machine';
+  | 'machine'
+  /** A session asks to read, message, ask or start another session
+   * (docs/MCP.md "Sessions working together"). */
+  | 'session';
 
 export interface PendingItem {
   id: string;

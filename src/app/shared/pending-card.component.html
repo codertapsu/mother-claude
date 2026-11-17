@@ -49,6 +49,15 @@
         ><mc-icon name="monitor" [size]="12" /> {{ 'on another computer' | t }}</span
       >
     }
+    @if (!compact() && isSessionTalk()) {
+      <span
+        class="tag"
+        [title]="
+          'A Claude Code session wants to work with another session through Mother Claude' | t
+        "
+        ><mc-icon name="sessions" [size]="12" /> {{ 'another session' | t }}</span
+      >
+    }
     @if (!compact() && full()?.source === 'hook') {
       <span class="tag" [title]="'Delivered through the hooks plugin; the first answer wins' | t">{{
         'via hooks' | t
@@ -263,6 +272,8 @@
             <mc-machine-task-action [input]="full()?.input" />
           } @else if (isMachineRun()) {
             <mc-machine-run-action [input]="full()?.input" />
+          } @else if (isSessionTalk()) {
+            <mc-session-talk-action [input]="full()?.input" />
           } @else if (hasPreview()) {
             <mc-tool-preview
               [name]="toolName()"

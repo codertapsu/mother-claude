@@ -382,4 +382,24 @@ describe('groupRules', () => {
     // A session without a name: its id's start.
     expect(groups[1].scopes.map((s) => s.title)).toEqual(['From the session 0f1e2d3c']);
   });
+
+  it('keeps talking to other sessions on this computer, in its own words', () => {
+    const groups = groupRules([
+      rule('pr_0000000000c1', { kind: 'sessions', tool: undefined, scope: 'computer' }),
+      rule('pr_0000000000c2', { tool: 'Bash', scope: 'computer' }),
+      rule('pr_0000000000c3', {
+        kind: 'sessions',
+        tool: undefined,
+        scope: 'project',
+        project: '/x/shop',
+        projectName: 'shop',
+      }),
+    ]);
+    expect(groups.map((g) => g.title)).toEqual(['On this PC']);
+    expect(groups[0].scopes.map((s) => s.title)).toEqual([
+      'From every session on this PC',
+      'Everywhere on this PC',
+      'From shop',
+    ]);
+  });
 });
