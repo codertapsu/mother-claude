@@ -26,7 +26,8 @@ and press **Start**.
 | Backend | Routes | What it gives you | Needs |
 |---|---|---|---|
 | **Claude Agent SDK** | `/threads`, `/chat`, `/turns`, `/run`, `/requests`, `/operations`, `/events` | A real Claude Code conversation: file access, bash, MCP servers, skills, subagents, and a human-in-the-loop approval loop | Your existing Claude Code sign-in |
-| **Messages API** | `/messages`, `/files` | `api.anthropic.com` directly: the Files API, programmatic tool calling, server tools, coordinate-safe vision, arbitrary `tool_choice` | `ANTHROPIC_API_KEY` |
+| **The Claude API** | `/messages`, `/messages/count_tokens`, `/models`, `/conversations` | The Claude API's own endpoints, bodies, streams and errors, answered by Claude Code: a client of `api.anthropic.com` changes only its base URL ([CLAUDE-API.md](CLAUDE-API.md)) | Your existing Claude Code sign-in |
+| **Anthropic API** | `/messages` with `x-mother-claude-backend: anthropic` (or a server's `messagesBackend`), `/files` | `api.anthropic.com` directly: the Files API, programmatic tool calling, server tools, coordinate-safe vision, arbitrary `tool_choice` | `ANTHROPIC_API_KEY` |
 
 The Agent SDK backend runs in a long-lived Node process that Mother Claude
 starts on first use. It is **not** the Claude Desktop app — that application
@@ -42,9 +43,11 @@ first unblocks the turn.
 
 ## Starting it
 
-The API is **off when the app opens**. Starting it publishes a port that can
-drive Claude with your account, so it is something you do rather than something
-that happens.
+The API is **off when the app opens**, unless you ticked **Start when Mother
+Claude opens** for it (desktop only; it then starts with its last start's
+settings, closed to tunnels — [CLAUDE-API.md](CLAUDE-API.md#start-when-mother-claude-opens)).
+Starting it publishes a port that can drive Claude with your account, so it is
+something you do rather than something that happens.
 
 Open Mother Claude → **HTTP API**. Choose:
 
@@ -57,6 +60,11 @@ Open Mother Claude → **HTTP API**. Choose:
   account, then the accounts' bridge default. *Only this account* makes the
   API run as that account alone ([below](#several-api-servers)).
 - **Conversation** — which conversation messages join (see below).
+- **Access** — where the server can be reached from (this computer, your
+  local network, or anywhere: every address and tunnels such as ngrok), its
+  port, and an optional **key** every request must then carry (`x-api-key`
+  or `Authorization: Bearer`); blank means no authentication
+  ([CLAUDE-API.md](CLAUDE-API.md#access)).
 
 Press **Start**. The screen shows the URL, links to the reference and console,
 and the exact `curl` for your configuration. **Stop** unbinds the port;
@@ -260,11 +268,14 @@ until another account is chosen.
 | `http://127.0.0.1:6725/v1/…` | Token, **always** | The main app port, from this machine. |
 | `https://<LAN address>:6725/v1/…` | Token, **always** (a paired device's) | The same mount from your LAN, over TLS. |
 | `…/servers/<id>/…` on 5612, `…/servers/<id>/v1/…` on 6725 | As [above](#several-api-servers) | Another API server, through the main ones. |
+| `http://<LAN or public address>:5612/…`, a tunnel's URL | The server's key; without one, the Claude API only | A server made reachable from the local network or anywhere ([CLAUDE-API.md](CLAUDE-API.md#access)). |
 | The Internet-access port (`6726`), or anything tunnelled to `6725` | — | Not served: `/v1` and `/servers/…` never answer through a tunnel. |
 
-The dedicated port binds loopback only, always — the bridge can drive an agent
-with filesystem write access, so it is never exposed to the network. LAN clients
-use the `/v1` mount on the main server, which already has TLS and token auth.
+The dedicated port binds loopback unless the server is made reachable beyond
+this computer — the bridge can drive an agent with filesystem write access, so
+then only the tool-less Claude API answers without the server's key, and the
+desktop alone opens it. Otherwise LAN clients use the `/v1` mount on the main
+server, which already has TLS and token auth.
 From the LAN only a paired device's token works there; the desktop and
 local-script tokens are accepted only from this machine.
 
@@ -276,7 +287,7 @@ Configuration lives in the environment (see `.env.example`):
 | `MOTHER_CLAUDE_BRIDGE_AUTOSTART` | off | `1` starts the main API server at launch; `all` every saved one too, each closed to tunnels |
 | `MOTHER_CLAUDE_BRIDGE_ACCOUNT` | unset | The autostarted main server's account: an id or a name |
 | `MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY` | off | `1`: the autostarted main server runs as that account only |
-| `MOTHER_CLAUDE_BRIDGE_PORT` | `5612` | `0` serves only `/v1` on the main port |
+| `MOTHER_CLAUDE_BRIDGE_PORT` | `5612` | `0` serves only `/v1` on the main port; set, it wins over a port chosen in the app |
 | `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` | **off** | `1` requires a bearer token **on the loopback port** too; `never` drops it for everyone who can reach that port, tunnels included (below) |
 | `MOTHER_CLAUDE_BRIDGE_CWD` | your home directory | Default working directory for new conversations |
 | `MOTHER_CLAUDE_BRIDGE_ORIGINS` | unset | Extra browser origins allowed to call the bridge |
@@ -695,9 +706,13 @@ an edit to `.claude/` or a shell startup file), not by the client.
 
 ---
 
-## Direct Messages API
+## The Anthropic API directly
 
-`POST /messages` is a faithful pass-through to `POST /v1/messages`, with three
+`POST /messages` is the Claude API, answered by Claude Code
+([CLAUDE-API.md](CLAUDE-API.md)). With `x-mother-claude-backend: anthropic` on a
+request, or on a server started with **Answered by: The Anthropic API**
+(`messagesBackend: "anthropic"`), it is instead a faithful pass-through to
+`POST /v1/messages` (an `anthropic-beta` header becomes `betas`), with three
 conveniences: `localImage`/`localDocument` expansion inside `messages[].content`,
 `betas` as a JSON field instead of a header, and `model`/`max_tokens` defaults.
 Everything else — `tools`, `tool_choice`, `output_config`, `container`,
@@ -750,7 +765,8 @@ endpoints deliberately do not accept `file_id`s — inline the bytes instead.
 Streaming works by setting `"stream": true`; the upstream SSE is proxied verbatim.
 
 Without `ANTHROPIC_API_KEY`, every route in this section answers `503
-messages_api_unconfigured` with instructions. Conversation endpoints are
+messages_api_unconfigured` with instructions (a server will not start with
+`messagesBackend: "anthropic"`). Conversation endpoints and the Claude API are
 unaffected — they use your Claude Code sign-in, which is not an API key.
 
 ---
@@ -900,7 +916,12 @@ cargo test --manifest-path src-tauri/Cargo.toml --test bridge -- --ignored --noc
 ```
 
 The live suite covers a conversation round trip, `/chat` context recall across
-turns, and a vision turn with an inline PNG. It spends a few cents.
+turns, a vision turn with an inline PNG, and the Claude API (an answer, a
+conversation found by its history, a stream, a client tool there and back, a
+stop sequence). It spends a few cents. Run from inside a session Mother Claude
+started, set `MOTHER_CLAUDE_BRIDGE_HOST_PATH=$PWD/sidecar/dist/bridge-host.js`:
+such a session inherits `MOTHER_CLAUDE_SIDECAR_PATH`, which points at the
+installed app's host.
 
 ---
 

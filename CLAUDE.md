@@ -21,8 +21,14 @@ layers:
    SSE, tool approvals, images) plus a direct Messages API path. Mounted at `/v1`
    on the main server and on its own loopback port (default `5612`).
    **It does not listen until started** from the HTTP API page
-   (`bridge::control`, `/api/bridge/*`); until then the routes that drive Claude
-   answer `503 bridge_not_started` while discovery stays open. Start-time
+   (`bridge::control`, `/api/bridge/*`) — or at launch, for a server the user
+   chose to *Start when Mother Claude opens* (desktop only, its last start's
+   defaults, closed to tunnels; `autostart` in `api-servers.json`); until then
+   the routes that drive Claude answer `503 bridge_not_started` while
+   discovery stays open. Every API server also speaks **the Claude API** —
+   `/v1/messages`, `count_tokens`, `models` — answered by Claude Code, so a
+   client of `api.anthropic.com` changes only its base URL
+   (`bridge::claude_api`, [docs/CLAUDE-API.md](docs/CLAUDE-API.md)). Start-time
    choices are *defaults* — every request may override them — and one of them is
    which conversation an unaddressed `/chat` message joins.
    That is the **main** API server; the HTTP API page adds more
@@ -378,6 +384,32 @@ bridge's Messages API client (an API key).
   server (and only the Default account) every answer stays byte-for-byte what
   it was: `servers`, a thread's `server` and the bridge's `server` object are
   left out.
+  **The Claude API** (`bridge::claude_api`, docs/CLAUDE-API.md) is a third
+  consumer of the same routes and rules. Its conversations are **bare**
+  bridge sessions (the client's system prompt, `tools: []`, no settings,
+  hooks, plugins or MCP servers but the client's own tools, which never
+  raise a card) and belong to their HTTP client: nothing else adds a turn
+  to one (`bridge::send_message` refuses, caps `claude_api`). A request
+  finds its conversation by the fingerprints of the history it sends, or
+  names it (`x-conversation-id`); other settings fork it. An `x-api-key`
+  or bearer a client sends is never used, logged, stored or forwarded (a
+  hash prefix may tell clients apart). **Access** (`bridge::claude_api::
+  access`, docs/CLAUDE-API.md "Access"): each server's reach (`access`:
+  this computer, `lan`, `all` — every address, public ones, and tunnels;
+  opened from the desktop only) and an optional **key** given at its start
+  (blank: no authentication; set: every request carries it, `x-api-key` or
+  a bearer, from this computer too). The key lives in the secret store
+  (`SecretName::ApiServerKey`), never in a file of ours (`keyHint` only); a
+  start that cannot read it back fails rather than start open; it is a
+  credential for that server alone — `server::auth` leaves it to the API
+  servers, never a principal, never the dangerous right. Without a key,
+  beyond this computer only the tool-less Claude API answers; the rest needs
+  the key or *Open to tunnels*. Clients'
+  folders (`apiDataDir`, else `<app data>/claude-api`; a new one is the
+  desktop's or the dangerous right's) are never inside a config directory;
+  deleting a client's transcripts goes through the data delete (dangerous,
+  undo). With only the main server, `GET /api/bridge` stays as it was:
+  `autostart` and `savedDefaults` appear only while it is on.
   Whether a tool call is dangerous is decided server-side for every channel
   (`pending::classify_dangerous`: writes to `.claude/`, any account's config
   directory (the app's registry publishes them, `accounts::
@@ -385,7 +417,15 @@ bridge's Messages API client (an API key).
   agents, our data dir, …); a channel's own flag can only raise it.
 - Single broadcast bus (`tokio::sync::broadcast`) fans events to webview + all
   WS clients. Backpressure-aware.
-- TLS + token auth are **mandatory** whenever the bind address is non-loopback.
+- TLS + token auth are **mandatory** whenever the bind address is non-loopback
+  — with one exception the desktop opts into per API server: **an API server
+  reachable beyond this computer** (`access: lan|all`, docs/CLAUDE-API.md
+  "Access"): its port on the private addresses or on every address, plain
+  HTTP, ingress `ApiNetwork` (never local, no Mother Claude token read, never
+  another server's `/servers/<id>/`). Without the server's key only the
+  Claude API's routes answer there (tool-less conversations), and a client's
+  conversations need the key; with it, the server's routes. Keep it that
+  narrow.
   Dangerous actions are desktop-only by default; a device gets them only through
   a per-device grant set from the desktop (LAN and internet separately).
 - **Never write under `~/.claude` (or any account's config directory) from our

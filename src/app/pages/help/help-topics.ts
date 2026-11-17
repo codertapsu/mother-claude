@@ -3744,7 +3744,7 @@ const TOPICS: HelpTopicSource[] = [
           'Press **Start the API**.',
         ],
         points: [
-          'The API is off every time the app opens, and nothing listens until you start it.',
+          'Nothing listens until you start the API, unless you tick **Start when Mother Claude opens**.',
           'What you pick here are only defaults: every request can override them.',
           'To apply a change later, press **Restart with these settings**. **Switch conversation** changes only the conversation.',
           '**Stop** closes the port; conversations already running carry on.',
@@ -3787,6 +3787,109 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           "**Only this account** makes a server run as one account: other accounts' conversations do not exist through it.",
           '**Manage** renames a server, changes its port or removes it. Removing stops it; its conversations are kept.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'claude-api',
+    title: 'The Claude API',
+    icon: 'code',
+    group: 'settings',
+    summary:
+      'Use Postman, the Anthropic SDKs or any client of the Claude API with Mother Claude: change only the base URL.',
+    intro:
+      "Every HTTP API server also speaks the Claude API — `POST /v1/messages`, `count_tokens` and `models` — with the same requests, answers, streams and errors as Anthropic's. Claude Code on this computer answers, signed in as the server's account: no Anthropic API key is needed, and a key a client sends is never used.",
+    keywords: [
+      'claude api',
+      'anthropic',
+      'messages',
+      'v1/messages',
+      'postman',
+      'sdk',
+      'base url',
+      'x-api-key',
+      'anthropic-version',
+      'conversation',
+      'client',
+      'key',
+    ],
+    sections: [
+      {
+        heading: 'Connect a client',
+        steps: [
+          'Start the API on **HTTP API**.',
+          'In your client, set the base URL to the one under **Claude API** (for example `http://127.0.0.1:5612`). Keep everything else.',
+          'Send requests as the Claude API documentation shows: `POST /v1/messages` with `model`, `max_tokens` and `messages`.',
+        ],
+        points: [
+          'A server of yours that calls the Claude API can call Mother Claude instead: change its base URL; its own clients change nothing.',
+          'Postman: the base URL goes in front of `/v1/messages`; the `anthropic-version` and `x-api-key` headers may stay.',
+          'The Anthropic SDKs: give them the base URL (`base_url` in Python, `baseURL` in TypeScript) and any API key — or, when the server has a key, that key.',
+          'Streaming (`"stream": true`), your own tools, images, PDFs, thinking and `output_config` work as in the API.',
+        ],
+        links: [{ label: 'Open HTTP API', path: '/http-api' }],
+      },
+      {
+        heading: 'Conversations',
+        points: [
+          'A request that sends back the history of an earlier exchange goes on in that conversation, in the same Claude Code session — as clients do when they send the whole history each time.',
+          'To name a conversation, send the `x-conversation-id` header (every answer carries it) or `conversation_id` in the body. Then a request may carry only its next message: the conversation keeps the rest.',
+          "A history that differs from the conversation's starts a branch of its own; the same history with another system prompt or other tools starts a new conversation from it.",
+          'Each conversation is a Claude Code session: it shows on the dashboard, keeps its transcript and goes on after Mother Claude restarts.',
+        ],
+      },
+      {
+        heading: 'Access and keys',
+        steps: [
+          'Under **Access**, choose **Reachable from**: **This computer**, **Local network**, or **Anywhere** — every address of this computer, public ones too, and tunnels such as ngrok.',
+          'Choose the **Port** (for another server, under **Manage**).',
+          'Type a **Key**, or press **Generate** — or leave it blank for no authentication.',
+          'Press **Start the API**, or **Restart with these settings**.',
+        ],
+        points: [
+          "With a key, every request carries it as `x-api-key` or `Authorization: Bearer` — what the Claude API's SDKs send — from this computer too. It is kept in the Keychain (Credential Manager on Windows); the page shows only its last characters.",
+          'Without a key, callers from beyond this computer get the Claude API only; the rest of the HTTP API needs the key.',
+          "Through ngrok: with the server reachable from **Anywhere**, run `ngrok http 5678` (your port) and give clients the tunnel's `https://` address.",
+          'At a public address the server speaks plain HTTP: give it a key, and prefer a tunnel for HTTPS.',
+          'Only the desktop app can open a server beyond this computer, or take the key off one that is.',
+        ],
+      },
+      {
+        heading: 'Keep clients apart',
+        points: [
+          '**Tell clients apart by** gives each client a folder of its own: by IP address, API key, `metadata.user_id` or an `X-Client-Id` header.',
+          "**Clients' folder** says where those folders go (for example `D:\\claude-api`); empty keeps them in Mother Claude's data folder. A new folder is chosen on the desktop app.",
+          'A client sees and continues only its own conversations.',
+        ],
+      },
+      {
+        heading: 'Manage clients and conversations',
+        steps: [
+          'On **HTTP API**, open a client under **Clients and conversations**.',
+          'Read a conversation with **Messages**, or open its session.',
+          "Pick conversations and press **Delete picked**, or press **Delete all of this client's data…**.",
+        ],
+        points: [
+          'With **Their Claude Code transcripts too**, the transcripts go as well. They are kept seven days, so **Data** can undo it. This needs the desktop app.',
+          'A client forgets one of its own with `DELETE /v1/conversations/{id}`; its transcript stays until it is deleted here.',
+        ],
+      },
+      {
+        heading: 'Start when Mother Claude opens',
+        points: [
+          'Tick **Start when Mother Claude opens** to start the server at every launch, with the settings of its last start. Only the desktop app can turn it on.',
+          'A server started this way is never open to tunnels.',
+        ],
+      },
+      {
+        heading: 'What differs from the Anthropic API',
+        points: [
+          'Claude Code adds several hundred tokens of its own to the input; `usage` counts them. Answers count against your Claude plan, like any session.',
+          '`temperature`, `top_p`, `top_k` and service tiers are accepted but cannot be applied: the `x-mother-claude-ignored` header names them.',
+          '`stop_sequences` cut the answer here, and `tool_choice` asks the model rather than forcing it.',
+          'Server tools (web search, code execution), a last assistant message (prefill), `container`, `mcp_servers` and Files API ids are refused with a 400 that says so. Set **Answered by** to **The Anthropic API** (it needs an API key) to send requests to Anthropic itself.',
+          '`count_tokens` is an estimate (`x-mother-claude-estimate: true`).',
         ],
       },
     ],

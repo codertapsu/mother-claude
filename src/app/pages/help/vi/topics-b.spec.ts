@@ -17,6 +17,7 @@ const IDS = [
   'claude-code-tools',
   'plugins',
   'api',
+  'claude-api',
   'troubleshooting',
 ];
 

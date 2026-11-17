@@ -1116,7 +1116,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Nhấn **Khởi động API**.',
         ],
         points: [
-          'Mỗi lần mở ứng dụng, API đều tắt, và không có gì lắng nghe cho đến khi bạn khởi động nó.',
+          'Không có gì lắng nghe cho đến khi bạn khởi động API, trừ khi bạn chọn **Khởi chạy khi Mother Claude mở**.',
           'Những gì bạn chọn ở đây chỉ là mặc định: mỗi yêu cầu đều có thể ghi đè.',
           'Để áp dụng thay đổi về sau, nhấn **Khởi động lại với cài đặt này**. **Đổi cuộc trò chuyện** chỉ đổi cuộc trò chuyện.',
           '**Dừng** sẽ đóng cổng; các cuộc trò chuyện đang chạy vẫn tiếp tục.',
@@ -1159,6 +1159,97 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         points: [
           '**Chỉ tài khoản này** khiến máy chủ chỉ chạy bằng một tài khoản: qua máy chủ đó, cuộc trò chuyện của các tài khoản khác coi như không tồn tại.',
           '**Quản lý** để đổi tên máy chủ, đổi cổng hoặc gỡ bỏ nó. Gỡ bỏ sẽ dừng máy chủ; các cuộc trò chuyện của nó vẫn được giữ.',
+        ],
+      },
+    ],
+  },
+
+  'claude-api': {
+    id: 'claude-api',
+    title: 'Claude API',
+    icon: 'code',
+    group: 'settings',
+    summary:
+      'Dùng Postman, các SDK của Anthropic hoặc bất kỳ máy khách nào của Claude API với Mother Claude: chỉ cần đổi base URL.',
+    intro:
+      'Mỗi máy chủ HTTP API cũng nói Claude API — `POST /v1/messages`, `count_tokens` và `models` — với cùng yêu cầu, câu trả lời, luồng sự kiện và lỗi như của Anthropic. Claude Code trên máy tính này trả lời, đăng nhập bằng tài khoản của máy chủ: không cần khóa API của Anthropic, và khóa mà máy khách gửi không bao giờ được dùng.',
+    keywords: ['máy khách', 'khóa API', 'cuộc trò chuyện', 'base URL', 'SDK', 'tương thích'],
+    sections: [
+      {
+        heading: 'Kết nối một máy khách',
+        steps: [
+          'Khởi động API trên trang **HTTP API**.',
+          'Trong máy khách, đặt base URL thành địa chỉ ở mục **Claude API** (ví dụ `http://127.0.0.1:5612`). Giữ nguyên mọi thứ khác.',
+          'Gửi yêu cầu như tài liệu Claude API hướng dẫn: `POST /v1/messages` với `model`, `max_tokens` và `messages`.',
+        ],
+        points: [
+          'Một máy chủ của bạn đang gọi Claude API có thể gọi Mother Claude thay thế: đổi base URL của nó; các máy khách của nó không phải thay đổi gì.',
+          'Postman: đặt base URL trước `/v1/messages`; có thể giữ các header `anthropic-version` và `x-api-key`.',
+          'Các SDK của Anthropic: đưa cho chúng base URL (`base_url` trong Python, `baseURL` trong TypeScript) và một khóa API bất kỳ — hoặc, khi máy chủ có khóa, chính khóa đó.',
+          'Truyền luồng (`"stream": true`), công cụ của riêng bạn, hình ảnh, PDF, suy nghĩ và `output_config` hoạt động như trong API.',
+        ],
+        links: [{ label: 'Mở HTTP API', path: '/http-api' }],
+      },
+      {
+        heading: 'Cuộc trò chuyện',
+        points: [
+          'Yêu cầu gửi lại lịch sử của một lần trao đổi trước sẽ tiếp tục trong cuộc trò chuyện đó, trong cùng phiên Claude Code — đúng như cách các máy khách gửi toàn bộ lịch sử mỗi lần.',
+          'Để chỉ định một cuộc trò chuyện, gửi header `x-conversation-id` (mỗi câu trả lời đều mang nó) hoặc `conversation_id` trong body. Khi đó yêu cầu có thể chỉ mang tin nhắn tiếp theo: cuộc trò chuyện giữ phần còn lại.',
+          'Lịch sử khác với lịch sử của cuộc trò chuyện sẽ bắt đầu một nhánh riêng; cùng lịch sử nhưng với lời nhắc hệ thống hoặc công cụ khác sẽ bắt đầu một cuộc trò chuyện mới từ đó.',
+          'Mỗi cuộc trò chuyện là một phiên Claude Code: nó hiện trên bảng điều khiển, giữ bản ghi của nó và tiếp tục sau khi Mother Claude khởi động lại.',
+        ],
+      },
+      {
+        heading: 'Truy cập và khóa',
+        steps: [
+          'Ở **Truy cập**, chọn **Truy cập được từ**: **Máy tính này**, **Mạng cục bộ**, hoặc **Mọi nơi** — mọi địa chỉ của máy tính này, kể cả địa chỉ công khai, và các đường hầm như ngrok.',
+          'Chọn **Cổng** (với máy chủ khác, ở mục **Quản lý**).',
+          'Nhập một **Khóa**, hoặc nhấn **Tạo** — hoặc để trống nếu không cần xác thực.',
+          'Nhấn **Khởi động API**, hoặc **Khởi động lại với cài đặt này**.',
+        ],
+        points: [
+          'Khi có khóa, mọi yêu cầu đều mang nó dưới dạng `x-api-key` hoặc `Authorization: Bearer` — đúng như các SDK của Claude API gửi — kể cả từ máy tính này. Khóa được giữ trong Keychain (Credential Manager trên Windows); trang chỉ hiện vài ký tự cuối của nó.',
+          'Khi không có khóa, những ai gọi từ ngoài máy tính này chỉ dùng được Claude API; phần còn lại của HTTP API cần khóa.',
+          'Qua ngrok: khi máy chủ truy cập được từ **Mọi nơi**, chạy `ngrok http 5678` (cổng của bạn) và đưa cho các máy khách địa chỉ `https://` của đường hầm.',
+          'Tại một địa chỉ công khai, máy chủ dùng HTTP thường: hãy đặt khóa, và nên dùng đường hầm để có HTTPS.',
+          'Chỉ ứng dụng máy tính mới mở được một máy chủ ra ngoài máy tính này, hoặc gỡ khóa của một máy chủ đang mở như vậy.',
+        ],
+      },
+      {
+        heading: 'Tách riêng các máy khách',
+        points: [
+          '**Phân biệt máy khách theo** cho mỗi máy khách một thư mục riêng: theo địa chỉ IP, khóa API, `metadata.user_id` hoặc header `X-Client-Id`.',
+          '**Thư mục của máy khách** cho biết các thư mục đó nằm ở đâu (ví dụ `D:\\claude-api`); để trống thì chúng nằm trong thư mục dữ liệu của Mother Claude. Thư mục mới được chọn trong ứng dụng máy tính.',
+          'Mỗi máy khách chỉ thấy và tiếp tục các cuộc trò chuyện của chính nó.',
+        ],
+      },
+      {
+        heading: 'Quản lý máy khách và cuộc trò chuyện',
+        steps: [
+          'Trên trang **HTTP API**, mở một máy khách ở mục **Máy khách và cuộc trò chuyện**.',
+          'Đọc một cuộc trò chuyện bằng **Tin nhắn**, hoặc mở phiên của nó.',
+          'Chọn các cuộc trò chuyện rồi nhấn **Xóa mục đã chọn**, hoặc nhấn **Xóa toàn bộ dữ liệu của máy khách này…**.',
+        ],
+        points: [
+          'Khi chọn **Cả bản ghi Claude Code của chúng**, các bản ghi cũng bị xóa. Chúng được giữ bảy ngày, nên trang **Dữ liệu** có thể hoàn tác. Việc này cần ứng dụng máy tính.',
+          'Một máy khách tự quên một cuộc trò chuyện của nó bằng `DELETE /v1/conversations/{id}`; bản ghi của cuộc trò chuyện vẫn còn cho đến khi bị xóa ở đây.',
+        ],
+      },
+      {
+        heading: 'Khởi chạy khi Mother Claude mở',
+        points: [
+          'Chọn **Khởi chạy khi Mother Claude mở** để máy chủ khởi chạy mỗi lần mở ứng dụng, với các thiết lập của lần khởi chạy gần nhất. Chỉ ứng dụng máy tính mới bật được tùy chọn này.',
+          'Máy chủ khởi chạy theo cách này không bao giờ mở cho đường hầm.',
+        ],
+      },
+      {
+        heading: 'Khác biệt so với Anthropic API',
+        points: [
+          'Claude Code thêm vài trăm token của riêng nó vào đầu vào; `usage` có tính chúng. Câu trả lời được tính vào gói Claude của bạn, như mọi phiên.',
+          '`temperature`, `top_p`, `top_k` và các bậc dịch vụ được chấp nhận nhưng không áp dụng được: header `x-mother-claude-ignored` nêu tên chúng.',
+          '`stop_sequences` cắt câu trả lời tại đây, và `tool_choice` yêu cầu mô hình thay vì ép buộc.',
+          'Công cụ máy chủ (tìm kiếm web, chạy mã), tin nhắn cuối từ trợ lý (prefill), `container`, `mcp_servers` và mã tệp của Files API bị từ chối bằng lỗi 400 có giải thích. Đặt **Trả lời bởi** thành **Anthropic API** (cần khóa API) để gửi yêu cầu tới chính Anthropic.',
+          '`count_tokens` là ước tính (`x-mother-claude-estimate: true`).',
         ],
       },
     ],

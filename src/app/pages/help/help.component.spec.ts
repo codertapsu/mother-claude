@@ -114,6 +114,7 @@ describe('HelpComponent', () => {
       'claude-code-tools',
       'plugins',
       'api',
+      'claude-api',
     ]);
     expect(idsOf('troubleshooting')).toEqual(['troubleshooting', 'machines-troubleshooting']);
   });
