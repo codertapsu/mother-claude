@@ -1,4 +1,5 @@
 import type { Dict } from '../../core/i18n/i18n';
+import claudeApi from './claude-api.json';
 import common from './common.json';
 import control from './control.json';
 import copies from './copies.json';
@@ -36,4 +37,5 @@ export const VI: Dict = {
   ...permissions,
   ...plugins,
   ...sessions,
+  ...claudeApi,
 };

@@ -2,6 +2,13 @@ import { Injectable, inject, signal } from '@angular/core';
 
 import type { NewServer, ServerDefaults, ServerPatch } from './api-servers';
 import type {
+  ApiClientRoot,
+  ApiClientView,
+  ApiConversationFull,
+  ApiConversationRow,
+  ApiDeleteResult,
+} from './claude-api';
+import type {
   CapacityView,
   Classification,
   HostView,
@@ -1200,8 +1207,15 @@ export class ApiService {
    * callers without a token, tunnels included (desktop app only); false closes
    * that opening; undefined keeps what `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` says.
    */
-  startBridge(defaults: BridgeDefaults, openToTunnels?: boolean): Promise<BridgeStatus> {
-    return this.post<BridgeStatus>('/bridge/start', { defaults, openToTunnels });
+  startBridge(
+    defaults: BridgeDefaults,
+    openToTunnels?: boolean,
+    key?: string,
+    port?: number,
+  ): Promise<BridgeStatus> {
+    // `key`: absent keeps the server's key, '' takes it off, else the new
+    // one; `port`: another port for the main server (docs/CLAUDE-API.md).
+    return this.post<BridgeStatus>('/bridge/start', { defaults, openToTunnels, key, port });
   }
 
   stopBridge(): Promise<BridgeStatus> {
@@ -1211,6 +1225,43 @@ export class ApiService {
   /** Change which conversation unaddressed messages join. */
   setBridgeThread(threadId: string | null): Promise<BridgeStatus> {
     return this.post<BridgeStatus>('/bridge/active-thread', { threadId });
+  }
+
+  /** Start a server whenever Mother Claude opens, or no longer (turning it
+   * on: the desktop app only). The main server's whole status comes back. */
+  setBridgeAutostart(server: string, on: boolean): Promise<BridgeStatus> {
+    return this.post<BridgeStatus>('/bridge/autostart', { server, on });
+  }
+
+  // ─────────── The Claude API: keys, clients, conversations (docs/CLAUDE-API.md)
+
+  listApiClients(): Promise<{ roots: ApiClientRoot[] }> {
+    return this.req<{ roots: ApiClientRoot[] }>('/bridge/clients');
+  }
+
+  getApiClient(
+    client: string,
+    root: string,
+  ): Promise<{ client: ApiClientView; conversations: ApiConversationRow[] }> {
+    return this.req(`/bridge/clients/${enc(client)}?root=${enc(root)}`);
+  }
+
+  getApiConversation(id: string): Promise<ApiConversationFull> {
+    return this.req<ApiConversationFull>(`/bridge/api-conversations/${enc(id)}`);
+  }
+
+  /** Forget conversations (their processes close); with `transcripts`, their
+   * Claude Code transcripts go too, kept seven days for undo (dangerous). */
+  deleteApiConversations(ids: string[], transcripts: boolean): Promise<ApiDeleteResult> {
+    return this.post<ApiDeleteResult>('/bridge/api-conversations/delete', { ids, transcripts });
+  }
+
+  /** Everything of a client: its conversations and its folder's files. */
+  deleteApiClient(client: string, root: string, transcripts: boolean): Promise<ApiDeleteResult> {
+    return this.req<ApiDeleteResult>(
+      `/bridge/clients/${enc(client)}?root=${enc(root)}&transcripts=${transcripts}`,
+      { method: 'DELETE' },
+    );
   }
 
   // ─────────── API servers besides the main one (docs/ACCOUNTS.md §13.5)
@@ -1242,8 +1293,13 @@ export class ApiService {
     id: string,
     defaults: ServerDefaults,
     openToTunnels?: boolean,
+    key?: string,
   ): Promise<unknown> {
-    return this.post<unknown>(`/bridge/servers/${enc(id)}/start`, { defaults, openToTunnels });
+    return this.post<unknown>(`/bridge/servers/${enc(id)}/start`, {
+      defaults,
+      openToTunnels,
+      key,
+    });
   }
 
   stopBridgeServer(id: string): Promise<unknown> {

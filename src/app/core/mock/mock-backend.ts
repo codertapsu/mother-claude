@@ -17,6 +17,7 @@ import {
   AccountsView,
   AgentInfo,
   BridgeDefaults,
+  BridgeStatus,
   FleetSession,
   FleetSummary,
   PairCode,
@@ -45,6 +46,7 @@ import { MockData } from './mock-data';
 import { MockDelete } from './mock-delete';
 import { MockMcp } from './mock-mcp';
 import { MockPermissions } from './mock-permissions';
+import { MockClaudeApi } from './mock-claude-api';
 import { MockPlugins } from './mock-plugins';
 import { MockSwitch } from './mock-switch';
 import { MockMachines } from './mock-machines';
@@ -139,6 +141,8 @@ class FixtureBackend implements MockBackend {
   /** Claude Code's plugins (`/plugins*`) and a session's MCP servers and
    * plugins (docs/PLUGINS.md). */
   private readonly plugins: MockPlugins;
+  /** The Claude API's keys, clients and conversations (docs/CLAUDE-API.md). */
+  private readonly claudeApi: MockClaudeApi;
   /** The browser extension (`/browser*`, docs/BROWSER.md). */
   private readonly browser: MockBrowser;
   /** Teams of sessions: templates, teams, boards (`/team-templates*`,
@@ -201,6 +205,13 @@ class FixtureBackend implements MockBackend {
     });
     this.mcp = new MockMcp(role === 'desktop', now);
     this.plugins = new MockPlugins(role === 'desktop', now);
+    this.claudeApi = new MockClaudeApi(role === 'desktop', now, (on) => {
+      const next = { ...this.fx.bridge };
+      delete next.autostart;
+      delete next.savedDefaults;
+      this.fx.bridge = on ? { ...next, autostart: true, savedDefaults: next.defaults } : next;
+      return this.fx.bridge;
+    });
     if (ACCOUNTS_MODE === '1' || ACCOUNTS_MODE === 'limit' || MOCK_SERVERS) {
       this.fx.accounts = buildAccounts(now, true);
       this.fx.accountUsage = buildAccountUsage(now);
@@ -391,6 +402,9 @@ class FixtureBackend implements MockBackend {
     // Claude Code's plugins
     const plugins = this.plugins.route(path, method, body, q);
     if (plugins) return plugins;
+    // The Claude API's keys, clients and conversations
+    const claudeApi = this.claudeApi.route(path, method, body, q);
+    if (claudeApi) return claudeApi;
 
     // Sessions
     if (path === '/sessions' && method === 'GET') {
@@ -793,12 +807,31 @@ class FixtureBackend implements MockBackend {
           ...(ref ? { account: ref } : {}),
         },
       ];
+      const next: BridgeStatus = { ...this.fx.bridge };
+      delete next.networkUrls;
+      // The key given at the start: kept as its hint; '' takes it off.
+      const key = (body as { key?: string }).key;
+      if (key === '') delete next.keyHint;
+      else if (key) next.keyHint = `…${key.slice(-4)}`;
+      const port = (body as { port?: number }).port;
       this.fx.bridge = {
-        ...this.fx.bridge,
+        ...next,
         running: true,
         startedAt: Date.now(),
         defaults,
         threads,
+        ...(port ? { port, url: `http://127.0.0.1:${port}` } : {}),
+        // Beyond this computer (docs/CLAUDE-API.md "Access").
+        ...(defaults.access === 'lan' || defaults.access === 'all'
+          ? {
+              networkUrls: [
+                `http://192.168.1.23:${port ?? next.port ?? 5612}`,
+                ...(defaults.access === 'all'
+                  ? [`http://171.254.176.94:${port ?? next.port ?? 5612}`]
+                  : []),
+              ],
+            }
+          : {}),
       };
       return json(this.fx.bridge);
     }

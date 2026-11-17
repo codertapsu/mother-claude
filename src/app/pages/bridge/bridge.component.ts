@@ -41,10 +41,13 @@ import {
   SessionSummary,
 } from '../../core/models';
 import { signInLine } from '../../shared/accounts';
+import { CopyButtonComponent } from '../../shared/copy-button.component';
 import { IconComponent } from '../../shared/icon.component';
 import { PageHeadComponent } from '../../shared/page-head.component';
 import { EFFORT_LABELS, effortLabel, relativeTime, sessionName } from '../../shared/util';
 import { API_PERMISSION_MODES } from './permission-modes';
+import { GROUP_CHOICES, REACH_CHOICES, Reach, newKey } from '../../core/claude-api';
+import { ApiClientsComponent } from './api-clients.component';
 import { ApiServerAddressesComponent } from './server-addresses.component';
 import { ApiServerListComponent } from './server-list.component';
 import { ApiServerSheetComponent } from './server-sheet.component';
@@ -84,10 +87,12 @@ interface ClaudeLine {
   selector: 'mc-bridge',
   imports: [
     FormsModule,
+    ApiClientsComponent,
     ApiServerAddressesComponent,
     ApiServerListComponent,
     ApiServerSheetComponent,
     ConversationFilesComponent,
+    CopyButtonComponent,
     IconComponent,
     PageHeadComponent,
     TPipe,
@@ -424,10 +429,213 @@ interface ClaudeLine {
           }
         </div>
 
-        <!-- ── Access ─────────────────────────────────────────────── -->
-        @if (s.port) {
-          <h2>{{ 'Access' | t }}</h2>
-          <div class="card form">
+        <!-- ── The Claude API (docs/CLAUDE-API.md) ─────────────────── -->
+        <h2>{{ 'Claude API' | t }}</h2>
+        <p class="muted">
+          {{
+            "Programs written for the Claude API — Postman, the Anthropic SDKs, your own — work here by changing only their base URL. Claude Code on this {computer} answers, signed in as this server's account."
+              | t: { computer: computer() }
+          }}
+        </p>
+
+        <div class="card form">
+          @if (s.running && s.url) {
+            <div class="base">
+              <span class="lbl">{{ 'Base URL' | t }}</span>
+              <span class="mono">{{ s.url }}</span>
+              <mc-copy-button [text]="s.url" label="Copy" />
+            </div>
+            <pre class="mono snippet">{{ claudeSnippet(s) }}</pre>
+          }
+
+          <div class="row">
+            <label>
+              <span class="lbl">{{ 'Answered by' | t }}</span>
+              <select [ngModel]="messagesBackend()" (ngModelChange)="messagesBackend.set($event)">
+                <option value="">
+                  {{ 'Claude Code on this {computer}' | t: { computer: computer() } }}
+                </option>
+                <option value="anthropic" [disabled]="!s.messagesApi">
+                  {{
+                    s.messagesApi
+                      ? ('The Anthropic API' | t)
+                      : ('The Anthropic API (no API key set)' | t)
+                  }}
+                </option>
+              </select>
+            </label>
+
+            <label>
+              <span class="lbl">{{ 'Tell clients apart by' | t }}</span>
+              <select [ngModel]="groupClientsBy()" (ngModelChange)="groupClientsBy.set($event)">
+                @for (g of groupChoices; track g.value) {
+                  <option [value]="g.value">{{ g.label | t }}</option>
+                }
+              </select>
+            </label>
+          </div>
+          <span class="hint">{{ groupHint() | t }}</span>
+
+          <label class="wide">
+            <span class="lbl">{{ "Clients' folder" | t }}</span>
+            <input
+              [ngModel]="apiDataDir()"
+              (ngModelChange)="apiDataDir.set($event)"
+              [placeholder]="'Mother Claude data folder' | t"
+              spellcheck="false"
+            />
+            <span class="hint">{{
+              "A folder per client, with what Mother Claude keeps of its conversations — for example {example}. A new folder is the desktop app's to choose."
+                | t: { example: exampleDir }
+            }}</span>
+          </label>
+        </div>
+
+        <!-- ── Access (docs/CLAUDE-API.md "Access") ───────────────── -->
+        <h2>{{ 'Access' | t }}</h2>
+        <p class="muted">{{ 'Who may call this server: from where, and with which key.' | t }}</p>
+        <div class="card form">
+          @if (s.port) {
+            <fieldset class="reach">
+              <legend class="lbl">{{ 'Reachable from' | t }}</legend>
+              @for (r of reaches; track r.value) {
+                <label class="check">
+                  <input
+                    type="radio"
+                    name="reach"
+                    [value]="r.value"
+                    [checked]="access() === r.value"
+                    [disabled]="!reachAllowed(r.value)"
+                    (change)="access.set(r.value)"
+                  />
+                  <span
+                    ><strong>{{ r.label | t }}</strong> —
+                    {{ r.hint | t: { computer: computer() } }}</span
+                  >
+                </label>
+              }
+            </fieldset>
+            @if (!isDesktop() && accessInForce() === 'local') {
+              <span class="hint">{{
+                'Only the desktop app can open it beyond this {computer}.'
+                  | t: { computer: computer() }
+              }}</span>
+            }
+            @if (access() !== 'local') {
+              <p class="warn small">{{ reachWarning() }}</p>
+            }
+
+            @if (isMain() && !s.portFromEnv) {
+              <label>
+                <span class="lbl">{{ 'Port' | t }}</span>
+                <input
+                  class="port"
+                  type="number"
+                  min="1024"
+                  max="65535"
+                  [ngModel]="port()"
+                  (ngModelChange)="port.set($event)"
+                />
+                <span class="hint">{{ 'A new port takes effect when you start it.' | t }}</span>
+              </label>
+            } @else if (!isMain()) {
+              <span class="hint">{{
+                'Port {port} — change it under Manage.' | t: { port: s.port }
+              }}</span>
+            }
+          }
+
+          <div class="key">
+            <span class="lbl">{{ 'Key' | t }}</span>
+            @if (s.keyHint && keyAction() === 'keep') {
+              <div class="row">
+                <span class="mono">{{ s.keyHint }}</span>
+                <button class="btn small" type="button" (click)="keyAction.set('change')">
+                  {{ 'Change' | t }}
+                </button>
+                <button
+                  class="btn small"
+                  type="button"
+                  [disabled]="!mayRemoveKey()"
+                  (click)="keyAction.set('remove')"
+                >
+                  {{ 'Remove' | t }}
+                </button>
+              </div>
+              <span class="hint">{{
+                'Every request carries it as x-api-key or Authorization: Bearer — from this {computer} too.'
+                  | t: { computer: computer() }
+              }}</span>
+              @if (!mayRemoveKey()) {
+                <span class="hint">{{
+                  'Only the desktop app can take the key off a server open beyond this {computer}.'
+                    | t: { computer: computer() }
+                }}</span>
+              }
+            } @else if (keyAction() === 'remove') {
+              <div class="row">
+                <span>{{ 'The key comes off when you start it: no authentication.' | t }}</span>
+                <button class="btn small" type="button" (click)="keyAction.set('keep')">
+                  {{ 'Undo' | t }}
+                </button>
+              </div>
+            } @else {
+              <div class="row">
+                <input
+                  class="key-input"
+                  [type]="showKey() ? 'text' : 'password'"
+                  [ngModel]="keyInput()"
+                  (ngModelChange)="keyInput.set($event)"
+                  [placeholder]="'No key — anyone who can reach it may call it' | t"
+                  [attr.aria-label]="'Key' | t"
+                  autocomplete="new-password"
+                  spellcheck="false"
+                />
+                <button class="btn small" type="button" (click)="showKey.set(!showKey())">
+                  {{ showKey() ? ('Hide' | t) : ('Show' | t) }}
+                </button>
+                <button class="btn small" type="button" (click)="generateKey()">
+                  {{ 'Generate' | t }}
+                </button>
+                @if (keyInput()) {
+                  <mc-copy-button
+                    [text]="keyInput()"
+                    label="Copy"
+                    [ariaLabel]="'Copy the key' | t"
+                  />
+                }
+                @if (s.keyHint) {
+                  <button class="btn small ghost" type="button" (click)="keyAction.set('keep')">
+                    {{ 'Keep the current key' | t }}
+                  </button>
+                }
+              </div>
+              <span class="hint">{{
+                "Leave it blank for no authentication. With a key, every request carries it — x-api-key or Authorization: Bearer, what the Claude API's SDKs send — from this {computer} too. It takes effect when you start it."
+                  | t: { computer: computer() }
+              }}</span>
+            }
+          </div>
+
+          @if (s.running && reachUrls(s).length) {
+            <div class="addresses">
+              <span class="lbl">{{ 'Addresses' | t }}</span>
+              @for (u of reachUrls(s); track u) {
+                <div class="base">
+                  <span class="mono">{{ u }}</span>
+                  <mc-copy-button [text]="u" label="Copy" />
+                </div>
+              }
+            </div>
+          }
+          @if (s.running && accessInForce() !== 'local' && !(s.networkUrls ?? []).length) {
+            <span class="hint">{{
+              'No address beyond this computer yet: it is not on a network, or Mother Claude is kept to it.'
+                | t
+            }}</span>
+          }
+
+          @if (s.port) {
             <label class="check">
               <input
                 type="checkbox"
@@ -436,7 +644,7 @@ interface ClaudeLine {
                 [disabled]="!isDesktop()"
               />
               <span>{{
-                'Open to tunnels — accept calls without a token from anyone who can reach port {port}'
+                "Open to tunnels — without a key, accept every call from anyone who can reach port {port}, conversations with Claude Code's tools included"
                   | t: { port: s.port }
               }}</span>
             </label>
@@ -468,8 +676,24 @@ interface ClaudeLine {
                 }}
               </p>
             }
-          </div>
-        }
+          }
+
+          <label class="check">
+            <input
+              type="checkbox"
+              [checked]="autostart()"
+              [disabled]="busy() || (!autostart() && !isDesktop())"
+              (change)="setAutostart($any($event.target).checked)"
+            />
+            <span>{{
+              'Start when Mother Claude opens — with the settings of its last start, closed to tunnels'
+                | t
+            }}</span>
+          </label>
+          @if (!isDesktop() && !autostart()) {
+            <span class="hint">{{ 'Only the desktop app can turn this on.' | t }}</span>
+          }
+        </div>
 
         <!-- ── Action ─────────────────────────────────────────────── -->
         <div class="actions">
@@ -511,6 +735,16 @@ interface ClaudeLine {
             <p class="notice ok small said" role="status">{{ n.text }}</p>
           }
         }
+
+        <!-- ── Clients and conversations ─────────────────────────── -->
+        <h2>{{ 'Clients and conversations' | t }}</h2>
+        <p class="muted">
+          {{
+            'Who called the Claude API, and the conversations each keeps going. A client continues one by sending its history back, or by naming it in the x-conversation-id header.'
+              | t
+          }}
+        </p>
+        <mc-api-clients />
 
         @if (!multi() && s.enabled) {
           <p class="more muted small">
@@ -559,6 +793,53 @@ interface ClaudeLine {
       h2 + mc-api-server-addresses {
         display: block;
         margin-top: 10px;
+      }
+      h3 {
+        margin: 18px 0 8px;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        opacity: 0.6;
+      }
+      fieldset.reach {
+        border: 0;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      fieldset.reach legend {
+        margin-bottom: 4px;
+      }
+      .key,
+      .addresses {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .key .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .key-input {
+        flex: 1;
+        min-width: 14rem;
+        font-family: var(--mono, monospace);
+      }
+      input.port {
+        width: 8rem;
+      }
+      .base {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .base .mono {
+        overflow-wrap: anywhere;
       }
       .card.err {
         border-color: var(--error, #a63232);
@@ -733,6 +1014,37 @@ export class BridgeComponent {
   readonly account = signal('');
   /** Run only as that account (a request naming another is refused). */
   readonly accountOnly = signal(false);
+  // The Claude API's options (docs/CLAUDE-API.md).
+  readonly apiDataDir = signal('');
+  readonly groupClientsBy = signal('');
+  readonly messagesBackend = signal('');
+  readonly groupChoices = GROUP_CHOICES;
+  /** A folder to show as an example, in this computer's own form. */
+  readonly exampleDir = /win/i.test(navigator.userAgent) ? 'D:\\claude-api' : '~/claude-api';
+  readonly groupHint = computed(
+    () => GROUP_CHOICES.find((g) => g.value === this.groupClientsBy())?.hint ?? '',
+  );
+  // Access (docs/CLAUDE-API.md "Access").
+  readonly reaches = REACH_CHOICES;
+  /** Where the server is reachable from, as chosen in the form. */
+  readonly access = signal<Reach>('local');
+  /** Where it is reachable from now. */
+  readonly accessInForce = computed<Reach>(() => this.panel()?.defaults?.access ?? 'local');
+  /** The main server's port, as chosen in the form. */
+  readonly port = signal<number | null>(null);
+  /** A new key typed or generated (empty: none). */
+  readonly keyInput = signal('');
+  readonly showKey = signal(false);
+  /** What a start does with a key the server has: keep it, change it, take it off. */
+  readonly keyAction = signal<'keep' | 'change' | 'remove'>('keep');
+  /** Whether the server will have a key after the start. */
+  readonly keyed = computed(() => {
+    if (this.keyAction() === 'remove') return false;
+    if (this.keyInput().trim()) return true;
+    return !!this.panel()?.keyHint && this.keyAction() === 'keep';
+  });
+  /** The shown server starts whenever Mother Claude opens. */
+  readonly autostart = computed(() => this.panel()?.autostart === true);
 
   // ── Servers (docs/ACCOUNTS.md §13.5)
   /** Every server, main first; none while the main one is the only one. */
@@ -880,6 +1192,16 @@ export class BridgeComponent {
     // API default).
     this.account.set(d.account ?? '');
     this.accountOnly.set(d.accountOnly === true);
+    this.apiDataDir.set(d.apiDataDir ?? '');
+    this.groupClientsBy.set(
+      d.groupClientsBy && d.groupClientsBy !== 'none' ? d.groupClientsBy : '',
+    );
+    this.messagesBackend.set(d.messagesBackend === 'anthropic' ? 'anthropic' : '');
+    this.access.set(d.access ?? 'local');
+    this.port.set(status.port ?? null);
+    this.keyInput.set('');
+    this.showKey.set(false);
+    this.keyAction.set('keep');
   }
 
   private defaults(): ServerDefaults {
@@ -900,7 +1222,95 @@ export class BridgeComponent {
       account,
       // Only with an account: the server refuses it alone.
       accountOnly: account && this.accountOnly() ? true : undefined,
+      apiDataDir: this.apiDataDir().trim() || undefined,
+      groupClientsBy: (this.groupClientsBy() || undefined) as ServerDefaults['groupClientsBy'],
+      messagesBackend: this.messagesBackend() === 'anthropic' ? 'anthropic' : undefined,
+      access: this.access() !== 'local' ? this.access() : undefined,
     };
+  }
+
+  /** Whether the form may choose `r` (opening beyond this computer is the
+   * desktop's; keeping what is open is anyone's). */
+  reachAllowed(r: Reach): boolean {
+    const order: Reach[] = ['local', 'lan', 'all'];
+    return this.isDesktop() || order.indexOf(r) <= order.indexOf(this.accessInForce());
+  }
+
+  /** Taking the key off a server open beyond this computer is the desktop's. */
+  mayRemoveKey(): boolean {
+    return this.isDesktop() || (this.access() === 'local' && this.accessInForce() === 'local');
+  }
+
+  /** A strong key, shown so it can be copied to the clients. */
+  generateKey(): void {
+    this.keyInput.set(newKey());
+    this.showKey.set(true);
+    this.keyAction.set('change');
+  }
+
+  /** What the reach chosen means, in words. */
+  reachWarning(): string {
+    const computer = this.computer();
+    const keyed = this.keyed();
+    if (this.access() === 'lan') {
+      return keyed
+        ? tr(
+            'Other computers on your network call it with the key. Requests, answers and the key travel unencrypted on your network.',
+          )
+        : tr(
+            'Other computers on your network call it without a key: the Claude API answers them; the rest of the API needs a key. Requests and answers travel unencrypted.',
+          );
+    }
+    return keyed
+      ? tr(
+          'Anyone who can reach this {computer} — at a public address or through a tunnel such as ngrok — calls it with the key. It is plain HTTP: put a tunnel in front of it for HTTPS, so the key never travels in the clear.',
+          { computer },
+        )
+      : tr(
+          'Anyone who can reach this {computer} — at a public address or through a tunnel such as ngrok — can use your Claude plan through the Claude API, without a key. The rest of the API needs a key.',
+          { computer },
+        );
+  }
+
+  /** Where it answers now: here, beyond, through a tunnel. */
+  reachUrls(s: BridgeStatus): string[] {
+    const urls = [...(s.url ? [s.url] : []), ...(s.networkUrls ?? [])];
+    if (s.tunnelUrl && s.exposedByTunnel) urls.push(s.tunnelUrl);
+    return urls;
+  }
+
+  /** Start the shown server whenever Mother Claude opens, or no longer:
+   * saved at once (the form's edits stay). */
+  async setAutostart(on: boolean): Promise<void> {
+    this.busy.set(true);
+    this.error.set('');
+    try {
+      const status = await this.api.setBridgeAutostart(this.panelId(), on);
+      this.apply(absorbReply(this.status(), status), false);
+    } catch (e) {
+      this.error.set(this.explain(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** A Claude API call to paste into a terminal, for this server's settings. */
+  claudeSnippet(s: BridgeStatus): string {
+    const url = s.url ?? '';
+    const key = s.keyHint ? `  -H 'x-api-key: <your key>' \\\n` : '';
+    const model = s.defaults?.model || this.launch()?.model || 'sonnet';
+    const body = JSON.stringify({
+      model,
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: 'Hello, Claude' }],
+    });
+    return (
+      `curl -sS ${url}/v1/messages \\\n` +
+      key +
+      `  -H 'anthropic-version: 2023-06-01' \\\n` +
+      `  -H 'content-type: application/json' \\\n` +
+      `  -d '${body}'`
+    );
   }
 
   /** Run an action and adopt its answer: the main server's routes answer
@@ -932,10 +1342,17 @@ export class BridgeComponent {
     // A phone cannot change access: it starts with whatever is configured.
     const open = this.isDesktop() ? this.openToTunnels() : undefined;
     const id = this.panelId();
+    const typed = this.keyInput().trim();
+    const key = this.keyAction() === 'remove' ? '' : typed ? typed : undefined;
+    const current = this.panel()?.port;
+    const port =
+      id === MAIN_SERVER && this.port() && this.port() !== current
+        ? Number(this.port())
+        : undefined;
     return this.run(() =>
       id === MAIN_SERVER
-        ? this.api.startBridge(this.defaults(), open)
-        : this.api.startBridgeServer(id, this.defaults(), open),
+        ? this.api.startBridge(this.defaults(), open, key, port)
+        : this.api.startBridgeServer(id, this.defaults(), open, key),
     );
   }
 

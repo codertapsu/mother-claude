@@ -2010,6 +2010,16 @@ export interface BridgeDefaults {
   /** The Claude account conversations run under; unset: the project's,
    * else the accounts' API default. */
   account?: string;
+  /** The Claude API's folder: a folder per client (docs/CLAUDE-API.md);
+   * unset: `<app data>/claude-api`. */
+  apiDataDir?: string;
+  /** How the Claude API tells clients apart. */
+  groupClientsBy?: 'none' | 'ip' | 'key' | 'user' | 'header';
+  /** Who answers `/v1/messages`. */
+  messagesBackend?: 'claude-code' | 'anthropic';
+  /** Where the server can be reached from (unset: this computer); opened
+   * beyond it from the desktop only. */
+  access?: 'local' | 'lan' | 'all';
 }
 
 /** A conversation the bridge is running. */
@@ -2063,6 +2073,16 @@ export interface BridgeStatus {
   threads: BridgeThread[];
   docsUrl?: string;
   consoleUrl?: string;
+  /** Started whenever Mother Claude opens, with `savedDefaults` (left out
+   * while it is not). */
+  autostart?: boolean;
+  savedDefaults?: BridgeDefaults;
+  /** Where it answers beyond this computer (`access` lan or all). */
+  networkUrls?: string[];
+  /** The last characters of its key (`…abcd`), when it has one. */
+  keyHint?: string;
+  /** `MOTHER_CLAUDE_BRIDGE_PORT` sets the main server's port. */
+  portFromEnv?: boolean;
 }
 
 // ──────────────────────────────────────────── Git (`/diff`, `/file-patch`)

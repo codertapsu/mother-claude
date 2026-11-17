@@ -53,6 +53,12 @@ export interface ServerStatus {
   threads: BridgeThread[];
   docsUrl?: string;
   consoleUrl?: string;
+  /** Started whenever Mother Claude opens (left out while it is not). */
+  autostart?: boolean;
+  /** Where it answers beyond this computer. */
+  networkUrls?: string[];
+  /** The last characters of its key, when it has one. */
+  keyHint?: string;
   /** Its saved account was removed: it cannot start until another is chosen. */
   accountMissing: boolean;
 }
@@ -116,6 +122,23 @@ export function normalizeDefaults(raw: unknown): ServerDefaults {
     out.settingSources = sources.filter((s): s is string => typeof s === 'string');
   }
   if (r['accountOnly'] === true) out.accountOnly = true;
+  // The Claude API's options (docs/CLAUDE-API.md).
+  const dir = str(r['apiDataDir']);
+  if (dir) out.apiDataDir = dir;
+  const group = r['groupClientsBy'];
+  if (
+    group === 'none' ||
+    group === 'ip' ||
+    group === 'key' ||
+    group === 'user' ||
+    group === 'header'
+  ) {
+    out.groupClientsBy = group;
+  }
+  const backend = r['messagesBackend'];
+  if (backend === 'claude-code' || backend === 'anthropic') out.messagesBackend = backend;
+  const access = r['access'];
+  if (access === 'lan' || access === 'all') out.access = access;
   return out;
 }
 
@@ -166,6 +189,15 @@ export function normalizeServer(raw: unknown): ServerStatus | null {
     ...(docsUrl ? { docsUrl } : {}),
     ...(consoleUrl ? { consoleUrl } : {}),
     accountMissing: r['accountMissing'] === true,
+    ...(r['autostart'] === true ? { autostart: true } : {}),
+    ...(Array.isArray(r['networkUrls'])
+      ? {
+          networkUrls: (r['networkUrls'] as unknown[]).filter(
+            (u): u is string => typeof u === 'string',
+          ),
+        }
+      : {}),
+    ...(typeof r['keyHint'] === 'string' ? { keyHint: r['keyHint'] } : {}),
   };
 }
 
@@ -232,6 +264,9 @@ function withServerFields(status: BridgeStatus, s: ServerStatus): BridgeStatus {
     threads: s.threads,
     docsUrl: s.docsUrl ?? (url ? `${url}/docs/` : undefined),
     consoleUrl: s.consoleUrl ?? (url ? `${url}/example/` : undefined),
+    autostart: s.autostart === true,
+    networkUrls: s.networkUrls,
+    keyHint: s.keyHint,
   };
 }
 
