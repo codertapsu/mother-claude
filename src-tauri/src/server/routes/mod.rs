@@ -297,8 +297,30 @@ pub fn api_router() -> Router<AppState> {
         )
         .route("/bridge/stop", post(crate::bridge::control::post_stop))
         .route(
+            "/bridge/autostart",
+            post(crate::bridge::control::post_autostart),
+        )
+        .route(
             "/bridge/active-thread",
             post(crate::bridge::control::post_active_thread),
+        )
+        // ── the Claude API's clients and conversations (docs/CLAUDE-API.md) ──
+        .route(
+            "/bridge/clients",
+            get(crate::bridge::claude_api::admin::list_clients),
+        )
+        .route(
+            "/bridge/clients/{client}",
+            get(crate::bridge::claude_api::admin::get_client)
+                .delete(crate::bridge::claude_api::admin::delete_client),
+        )
+        .route(
+            "/bridge/api-conversations/delete",
+            post(crate::bridge::claude_api::admin::delete_conversations),
+        )
+        .route(
+            "/bridge/api-conversations/{id}",
+            get(crate::bridge::claude_api::admin::get_conversation),
         )
         // ── API servers besides the main one (docs/ACCOUNTS.md §13.5) ──
         .route(

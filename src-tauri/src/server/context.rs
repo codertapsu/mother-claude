@@ -71,10 +71,15 @@ pub enum Ingress {
     /// is the authenticated key the transport put on the request
     /// ([`PeerCaller`]) — a token sent over this ingress is never read.
     Peer,
+    /// An API server's port on the machine's other addresses — its private
+    /// ones (`access: lan`) or every one (`access: all`) — plain HTTP, the
+    /// desktop's opt-in (docs/CLAUDE-API.md "Access"). Never local; no Mother
+    /// Claude token is ever read over it (the server's key is the bridge's).
+    ApiNetwork,
 }
 
 impl Ingress {
-    /// `loopback` | `lan` | `tunnel` | `bridge-loopback` | `peer`.
+    /// `loopback` | `lan` | `tunnel` | `bridge-loopback` | `peer` | `api-network`.
     pub fn as_str(self) -> &'static str {
         match self {
             Ingress::Loopback => "loopback",
@@ -82,6 +87,7 @@ impl Ingress {
             Ingress::Tunnel => "tunnel",
             Ingress::BridgeLoopback => "bridge-loopback",
             Ingress::Peer => "peer",
+            Ingress::ApiNetwork => "api-network",
         }
     }
 }
@@ -607,7 +613,7 @@ pub fn effective_ingress(ingress: Ingress, peer: SocketAddr, headers: &HeaderMap
     if ingress == Ingress::Tunnel || has_proxy_headers(headers) {
         return Ingress::Tunnel;
     }
-    if ingress == Ingress::Lan && !is_private_ip(peer.ip()) {
+    if matches!(ingress, Ingress::Lan | Ingress::ApiNetwork) && !is_private_ip(peer.ip()) {
         return Ingress::Tunnel;
     }
     ingress
@@ -809,7 +815,10 @@ pub async fn middleware(State(state): State<AppState>, mut req: Request, next: N
         return rejection.into_response();
     }
     let limited = ctx.principal == Principal::Anonymous && !ctx.on_machine;
-    if limited && is_auth_path(req.uri().path()) {
+    // On an API server's ports every route is an API route (`/messages` at
+    // the root too): a client over its failed-auth budget is refused there.
+    let api_port = matches!(ingress, Ingress::BridgeLoopback | Ingress::ApiNetwork);
+    if limited && (api_port || is_auth_path(req.uri().path())) {
         if let Some(retry) = state.limits.blocked(ctx.rate_key) {
             return crate::server::error::ApiError::too_many_requests(
                 retry,

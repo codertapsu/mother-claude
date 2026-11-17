@@ -656,6 +656,38 @@ async fn raise_request_inner(state: AppState, frame: Value) {
         .and_then(Value::as_bool)
         .unwrap_or(false);
 
+    // A client tool of a Claude API conversation (docs/CLAUDE-API.md): its
+    // HTTP client runs it and sends the result with its next request; no
+    // one is asked here.
+    if kind == "client_tool" {
+        let call = super::claude_api::store::HostCall {
+            request_id: request_id.clone(),
+            name: frame
+                .get("tool")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            input: frame.get("input").cloned().unwrap_or_else(|| json!({})),
+        };
+        if state.bridge.api.with(&session_id, |_| ()).is_some() {
+            state.bridge.api.note_host_call(&session_id, call);
+        } else {
+            let payload = json!({
+                "requestId": request_id,
+                "result": { "content": "No client is waiting for this tool.", "is_error": true },
+            });
+            if let Err(e) = state
+                .bridge
+                .host
+                .call_if_running(state, "request.respond", payload, RPC_TIMEOUT)
+                .await
+            {
+                tracing::debug!(error = %e, "could not refuse a client tool call");
+            }
+        }
+        return;
+    }
+
     // Strip the envelope; what remains is the request's own payload.
     let mut params = frame.clone();
     if let Some(obj) = params.as_object_mut() {

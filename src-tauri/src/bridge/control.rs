@@ -74,11 +74,33 @@ pub struct BridgeDefaults {
     /// false, so `GET /api/bridge` reads as before.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub account_only: bool,
+    /// The Claude API's folder (docs/CLAUDE-API.md): a folder per client
+    /// in it, with what Mother Claude keeps of its conversations. `None`:
+    /// `<app data>/claude-api`. Left out when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_data_dir: Option<String>,
+    /// How the Claude API tells clients apart: `none` (one for all, the
+    /// default), `ip`, `key`, `user` (`metadata.user_id`), `header`
+    /// (`X-Client-Id`). Left out when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_clients_by: Option<String>,
+    /// Who answers `/v1/messages`: `claude-code` (the default) or
+    /// `anthropic` (the Anthropic API, with Mother Claude's own key). Left
+    /// out when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub messages_backend: Option<String>,
+    /// Where the server can be reached from (docs/CLAUDE-API.md "Access"):
+    /// `local` (this computer, the default), `lan` (its port on the private
+    /// addresses too) or `all` (on every address, public ones included, and
+    /// through tunnels). Beyond this computer, plain HTTP. Opened from the
+    /// desktop only. Left out when local.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<String>,
 }
 
 /// The fields of [`BridgeDefaults`] as they are written (camelCase): what a
 /// saved server's defaults are read by.
-pub const DEFAULTS_FIELDS: [&str; 10] = [
+pub const DEFAULTS_FIELDS: [&str; 14] = [
     "cwd",
     "model",
     "effort",
@@ -89,6 +111,10 @@ pub const DEFAULTS_FIELDS: [&str; 10] = [
     "defaultThread",
     "account",
     "accountOnly",
+    "apiDataDir",
+    "groupClientsBy",
+    "messagesBackend",
+    "access",
 ];
 
 fn one_of(field: &str, value: &Option<String>, allowed: &[&str]) -> BridgeResult<()> {
@@ -140,6 +166,44 @@ impl BridgeDefaults {
                 "Running as one account only needs that account: choose one.",
             ));
         }
+        one_of(
+            "groupClientsBy",
+            &self.group_clients_by,
+            &super::claude_api::store::GROUP_BY,
+        )?;
+        one_of(
+            "messagesBackend",
+            &self.messages_backend,
+            &super::claude_api::BACKENDS,
+        )?;
+        one_of("access", &self.access, &super::claude_api::access::ACCESS)?;
+        if let Some(dir) = &self.api_data_dir {
+            let path = std::path::Path::new(dir);
+            if !path.is_absolute() {
+                return Err(BridgeError::invalid_field(
+                    "apiDataDir",
+                    "The API's folder is a full path (for example D:\\claude-api or \
+                     /Users/you/claude-api).",
+                ));
+            }
+            if path.exists() && !path.is_dir() {
+                return Err(BridgeError::invalid_field(
+                    "apiDataDir",
+                    format!("{dir} is a file, not a folder."),
+                ));
+            }
+            // Never inside a Claude config directory: Mother Claude never
+            // writes there.
+            let inside = crate::claude::accounts::published_config_dirs()
+                .iter()
+                .any(|c| path.starts_with(c));
+            if inside {
+                return Err(BridgeError::invalid_field(
+                    "apiDataDir",
+                    "The API's folder cannot be inside a Claude configuration folder.",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -158,7 +222,23 @@ impl BridgeDefaults {
         blank(&mut self.system_prompt_append);
         blank(&mut self.default_thread);
         blank(&mut self.account);
+        blank(&mut self.api_data_dir);
+        blank(&mut self.group_clients_by);
+        blank(&mut self.messages_backend);
+        blank(&mut self.access);
+        // This computer only is what no setting says.
+        if self.access.as_deref() == Some("local") {
+            self.access = None;
+        }
+        if let Some(d) = &mut self.api_data_dir {
+            *d = d.trim().to_string();
+        }
         self
+    }
+
+    /// Where the server can be reached from.
+    pub fn reach(&self) -> super::claude_api::access::Access {
+        super::claude_api::access::Access::parse(self.access.as_deref())
     }
 
     /// The one account these defaults run as, when they say `accountOnly`.
@@ -173,6 +253,8 @@ pub struct Listener {
     pub started_at: i64,
     /// Dropped or fired to unbind the port.
     shutdown: Option<oneshot::Sender<()>>,
+    /// Its port beyond this computer, while `access` opens it.
+    network: Option<super::claude_api::network::NetworkApi>,
 }
 
 impl std::fmt::Debug for Listener {
@@ -189,6 +271,14 @@ impl Listener {
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
+        if let Some(network) = self.network.take() {
+            network.stop();
+        }
+    }
+
+    /// The addresses it serves beyond this computer (none while kept to it).
+    pub fn network_urls(&self) -> Vec<String> {
+        self.network.as_ref().map(|n| n.urls()).unwrap_or_default()
     }
 }
 
@@ -264,7 +354,133 @@ async fn prepare(
             servers::check_port(state, Some(&server.id), port)?;
         }
     }
+    if defaults.reach().is_open() && server.port().is_none() {
+        return Err(BridgeError::invalid_field(
+            "access",
+            "This server has no port of its own to open beyond this computer.",
+        ));
+    }
+    if defaults.messages_backend.as_deref() == Some(super::claude_api::BACKEND_ANTHROPIC)
+        && !state.bridge.messages.is_configured()
+    {
+        return Err(BridgeError::invalid_field(
+            "messagesBackend",
+            "Answering with the Anthropic API needs an API key: start Mother Claude with \
+             ANTHROPIC_API_KEY set, or let Claude Code answer.",
+        ));
+    }
+    if let Some(dir) = &defaults.api_data_dir {
+        std::fs::create_dir_all(dir).map_err(|e| {
+            BridgeError::invalid_field("apiDataDir", format!("Could not make {dir}: {e}"))
+        })?;
+    }
     Ok(defaults)
+}
+
+/// What a start changes besides the defaults (docs/CLAUDE-API.md "Access").
+#[derive(Debug, Clone, Default)]
+pub struct StartChanges {
+    /// The server's key: `None` keeps it, `Some("")` takes it off, else this
+    /// one.
+    pub key: Option<String>,
+    /// The main server's port, chosen in the app.
+    pub port: Option<u16>,
+}
+
+fn secret_error(e: crate::claude::secrets::SecretError) -> BridgeError {
+    BridgeError::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "key_not_kept",
+        format!("Could not keep the server's key: {e}"),
+    )
+}
+
+/// Applies a start's changes to `server` (callers hold the servers' admin
+/// lock): all checked first; then the key into the secret store and the
+/// servers' file, put back as they were when the file cannot be written.
+fn apply_changes(state: &AppState, server: &ApiServer, changes: &StartChanges) -> BridgeResult<()> {
+    if let Some(port) = changes.port {
+        if !server.is_main() {
+            return Err(BridgeError::invalid_field(
+                "port",
+                "An added server's port is changed under Manage.",
+            ));
+        }
+        if std::env::var_os("MOTHER_CLAUDE_BRIDGE_PORT").is_some() || server.port().is_none() {
+            return Err(BridgeError::invalid_field(
+                "port",
+                "MOTHER_CLAUDE_BRIDGE_PORT sets this server's port.",
+            ));
+        }
+        servers::check_port(state, Some(&server.id), port)?;
+    }
+    if let Some(key) = changes.key.as_deref().filter(|k| !k.is_empty()) {
+        super::claude_api::access::check_key(key)?;
+    }
+    if changes.key.is_none() && changes.port.is_none() {
+        return Ok(());
+    }
+    let store = state.accounts.secret_store();
+    let name = crate::claude::secrets::SecretName::ApiServerKey(server.id.clone());
+    let (key_before, hint_before) = (server.key(), server.key_hint());
+    let (port_before, chosen_before) = (server.port(), server.port_chosen());
+    match changes.key.as_deref() {
+        None => {}
+        Some("") => {
+            store.delete(&name).map_err(secret_error)?;
+            server.set_key(None);
+        }
+        Some(key) => {
+            let secret = crate::claude::secrets::Secret::new(key);
+            store.set(&name, &secret).map_err(secret_error)?;
+            server.set_key(Some(secret));
+        }
+    }
+    if let Some(port) = changes.port {
+        server.set_port(Some(port));
+        server.set_port_chosen(true);
+    }
+    if let Err(e) = state.bridge.servers.save() {
+        if changes.key.is_some() {
+            let _ = match &key_before {
+                Some(k) => store.set(&name, k),
+                None if hint_before.is_none() => store.delete(&name),
+                None => Ok(()),
+            };
+        }
+        server.restore_key(key_before, hint_before);
+        server.set_port(port_before);
+        server.set_port_chosen(chosen_before);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// The key a server was saved with, read back from the secret store before
+/// it starts. One that cannot be read stops the start: a server meant to
+/// take its key never starts open.
+fn ensure_key(state: &AppState, server: &ApiServer) -> BridgeResult<()> {
+    if !server.has_key() || server.key().is_some() {
+        return Ok(());
+    }
+    let name = crate::claude::secrets::SecretName::ApiServerKey(server.id.clone());
+    match state.accounts.secret_store().get(&name) {
+        Ok(Some(key)) => {
+            server.load_key(key);
+            Ok(())
+        }
+        Ok(None) => Err(BridgeError::conflict(
+            "key_unavailable",
+            "This server's key is no longer kept on this computer. Give it a key again (or \
+             none) and start it.",
+        )
+        .with("field", "key")),
+        Err(e) => Err(BridgeError::conflict(
+            "key_unavailable",
+            format!("This server's key could not be read: {e}. Give it a key again (or none)."),
+        )
+        .with("field", "key")),
+    }
 }
 
 /// Start `server` with `defaults` under `token`, replacing a run it has.
@@ -279,7 +495,18 @@ pub(crate) async fn run(
     persist: bool,
 ) -> BridgeResult<()> {
     let defaults = prepare(state, server, defaults).await?;
+    ensure_key(state, server)?;
     if persist && !server.is_main() {
+        let before = server.saved();
+        server.update_saved(|d| *d = defaults.clone());
+        if let Err(e) = state.bridge.servers.save() {
+            server.update_saved(|d| *d = before);
+            return Err(e);
+        }
+    }
+
+    if server.is_main() && server.autostart() {
+        // It starts with these next time Mother Claude opens.
         let before = server.saved();
         server.update_saved(|d| *d = defaults.clone());
         if let Err(e) = state.bridge.servers.save() {
@@ -305,6 +532,7 @@ pub(crate) async fn run(
             port: 0,
             started_at: crate::claude::registry::now_ms(),
             shutdown: None,
+            network: None,
         });
         server.set_token_policy(token);
         server.note_listener(true, None);
@@ -359,10 +587,27 @@ pub(crate) async fn run(
         }
     });
 
+    // Beyond this computer too, when asked (the desktop's choice): plain
+    // HTTP on its private addresses, or on every address it has.
+    let reach = server.defaults().reach();
+    let network = reach.is_open().then(|| {
+        tracing::warn!(
+            port,
+            server = %server.id,
+            keyed = server.has_key(),
+            "an API server is open beyond this computer, without TLS"
+        );
+        let ips = match reach {
+            super::claude_api::access::Access::All => crate::server::listeners::all_ips,
+            _ => crate::server::listeners::lan_ips,
+        };
+        super::claude_api::network::start(state.clone(), server.id.clone(), port, ips)
+    });
     *guard = Some(Listener {
         port,
         started_at: crate::claude::registry::now_ms(),
         shutdown: Some(tx),
+        network,
     });
     server.note_listener(true, Some(port));
     drop(guard);
@@ -421,9 +666,20 @@ pub async fn start_with(
     defaults: BridgeDefaults,
     token: TokenPolicy,
 ) -> BridgeResult<Value> {
+    start_main(state, defaults, token, StartChanges::default()).await
+}
+
+/// [`start_with`], changing the main server's key or port first.
+pub async fn start_main(
+    state: &AppState,
+    defaults: BridgeDefaults,
+    token: TokenPolicy,
+    changes: StartChanges,
+) -> BridgeResult<Value> {
     let main = state.bridge.main();
     {
         let _admin = state.bridge.servers.admin.lock().await;
+        apply_changes(state, &main, &changes)?;
         run(state, &main, defaults, token, false).await?;
     }
     Ok(status(state).await)
@@ -498,8 +754,12 @@ pub async fn status(state: &AppState) -> Value {
     let token = main.token_policy();
     let listener = main.listener.lock().await;
     let running = listener.is_some();
-    let port = listener.as_ref().map(|l| l.port).or(config.port);
+    let port = listener.as_ref().map(|l| l.port).or(main.port());
     let started_at = listener.as_ref().map(|l| l.started_at);
+    let network_urls = listener
+        .as_ref()
+        .map(Listener::network_urls)
+        .unwrap_or_default();
     drop(listener);
 
     let url = port
@@ -535,6 +795,24 @@ pub async fn status(state: &AppState) -> Value {
         "docsUrl": url.as_ref().map(|u| format!("{u}/docs/")),
         "consoleUrl": url.as_ref().map(|u| format!("{u}/example/")),
     });
+    // Who may call it: where it answers beyond this computer, whether it has
+    // a key (left out while kept to this computer, keyless — so the answer
+    // reads as before).
+    if main.defaults().reach().is_open() {
+        out["networkUrls"] = json!(network_urls);
+    }
+    if let Some(hint) = main.key_hint() {
+        out["keyHint"] = json!(hint);
+    }
+    if std::env::var_os("MOTHER_CLAUDE_BRIDGE_PORT").is_some() {
+        out["portFromEnv"] = json!(true);
+    }
+    // Started whenever Mother Claude opens, with these defaults. Left out
+    // while it is not, so the answer reads as before.
+    if main.autostart() {
+        out["autostart"] = json!(true);
+        out["savedDefaults"] = json!(main.saved());
+    }
     if state.bridge.servers.has_added() {
         let mut list = Vec::new();
         for server in state.bridge.servers.all() {
@@ -551,6 +829,10 @@ pub async fn server_status(state: &AppState, server: &ApiServer) -> Value {
     let running = listener.is_some();
     let port = listener.as_ref().map(|l| l.port).or(server.port());
     let started_at = listener.as_ref().map(|l| l.started_at);
+    let network_urls = listener
+        .as_ref()
+        .map(Listener::network_urls)
+        .unwrap_or_default();
     drop(listener);
 
     let url = port
@@ -583,6 +865,15 @@ pub async fn server_status(state: &AppState, server: &ApiServer) -> Value {
     if missing {
         // Its account was removed: it cannot start until another is chosen.
         out["accountMissing"] = json!(true);
+    }
+    if server.autostart() {
+        out["autostart"] = json!(true);
+    }
+    if server.defaults().reach().is_open() {
+        out["networkUrls"] = json!(network_urls);
+    }
+    if let Some(hint) = server.key_hint() {
+        out["keyHint"] = json!(hint);
     }
     out
 }
@@ -764,11 +1055,23 @@ pub async fn start_server(
     defaults: Option<BridgeDefaults>,
     token: TokenPolicy,
 ) -> BridgeResult<Arc<ApiServer>> {
+    start_server_with(state, id, defaults, token, StartChanges::default()).await
+}
+
+/// [`start_server`], changing its key first.
+pub async fn start_server_with(
+    state: &AppState,
+    id: &str,
+    defaults: Option<BridgeDefaults>,
+    token: TokenPolicy,
+    changes: StartChanges,
+) -> BridgeResult<Arc<ApiServer>> {
     let server = state
         .bridge
         .server(id)
         .ok_or_else(|| servers::server_not_found(id))?;
     let _admin = state.bridge.servers.admin.lock().await;
+    apply_changes(state, &server, &changes)?;
     let persist = defaults.is_some();
     let defaults = match defaults {
         Some(defaults) => defaults,
@@ -866,6 +1169,15 @@ pub struct StartBody {
     /// that opening closed. Absent: the configured policy as it is.
     #[serde(default)]
     pub open_to_tunnels: Option<bool>,
+    /// The server's key (docs/CLAUDE-API.md "Access"): absent keeps it, `""`
+    /// takes it off (no authentication), anything else is the key every
+    /// request must carry from then on.
+    #[serde(default)]
+    pub key: Option<String>,
+    /// Another port for the main server (saved; `MOTHER_CLAUDE_BRIDGE_PORT`
+    /// wins when set).
+    #[serde(default)]
+    pub port: Option<u16>,
 }
 
 /// The token policy a start of `server` asks for: the switch on — desktop
@@ -914,6 +1226,34 @@ async fn check_defaults(
     defaults: &BridgeDefaults,
     what: &str,
 ) -> BridgeResult<()> {
+    // Where the API writes its clients' folders: choosing a new one is the
+    // desktop's (or a device's with the dangerous right); keeping the one in
+    // force is anyone's.
+    if let Some(dir) = defaults
+        .api_data_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+    {
+        let known = state.bridge.servers.all().iter().any(|s| {
+            s.defaults().api_data_dir.as_deref() == Some(dir)
+                || s.saved().api_data_dir.as_deref() == Some(dir)
+        });
+        if !known {
+            if ctx.may_dangerous() {
+                ctx.note_dangerous("a new folder for the HTTP API's clients");
+            } else {
+                return Err(BridgeError::forbidden(
+                    "desktop_only",
+                    format!(
+                        "{what} with a new folder for the API's clients is only possible from the \
+                         Mother Claude desktop app."
+                    ),
+                )
+                .with("field", "apiDataDir"));
+            }
+        }
+    }
     if crate::claude::owned::is_dangerous_mode(defaults.permission_mode.as_deref())
         && !ctx.is_desktop()
     {
@@ -961,6 +1301,38 @@ async fn check_defaults(
     Ok(())
 }
 
+/// Opening a server beyond this computer is the desktop's choice (a port on
+/// the network); keeping it open as it is, anyone's. So is taking the key off
+/// a server that is open: it would take requests from the network without
+/// one.
+fn check_access(
+    ctx: &ClientContext,
+    server: Option<&ApiServer>,
+    defaults: &BridgeDefaults,
+    key: Option<&str>,
+) -> BridgeResult<()> {
+    let open = defaults.reach();
+    let already = server.is_some_and(|s| s.defaults().reach().max(s.saved().reach()) >= open);
+    if open.is_open() && !already && !ctx.is_desktop() {
+        return Err(BridgeError::forbidden(
+            "desktop_only",
+            "Opening an API server beyond this computer is only possible from the Mother Claude \
+             desktop app.",
+        )
+        .with("field", "access"));
+    }
+    let removes_key = key == Some("") && server.is_some_and(ApiServer::has_key);
+    if removes_key && open.is_open() && !ctx.is_desktop() {
+        return Err(BridgeError::forbidden(
+            "desktop_only",
+            "Taking the key off a server reachable beyond this computer is only possible from \
+             the Mother Claude desktop app.",
+        )
+        .with("field", "key"));
+    }
+    Ok(())
+}
+
 /// `POST /api/bridge/start` — the main server. Defaults with a permission
 /// mode that skips approvals are desktop-only (design G1). So is opening the
 /// port to tokenless callers through tunnels: it publishes the API to whoever
@@ -973,10 +1345,62 @@ pub async fn post_start(
     let main = state.bridge.main();
     let token = start_token(&state, &ctx, &main, body.open_to_tunnels)?;
     check_defaults(&state, &ctx, &body.defaults, "Starting the bridge").await?;
+    check_access(&ctx, Some(&main), &body.defaults, body.key.as_deref())?;
     if body.open_to_tunnels == Some(true) {
         ctx.note_dangerous("the API port opened without a token, tunnels included");
     }
-    Ok(axum::Json(start_with(&state, body.defaults, token).await?).into_response())
+    let changes = StartChanges {
+        key: body.key,
+        port: body.port,
+    };
+    Ok(axum::Json(start_main(&state, body.defaults, token, changes).await?).into_response())
+}
+
+/// Start `id` when Mother Claude opens (or no longer), saved at once. The
+/// main server is then written with the defaults it has now: those of its
+/// last start, or of the next.
+pub async fn set_autostart(state: &AppState, id: &str, on: bool) -> BridgeResult<()> {
+    let server = state
+        .bridge
+        .server(id)
+        .ok_or_else(|| servers::server_not_found(id))?;
+    let _admin = state.bridge.servers.admin.lock().await;
+    let before = server.autostart();
+    server.set_autostart(on);
+    if let Err(e) = state.bridge.servers.save() {
+        server.set_autostart(before);
+        return Err(e);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AutostartBody {
+    /// The server (`main` when left out).
+    #[serde(default)]
+    pub server: Option<String>,
+    pub on: bool,
+}
+
+/// `POST /api/bridge/autostart` — whether a server starts when Mother Claude
+/// opens. Turning it on is the desktop's: the port then opens at every
+/// launch, unattended. Anyone signed in may turn it off.
+pub async fn post_autostart(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    super::routes::Body(body): super::routes::Body<AutostartBody>,
+) -> BridgeResult<Response> {
+    if body.on && !ctx.is_desktop() {
+        return Err(BridgeError::forbidden(
+            "desktop_only",
+            "Starting an API server whenever Mother Claude opens can only be chosen on the \
+             Mother Claude desktop app.",
+        ));
+    }
+    let id = body.server.unwrap_or_else(|| MAIN_ID.to_string());
+    set_autostart(&state, &id, body.on).await?;
+    Ok(axum::Json(status(&state).await).into_response())
 }
 
 /// `POST /api/bridge/stop`
@@ -1039,6 +1463,7 @@ pub async fn post_server(
     dashboard_port(body.port)?;
     let defaults = body.defaults.unwrap_or_default();
     check_defaults(&state, &ctx, &defaults, "Saving an API server's defaults").await?;
+    check_access(&ctx, None, &defaults, None)?;
     let server = add_server(&state, &body.name, body.port, defaults).await?;
     Ok((
         StatusCode::CREATED,
@@ -1069,6 +1494,7 @@ pub async fn patch_server(
     dashboard_port(body.port)?;
     if let Some(defaults) = &body.defaults {
         check_defaults(&state, &ctx, defaults, "Saving an API server's defaults").await?;
+        check_access(&ctx, state.bridge.server(&id).as_deref(), defaults, None)?;
     }
     let server = update_server(&state, &id, body.name.as_deref(), body.port, body.defaults).await?;
     Ok(axum::Json(server_status(&state, &server).await).into_response())
@@ -1094,6 +1520,9 @@ pub struct ServerStartBody {
     /// As on `/api/bridge/start`; absent on an added server: closed to tunnels.
     #[serde(default)]
     pub open_to_tunnels: Option<bool>,
+    /// As on `/api/bridge/start`.
+    #[serde(default)]
+    pub key: Option<String>,
 }
 
 /// `POST /api/bridge/servers/{id}/start`
@@ -1110,10 +1539,15 @@ pub async fn post_server_start(
     let token = start_token(&state, &ctx, &server, body.open_to_tunnels)?;
     let check = body.defaults.clone().unwrap_or_else(|| server.saved());
     check_defaults(&state, &ctx, &check, "Starting an API server").await?;
+    check_access(&ctx, Some(&server), &check, body.key.as_deref())?;
     if body.open_to_tunnels == Some(true) {
         ctx.note_dangerous("an API port opened without a token, tunnels included");
     }
-    let server = start_server(&state, &id, body.defaults, token).await?;
+    let changes = StartChanges {
+        key: body.key,
+        port: None,
+    };
+    let server = start_server_with(&state, &id, body.defaults, token, changes).await?;
     Ok(axum::Json(server_status(&state, &server).await).into_response())
 }
 
@@ -1182,6 +1616,10 @@ mod tests {
             default_thread: Some("t".into()),
             account: Some("a".into()),
             account_only: true,
+            api_data_dir: Some("/d".into()),
+            group_clients_by: Some("ip".into()),
+            messages_backend: Some("claude-code".into()),
+            access: Some("all".into()),
         };
         let v = serde_json::to_value(full).unwrap();
         let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
@@ -1277,8 +1715,65 @@ mod tests {
             default_thread: None,
             account: None,
             account_only: false,
+            api_data_dir: Some(std::env::temp_dir().to_string_lossy().into_owned()),
+            group_clients_by: Some("ip".into()),
+            messages_backend: Some("claude-code".into()),
+            access: Some("lan".into()),
         };
         assert!(good.validate().is_ok());
+    }
+
+    /// The Claude API's options are checked as they are chosen.
+    #[test]
+    fn the_api_options_are_checked() {
+        let bad = |d: BridgeDefaults| d.validate().unwrap_err().extra["field"].clone();
+        assert_eq!(
+            bad(BridgeDefaults {
+                group_clients_by: Some("mood".into()),
+                ..Default::default()
+            }),
+            json!("groupClientsBy")
+        );
+        assert_eq!(
+            bad(BridgeDefaults {
+                messages_backend: Some("openai".into()),
+                ..Default::default()
+            }),
+            json!("messagesBackend")
+        );
+        assert_eq!(
+            bad(BridgeDefaults {
+                api_data_dir: Some("relative/dir".into()),
+                ..Default::default()
+            }),
+            json!("apiDataDir")
+        );
+        let normalized = BridgeDefaults {
+            api_data_dir: Some("  ".into()),
+            group_clients_by: Some(String::new()),
+            ..Default::default()
+        }
+        .normalized();
+        assert!(normalized.api_data_dir.is_none());
+        assert!(normalized.group_clients_by.is_none());
+        // Unset is left out, so an old saved file reads the same; this
+        // computer only is unset.
+        let v = serde_json::to_value(BridgeDefaults::default()).unwrap();
+        assert!(v.get("access").is_none());
+        assert!(v.get("apiDataDir").is_none());
+        let local = BridgeDefaults {
+            access: Some("local".into()),
+            ..Default::default()
+        }
+        .normalized();
+        assert!(local.access.is_none());
+        assert_eq!(
+            bad(BridgeDefaults {
+                access: Some("public".into()),
+                ..Default::default()
+            }),
+            json!("access")
+        );
     }
 
     #[test]

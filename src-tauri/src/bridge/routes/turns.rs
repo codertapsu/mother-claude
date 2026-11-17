@@ -57,7 +57,55 @@ pub(crate) async fn begin_turn(
     validate_id("thread_id", thread_id)?;
     validate_priority(&body.priority)?;
     let normalized = inputs::normalize(&body.input)?;
+    begin_turn_with(
+        state,
+        thread_id,
+        normalized.content(),
+        &normalized.text,
+        normalized.image_count,
+        normalized.estimated_image_tokens,
+        body.priority.as_deref(),
+    )
+    .await
+}
 
+/// Start a turn with content blocks the caller already checked (the Claude
+/// API's, which take longer texts than a bridge turn: docs/CLAUDE-API.md).
+pub(crate) async fn begin_turn_blocks(
+    state: &AppState,
+    thread_id: &str,
+    content: Value,
+) -> BridgeResult<std::sync::Arc<Operation>> {
+    validate_id("thread_id", thread_id)?;
+    let blocks = content.as_array().cloned().unwrap_or_default();
+    let mut text = String::new();
+    let mut images = 0;
+    for b in &blocks {
+        match b.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                if !text.is_empty() {
+                    text.push('\n');
+                }
+                text.push_str(b.get("text").and_then(Value::as_str).unwrap_or_default());
+            }
+            Some("image") => images += 1,
+            _ => {}
+        }
+    }
+    // The event names the turn; the whole text is in the transcript.
+    let shown: String = text.chars().take(2000).collect();
+    begin_turn_with(state, thread_id, content, &shown, images, 0, None).await
+}
+
+async fn begin_turn_with(
+    state: &AppState,
+    thread_id: &str,
+    content: Value,
+    text: &str,
+    image_count: usize,
+    estimated_image_tokens: u64,
+    priority: Option<&str>,
+) -> BridgeResult<std::sync::Arc<Operation>> {
     let turn_id = Uuid::new_v4().to_string();
     let op = state
         .bridge
@@ -85,9 +133,9 @@ pub(crate) async fn begin_turn(
                 "thread_id": thread_id,
                 "turn_id": turn_id,
                 "operation_id": op.id,
-                "text": normalized.text,
-                "image_count": normalized.image_count,
-                "estimated_image_tokens": normalized.estimated_image_tokens,
+                "text": text,
+                "image_count": image_count,
+                "estimated_image_tokens": estimated_image_tokens,
             }
         }),
     );
@@ -95,9 +143,9 @@ pub(crate) async fn begin_turn(
     let mut params = json!({
         "sessionId": thread_id,
         "turnId": turn_id,
-        "content": normalized.content(),
+        "content": content,
     });
-    if let Some(priority) = &body.priority {
+    if let Some(priority) = priority {
         params["priority"] = json!(priority);
     }
 

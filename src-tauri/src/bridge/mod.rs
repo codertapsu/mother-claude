@@ -36,6 +36,7 @@
 //! by one Node host.
 
 pub mod assets;
+pub mod claude_api;
 pub mod control;
 pub mod error;
 pub mod events;
@@ -288,6 +289,8 @@ pub struct BridgeState {
     /// account's environment left out): switching its account opens it
     /// again with them (docs/ACCOUNTS.md §15.1).
     options: std::sync::Mutex<HashMap<String, Value>>,
+    /// The Claude API's conversations and clients (docs/CLAUDE-API.md).
+    pub api: claude_api::store::Store,
 }
 
 impl BridgeState {
@@ -317,6 +320,7 @@ impl BridgeState {
             servers,
             accounts: std::sync::Mutex::new(HashMap::new()),
             options: std::sync::Mutex::new(HashMap::new()),
+            api: claude_api::store::Store::new(data_dir.map(|d| d.join(claude_api::DEFAULT_DIR))),
         }
     }
 
@@ -663,6 +667,16 @@ pub async fn send_message(
     thread_id: &str,
     text: &str,
 ) -> error::BridgeResult<()> {
+    // A conversation of the Claude API is its client's: a turn from here
+    // would add an exchange the client never sees (docs/CLAUDE-API.md).
+    if state.bridge.api.with(thread_id, |_| ()).is_some() {
+        return Err(error::BridgeError::conflict(
+            "claude_api_conversation",
+            "This is a conversation of the Claude API: its HTTP client sends its messages. Its \
+             transcript can be read.",
+        )
+        .with("thread_id", thread_id.to_string()));
+    }
     routes::turns::begin_turn(
         state,
         thread_id,
@@ -701,6 +715,7 @@ fn routes(state: AppState) -> Router<AppState> {
         .route("/capabilities", get(routes::meta::capabilities))
         .route("/metadata", get(routes::meta::metadata))
         .route("/models", get(routes::meta::models))
+        .route("/models/{model_id}", get(claude_api::extras::model))
         .route("/auth", get(routes::meta::auth))
         .route("/auth/login", post(routes::meta::auth_login));
 
@@ -755,7 +770,22 @@ fn routes(state: AppState) -> Router<AppState> {
             "/requests/{request_id}/respond",
             post(routes::requests::respond),
         )
-        .route("/messages", post(routes::messages::create))
+        // The Claude API (docs/CLAUDE-API.md): Claude Code answers, or the
+        // Anthropic API with `messagesBackend: anthropic`.
+        .route("/messages", post(claude_api::routes::create))
+        .route(
+            "/messages/count_tokens",
+            post(claude_api::extras::count_tokens),
+        )
+        .route(
+            "/conversations",
+            get(claude_api::extras::list_conversations),
+        )
+        .route(
+            "/conversations/{conversation_id}",
+            get(claude_api::extras::get_conversation)
+                .delete(claude_api::extras::delete_conversation),
+        )
         .route(
             "/files",
             get(routes::messages::list_files).post(routes::messages::upload_file),
@@ -796,6 +826,8 @@ fn routes(state: AppState) -> Router<AppState> {
         // else, so a client never has to parse two error formats.
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
+        // A request that speaks the Claude API gets that API's errors.
+        .layer(axum::middleware::from_fn(claude_api::envelope))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             resolve_mount,
@@ -874,26 +906,36 @@ async fn require_started(
 }
 
 /// Authentication with the bridge's error envelope (design §2.3, §10 B1),
-/// under the request's server's token policy ([`MountPolicy`]).
+/// under the request's server's key, reach and token policy
+/// ([`MountPolicy`], docs/CLAUDE-API.md "Access").
 ///
-/// * A desktop, local-script or paired-device credential always passes.
-/// * On a tokenless mount (an API port with `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN`
-///   unset) a **machine-local** request — loopback peer, exactly one loopback
-///   `Host`, no proxy/tunnel headers — passes without a token, whatever its
-///   `Origin` (local tools, Postman, Swagger and pages on other websites keep
-///   working; dangerous actions still need a local or absent `Origin`).
+/// * A desktop, local-script or paired-device credential always passes where
+///   Mother Claude reads one (never on the plain-HTTP network listeners).
+/// * **The server's key**, when it has one: every other request carries it
+///   (`x-api-key: <key>` or `Authorization: Bearer <key>`), from this machine
+///   too. While a tunnel points at the port, its holder is not taken for this
+///   machine.
+/// * **No key**: on a tokenless mount (an API port with
+///   `MOTHER_CLAUDE_BRIDGE_REQUIRE_TOKEN` unset) a **machine-local** request —
+///   loopback peer, exactly one loopback `Host`, no proxy/tunnel headers —
+///   passes, whatever its `Origin` (local tools, Postman, Swagger and pages on
+///   other websites keep working; dangerous actions still need a local or
+///   absent `Origin`).
+/// * **From beyond this machine, no key**: on the server's own ports — its
+///   network listeners (`access: lan|all`), or the loopback port through a
+///   proxy or tunnel when it is reachable from anywhere (`access: all`) — the
+///   Claude API's routes answer (its conversations have no tools); the rest
+///   needs the key. Never on the app port's `/v1`, which always needs a token.
 /// * While tunnel detection sees a tunnel whose upstream is the port the
-///   request arrived on, the tokenless mode is off there
-///   (`bridge_exposed_requires_token`): a raw TCP tunnel is invisible to header
-///   checks. A tunnel to another server's port changes nothing here.
-/// * With [`TokenPolicy::Never`] every request passes without a token, from
-///   anywhere — but while a tunnel points at the port it arrived on, a
-///   tokenless request counts as remote (not `local`, not `on_machine`),
-///   because nothing then tells this machine apart from a raw TCP tunnel.
-///   Dangerous actions, which an anonymous caller only has when `local`, stay
-///   with token holders.
-/// * Anything else is `401`; a tunnelled request to a tokenless port gets
-///   `tunneled_request_requires_token`.
+///   request arrived on, the tokenless mode is off there for the rest
+///   (`bridge_exposed_requires_token`): a raw TCP tunnel is invisible to
+///   header checks. A tunnel to another server's port changes nothing here.
+/// * With [`TokenPolicy::Never`] (*Open to tunnels*) every request passes
+///   without a key, from anywhere — but while a tunnel points at the port it
+///   arrived on, a tokenless request counts as remote (not `local`, not
+///   `on_machine`). Dangerous actions, which an anonymous caller only has when
+///   `local`, stay with token holders.
+/// * Anything else is `401`.
 async fn require_bridge_auth(
     axum::extract::State(state): axum::extract::State<AppState>,
     policy: MountPolicy,
@@ -901,20 +943,72 @@ async fn require_bridge_auth(
     mut req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    use crate::server::context::Ingress;
+    // A caller that only looks like this machine (a raw TCP tunnel to the
+    // port) never has what a local one has.
+    let remote_ctx = |ctx: &crate::server::context::ClientContext| {
+        let mut remote = ctx.clone();
+        remote.local = false;
+        remote.on_machine = false;
+        remote
+    };
     if ctx.principal.is_user() {
         if let Some(id) = ctx.device_id() {
             return run_until_revoked(state, id.to_string(), req, next).await;
         }
         return next.run(req).await;
     }
+    if policy.server.has_key() {
+        return match claude_api::access::presented(req.headers()) {
+            Some(k) if policy.server.key_matches(&k) => {
+                if policy.exposed && (ctx.local || ctx.on_machine) {
+                    req.extensions_mut().insert(remote_ctx(&ctx));
+                }
+                next.run(req).await
+            }
+            Some(_) => error::BridgeError::new(
+                axum::http::StatusCode::UNAUTHORIZED,
+                "invalid_api_key",
+                "That is not this API server's key.",
+            )
+            .into_response(),
+            None => error::BridgeError::new(
+                axum::http::StatusCode::UNAUTHORIZED,
+                "api_key_required",
+                "This API server takes requests with its key: send it as `x-api-key: <key>` or \
+                 `Authorization: Bearer <key>`.",
+            )
+            .into_response(),
+        };
+    }
     if policy.token == TokenPolicy::Never {
         if policy.exposed && (ctx.local || ctx.on_machine) {
-            let mut remote = ctx;
-            remote.local = false;
-            remote.on_machine = false;
-            req.extensions_mut().insert(remote);
+            req.extensions_mut().insert(remote_ctx(&ctx));
         }
         return next.run(req).await;
+    }
+    let network = ctx.ingress == Ingress::ApiNetwork;
+    let dev_proxy =
+        crate::server::context::is_local_dev_proxy(ctx.ingress, ctx.peer, req.headers());
+    let here = (ctx.on_machine || dev_proxy) && !policy.exposed && !network;
+    // The Claude API, from beyond this machine, on the server's own ports.
+    let anywhere = claude_api::access::Access::parse(policy.defaults.access.as_deref())
+        == claude_api::access::Access::All;
+    let reachable = network || (ctx.ingress == Ingress::BridgeLoopback && anywhere && !here);
+    if reachable && !policy.require_token() && claude_api::access::is_api_path(req.uri().path()) {
+        if ctx.local || ctx.on_machine {
+            req.extensions_mut().insert(remote_ctx(&ctx));
+        }
+        return next.run(req).await;
+    }
+    if network {
+        return error::BridgeError::new(
+            axum::http::StatusCode::UNAUTHORIZED,
+            "api_key_required",
+            "From the network, an API server without a key answers the Claude API only. Give \
+             it a key in Mother Claude (HTTP API › Access) to use the rest from here.",
+        )
+        .into_response();
     }
     if !policy.require_token() {
         if policy.exposed {
@@ -922,30 +1016,30 @@ async fn require_bridge_auth(
                 axum::http::StatusCode::UNAUTHORIZED,
                 "bridge_exposed_requires_token",
                 "A tunnel points at this port, so tokenless access is switched off until it \
-                 stops. Stop the tunnel, or send a Mother Claude token as `Authorization: \
-                 Bearer <token>`.",
+                 stops (the Claude API still answers when the server is reachable from \
+                 anywhere). Give the server a key in Mother Claude (HTTP API › Access), stop \
+                 the tunnel, or send a Mother Claude token as `Authorization: Bearer <token>`.",
             )
             .into_response();
         }
         // A development server or reverse proxy on this machine (all its
         // X-Forwarded-For hops loopback, nothing a tunnel adds) is a local
         // tool too.
-        if ctx.on_machine
-            || crate::server::context::is_local_dev_proxy(ctx.ingress, ctx.peer, req.headers())
-        {
+        if ctx.on_machine || dev_proxy {
             return next.run(req).await;
         }
         return error::BridgeError::new(
             axum::http::StatusCode::UNAUTHORIZED,
             "tunneled_request_requires_token",
-            "This request came through a proxy or tunnel; the tokenless mode is only for \
-             clients on this machine (a development proxy here is fine when every \
-             X-Forwarded-For hop is loopback). From elsewhere, use a paired device's token.",
+            "This request came through a proxy or tunnel; without a key this server takes \
+             requests from this machine only. In Mother Claude (HTTP API › Access) make it \
+             reachable from anywhere (the Claude API then answers without a key) or give it a \
+             key; or use a paired device's token.",
         )
         .into_response();
     }
     error::BridgeError::unauthorized(
-        "This endpoint requires a Mother Claude token. Send it as \
+        "This endpoint requires a Mother Claude token or the server's key. Send it as \
          `Authorization: Bearer <token>` (a paired device's token, or the desktop token \
          from this machine).",
     )
@@ -1136,6 +1230,23 @@ fn port_router(state: AppState, mount: Mount) -> Router {
     }
     let app = app.layer(cors).with_state(state.clone());
     crate::server::context::layer(app, state, crate::server::context::Ingress::BridgeLoopback)
+}
+
+/// An API server's own routes for its listeners beyond this computer
+/// (docs/CLAUDE-API.md "Access", [`claude_api::network`]): at `/` and `/v1`,
+/// under the server's own rules, with the `ApiNetwork` ingress — never
+/// local, no Mother Claude token read (plain HTTP). Never the other servers'
+/// `/servers/<id>/` prefixes: a server kept to this computer is not reached
+/// through another's network port.
+pub fn network_router(state: AppState, server: &str, port: u16) -> Router {
+    let cors = api_port_cors(&state.bridge.config);
+    let mount = Mount::new(server, None, Some(port));
+    let app = Router::new()
+        .merge(mount_routes(state.clone(), mount.clone()))
+        .nest("/v1", mount_routes(state.clone(), mount))
+        .layer(cors)
+        .with_state(state.clone());
+    crate::server::context::layer(app, state, crate::server::context::Ingress::ApiNetwork)
 }
 
 /// `/servers/<id>/…` and `/servers/<id>/v1/…` on the main API port: one
@@ -1547,6 +1658,32 @@ pub async fn autostart(state: AppState) {
     let account = std::env::var("MOTHER_CLAUDE_BRIDGE_ACCOUNT").ok();
     let only = env_flag("MOTHER_CLAUDE_BRIDGE_ACCOUNT_ONLY", false);
     autostart_with(&state, mode, account.as_deref(), only).await;
+    autostart_saved(&state).await;
+}
+
+/// Start the servers the user chose to start whenever Mother Claude opens
+/// (docs/CLAUDE-API.md "Start when Mother Claude opens"), each with its
+/// saved defaults and closed to tunnels — unless the environment started it
+/// already.
+pub async fn autostart_saved(state: &AppState) {
+    for server in state.bridge.servers.all() {
+        if !server.autostart() || server.is_running() {
+            continue;
+        }
+        let started = if server.is_main() {
+            control::start_with(state, server.saved(), state.bridge.config.token.closed())
+                .await
+                .map(|_| ())
+        } else {
+            control::autostart_server(state, &server).await
+        };
+        match started {
+            Ok(()) => tracing::info!(server = %server.id, "API server started at launch"),
+            Err(e) => {
+                tracing::error!(error = %e, server = %server.id, "could not start an API server at launch")
+            }
+        }
+    }
 }
 
 /// [`autostart`] with its settings given.
@@ -1557,7 +1694,7 @@ pub async fn autostart_with(state: &AppState, mode: Autostart, account: Option<&
     match autostart_defaults(state, account, only) {
         Ok(defaults) => match control::start(state, defaults).await {
             Ok(_) => {
-                if let Some(port) = state.bridge.config.port {
+                if let Some(port) = state.bridge.main().port() {
                     println!("  Bridge: http://127.0.0.1:{port}  (autostarted)");
                 }
             }

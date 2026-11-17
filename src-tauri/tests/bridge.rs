@@ -1172,15 +1172,20 @@ async fn the_messages_api_explains_itself_when_unconfigured() {
         return;
     }
     let (base, token, _state) = boot().await;
+    // `/messages` is the Claude API, answered by Claude Code; the Anthropic
+    // API answers when asked (docs/CLAUDE-API.md "Backends").
     let resp = client()
         .post(format!("{base}/messages"))
         .bearer_auth(&token)
+        .header("x-mother-claude-backend", "anthropic")
         .json(&json!({ "messages": [{ "role": "user", "content": "hi" }] }))
         .send()
         .await
         .unwrap();
     assert_eq!(resp.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
     let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["type"], "error");
+    assert_eq!(body["error"]["type"], "api_error");
     assert_eq!(body["error"]["code"], "messages_api_unconfigured");
     assert!(body["error"]["message"]
         .as_str()
@@ -1711,4 +1716,152 @@ fn solid_blue_png(width: u32, height: u32) -> Vec<u8> {
     png.extend_from_slice(&chunk(b"IDAT", &z));
     png.extend_from_slice(&chunk(b"IEND", &[]));
     png
+}
+
+/// The Claude API (docs/CLAUDE-API.md) against real Claude Code: an answer,
+/// a conversation that goes on from its history, a stream, a client tool
+/// there and back, a stop sequence. Small Haiku calls.
+#[tokio::test]
+#[ignore = "starts real Claude conversations and spends tokens"]
+async fn live_claude_api_messages() {
+    let (base, token, state) = boot_live().await;
+    let data = tempfile::tempdir().unwrap();
+    mother_claude_lib::bridge::control::start(
+        &state,
+        BridgeDefaults {
+            api_data_dir: Some(data.path().to_string_lossy().into_owned()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("the bridge should start");
+    let http = client();
+    let call = |body: Value, conversation: Option<String>| {
+        let http = http.clone();
+        let base = base.clone();
+        let token = token.clone();
+        async move {
+            let mut r = http
+                .post(format!("{base}/messages"))
+                .bearer_auth(&token)
+                .header("anthropic-version", "2023-06-01");
+            if let Some(c) = conversation {
+                r = r.header("x-conversation-id", c);
+            }
+            let resp = r.json(&body).send().await.unwrap();
+            let status = resp.status();
+            let id = resp
+                .headers()
+                .get("x-conversation-id")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            let text = resp.text().await.unwrap();
+            eprintln!("{status} {id}\n{text}\n");
+            (status, id, text)
+        }
+    };
+    let text_of = |v: &Value| -> String {
+        v["content"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|b| b["text"].as_str())
+            .collect()
+    };
+
+    let first = json!({ "role": "user", "content": "My favourite colour is teal. Reply with exactly: NOTED" });
+    let (s, id, body) = call(
+        json!({ "model": "haiku", "max_tokens": 200, "system": "You are terse.", "messages": [first.clone()] }),
+        None,
+    )
+    .await;
+    assert_eq!(s, reqwest::StatusCode::OK);
+    let a1: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(a1["type"], "message");
+    assert!(text_of(&a1).contains("NOTED"), "{a1}");
+    assert_eq!(a1["stop_reason"], "end_turn");
+    assert!(a1["usage"]["output_tokens"].as_u64().unwrap() > 0);
+
+    let second = json!({ "role": "user", "content": "What is my favourite colour? One word." });
+    let (s, id2, body) = call(
+        json!({ "model": "haiku", "max_tokens": 200, "system": "You are terse.",
+                "messages": [first.clone(), { "role": "assistant", "content": a1["content"] }, second.clone()] }),
+        None,
+    )
+    .await;
+    assert_eq!(s, reqwest::StatusCode::OK);
+    assert_eq!(id2, id, "the history found its conversation");
+    let a2: Value = serde_json::from_str(&body).unwrap();
+    assert!(text_of(&a2).to_lowercase().contains("teal"), "{a2}");
+
+    let (s, id3, body) = call(
+        json!({ "model": "haiku", "max_tokens": 200, "system": "You are terse.", "stream": true,
+                "messages": [first, { "role": "assistant", "content": a1["content"] },
+                             second, { "role": "assistant", "content": a2["content"] },
+                             { "role": "user", "content": "Say: STREAMED" }] }),
+        None,
+    )
+    .await;
+    assert_eq!(s, reqwest::StatusCode::OK);
+    assert_eq!(id3, id);
+    let names: Vec<&str> = body
+        .lines()
+        .filter_map(|l| l.strip_prefix("event: "))
+        .collect();
+    assert_eq!(names.first(), Some(&"message_start"));
+    assert_eq!(names.last(), Some(&"message_stop"));
+    let streamed: String = body
+        .lines()
+        .filter_map(|l| l.strip_prefix("data: "))
+        .filter_map(|d| serde_json::from_str::<Value>(d).ok())
+        .filter_map(|v| v["delta"]["text"].as_str().map(str::to_string))
+        .collect();
+    assert!(streamed.contains("STREAMED"), "{streamed}");
+
+    let tools = json!([{
+        "name": "get_weather",
+        "description": "The current weather in a city.",
+        "input_schema": { "type": "object", "properties": { "city": { "type": "string" } }, "required": ["city"] },
+    }]);
+    let ask = json!({ "role": "user", "content": "What's the weather in Paris? Use the tool." });
+    let (s, tid, body) = call(
+        json!({ "model": "haiku", "max_tokens": 300, "tools": tools, "messages": [ask.clone()] }),
+        None,
+    )
+    .await;
+    assert_eq!(s, reqwest::StatusCode::OK);
+    let t1: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(t1["stop_reason"], "tool_use", "{t1}");
+    let use_block = t1["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["type"] == "tool_use")
+        .unwrap()
+        .clone();
+    assert_eq!(use_block["name"], "get_weather");
+    let (s, tid2, body) = call(
+        json!({ "model": "haiku", "max_tokens": 300, "tools": tools, "messages": [
+            ask, { "role": "assistant", "content": t1["content"] },
+            { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": use_block["id"], "content": "Sunny, 21 degrees" }] },
+        ]}),
+        None,
+    )
+    .await;
+    assert_eq!(s, reqwest::StatusCode::OK);
+    assert_eq!(tid2, tid);
+    let t2: Value = serde_json::from_str(&body).unwrap();
+    assert!(text_of(&t2).contains("21"), "{t2}");
+
+    let (s, _, body) = call(
+        json!({ "model": "haiku", "max_tokens": 100, "stop_sequences": ["5"],
+                "messages": [{ "role": "user", "content": "Count from 1 to 9, separated by spaces, nothing else." }] }),
+        None,
+    )
+    .await;
+    assert_eq!(s, reqwest::StatusCode::OK);
+    let c: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(c["stop_reason"], "stop_sequence", "{c}");
+    assert!(!text_of(&c).contains('6'), "{c}");
 }

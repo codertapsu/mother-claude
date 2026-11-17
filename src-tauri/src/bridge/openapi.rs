@@ -14,6 +14,17 @@ use serde_json::{json, Map, Value};
 /// this document was served under — listing a guessed `/` would send every
 /// "Try it out" under the `/v1` mount to the dashboard's SPA fallback.
 pub fn document(token: crate::bridge::TokenPolicy, messages_api: bool, mount: &str) -> Value {
+    document_for(token, messages_api, mount, false)
+}
+
+/// [`document`] for a server started with a key (`keyed`): every request
+/// carries it, as `x-api-key` or a bearer (docs/CLAUDE-API.md "Access").
+pub fn document_for(
+    token: crate::bridge::TokenPolicy,
+    messages_api: bool,
+    mount: &str,
+    keyed: bool,
+) -> Value {
     let require_token = token.requires_token();
     let mut paths = Map::new();
     let mut add = |path: &str, method: &str, op: Op| {
@@ -73,7 +84,9 @@ pub fn document(token: crate::bridge::TokenPolicy, messages_api: bool, mount: &s
             "models",
             "Models this account can select",
             "Rich model info when a conversation is live, otherwise the user's own \
-             saved Claude settings.",
+             saved Claude settings. With an `anthropic-version` header (or \
+             `?format=anthropic`), the Claude API's list: `{data, first_id, last_id, \
+             has_more}`.",
             &[],
             None,
             json!({ "type": "object" }),
@@ -452,7 +465,7 @@ pub fn document(token: crate::bridge::TokenPolicy, messages_api: bool, mount: &s
         ),
     );
 
-    // --- direct Messages API ----------------------------------------------
+    // --- the Claude API (docs/CLAUDE-API.md) -------------------------------
     let messages_note = if messages_api {
         "Enabled on this server."
     } else {
@@ -462,17 +475,99 @@ pub fn document(token: crate::bridge::TokenPolicy, messages_api: bool, mount: &s
         "/messages",
         "post",
         operation(
-            "Messages API",
+            "Claude API",
             "createMessage",
-            "One Messages API call",
+            "The Claude API's Messages call",
             &format!(
-                "A faithful pass-through to POST /v1/messages, plus `localImage` / \
-                 `localDocument` input sugar, `betas` as a JSON field, and model \
-                 defaults. Tools, programmatic tool calling, server tools, \
-                 `output_config` and `transformations` are forwarded untouched. {messages_note}"
+                "The Claude API's `POST /v1/messages`: the same request body, answer, \
+                 streamed events (`stream: true`) and error envelope, answered by Claude \
+                 Code on this computer (a client changes only its base URL). The history a \
+                 request sends finds the conversation it continues; `x-conversation-id` (or \
+                 `conversation_id`) names one, and then the request may carry only its next \
+                 message. Every answer carries `x-conversation-id`. The client's own tools \
+                 are called as in the API (`tool_use`, then `tool_result` in the next \
+                 request). Fields Claude Code cannot apply are named in \
+                 `x-mother-claude-ignored`; server tools, prefill, `container` and \
+                 `mcp_servers` are refused (400). `x-mother-claude-backend: anthropic` (or \
+                 the server's `messagesBackend`) sends the request to the Anthropic API \
+                 instead — {messages_note}"
             ),
             &[],
             Some(json!({ "$ref": "#/components/schemas/MessagesRequest" })),
+            json!({ "type": "object" }),
+        ),
+    );
+    add(
+        "/messages/count_tokens",
+        "post",
+        operation(
+            "Claude API",
+            "countTokens",
+            "Count a request's input tokens",
+            "The Claude API's `count_tokens`: an estimate (`x-mother-claude-estimate: \
+             true`) when Claude Code answers, exact through the Anthropic API.",
+            &[],
+            Some(json!({ "$ref": "#/components/schemas/MessagesRequest" })),
+            json!({ "type": "object", "properties": { "input_tokens": { "type": "integer" } } }),
+        ),
+    );
+    add(
+        "/models/{model_id}",
+        "get",
+        operation(
+            "Claude API",
+            "getModel",
+            "One model, as the Claude API describes it",
+            "`{type: \"model\", id, display_name, created_at}` and what Claude Code says \
+             of it; 404 `not_found_error` for a model this account cannot select.",
+            &[],
+            None,
+            json!({ "type": "object" }),
+        ),
+    );
+    add(
+        "/conversations",
+        "get",
+        operation(
+            "Claude API",
+            "listConversations",
+            "The caller's conversations",
+            "Mother Claude's own: the conversations of the client making the request \
+             (as its server tells clients apart), newest first, in the models list's \
+             page shape (`limit`, `after_id`).",
+            &[
+                query("limit", "integer", "How many (1–1000, default 20)."),
+                query("after_id", "string", "The page after this conversation."),
+            ],
+            None,
+            json!({ "type": "object" }),
+        ),
+    );
+    add(
+        "/conversations/{conversation_id}",
+        "get",
+        operation(
+            "Claude API",
+            "getConversation",
+            "One of the caller's conversations, with its messages",
+            "The exchange as the client saw it (the bytes of images and documents left \
+             out).",
+            &[],
+            None,
+            json!({ "type": "object" }),
+        ),
+    );
+    add(
+        "/conversations/{conversation_id}",
+        "delete",
+        operation(
+            "Claude API",
+            "deleteConversation",
+            "Forget one of the caller's conversations",
+            "Its record goes and its process closes; its Claude Code transcript stays on \
+             the computer until it is deleted in Mother Claude.",
+            &[],
+            None,
             json!({ "type": "object" }),
         ),
     );
@@ -545,7 +640,9 @@ pub fn document(token: crate::bridge::TokenPolicy, messages_api: bool, mount: &s
         }
     }
 
-    let security = if require_token {
+    let security = if keyed {
+        json!([{ "ServerKey": [] }, { "BridgeBearer": [] }])
+    } else if require_token {
         json!([{ "BridgeBearer": [] }])
     } else {
         json!([])
@@ -565,12 +662,14 @@ pub fn document(token: crate::bridge::TokenPolicy, messages_api: bool, mount: &s
         "x-bridge-require-token": require_token,
         "x-bridge-token-policy": token,
         "x-bridge-messages-api": messages_api,
+        "x-bridge-key": keyed,
         "tags": [
             { "name": "Discovery", "description": "Health, capabilities, models." },
             { "name": "Conversations", "description": "Claude Code sessions." },
             { "name": "Turns", "description": "Running, steering and interrupting work." },
             { "name": "Operations", "description": "Background work and its event streams." },
             { "name": "Requests", "description": "Tool approvals and questions." },
+            { "name": "Claude API", "description": "The Claude API's own endpoints, answered by Claude Code (docs/CLAUDE-API.md)." },
             { "name": "Messages API", "description": "Direct api.anthropic.com access." },
         ],
         "paths": Value::Object(paths),
@@ -581,7 +680,15 @@ pub fn document(token: crate::bridge::TokenPolicy, messages_api: bool, mount: &s
                     "scheme": "bearer",
                     "description": "A Mother Claude token: a paired device's token, or the \
                                     desktop token from this machine. ?token= (for \
-                                    EventSource) is accepted only from this machine.",
+                                    EventSource) is accepted only from this machine. On a \
+                                    server started with a key, that key as a bearer.",
+                },
+                "ServerKey": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": "x-api-key",
+                    "description": "The key this API server was started with, as the Claude \
+                                    API takes one.",
                 },
             },
             "schemas": schemas(),
@@ -1057,6 +1164,10 @@ mod tests {
             "/requests",
             "/requests/{request_id}/respond",
             "/messages",
+            "/messages/count_tokens",
+            "/models/{model_id}",
+            "/conversations",
+            "/conversations/{conversation_id}",
             "/files",
         ] {
             assert!(paths.contains_key(expected), "missing {expected}");
@@ -1068,6 +1179,16 @@ mod tests {
         assert_eq!(
             document(TokenPolicy::Required, false, "")["security"],
             json!([{ "BridgeBearer": [] }])
+        );
+        // A server started with a key asks for it, either way it is sent.
+        let keyed = document_for(TokenPolicy::Local, false, "", true);
+        assert_eq!(
+            keyed["security"],
+            json!([{ "ServerKey": [] }, { "BridgeBearer": [] }])
+        );
+        assert_eq!(
+            keyed["components"]["securitySchemes"]["ServerKey"]["name"],
+            "x-api-key"
         );
         assert_eq!(
             document(TokenPolicy::Local, false, "")["security"],

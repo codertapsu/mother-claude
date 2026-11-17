@@ -30,6 +30,8 @@ use axum::http::request::Parts;
 use axum::http::StatusCode;
 use serde_json::{json, Map, Value};
 
+use crate::claude::secrets::Secret;
+
 use super::control::{BridgeDefaults, Listener, DEFAULTS_FIELDS};
 use super::error::{BridgeError, BridgeResult};
 use super::TokenPolicy;
@@ -87,6 +89,19 @@ pub struct ApiServer {
     /// entry's own, and its defaults'.
     extra: RwLock<Map<String, Value>>,
     defaults_extra: RwLock<Map<String, Value>>,
+    /// Start it when Mother Claude opens, with its saved defaults, closed to
+    /// tunnels (docs/CLAUDE-API.md "Start when Mother Claude opens"). Saved
+    /// in `api-servers.json`; for the main server with the defaults of its
+    /// last start, which are otherwise never written.
+    autostart: AtomicBool,
+    /// The key every request must carry (docs/CLAUDE-API.md "Access"), while
+    /// it is known: kept in the secret store, never in a file.
+    key: RwLock<Option<Secret>>,
+    /// Its last four characters, saved (`keyHint`): the server has a key.
+    key_hint: RwLock<Option<String>>,
+    /// The main server's port was chosen in the app (saved), not taken from
+    /// the environment.
+    port_chosen: AtomicBool,
 }
 
 impl std::fmt::Debug for ApiServer {
@@ -120,7 +135,73 @@ impl ApiServer {
             token: RwLock::new(token),
             extra: RwLock::new(Map::new()),
             defaults_extra: RwLock::new(Map::new()),
+            autostart: AtomicBool::new(false),
+            key: RwLock::new(None),
+            key_hint: RwLock::new(None),
+            port_chosen: AtomicBool::new(false),
         }
+    }
+
+    /// The last characters of its key (`…abcd`), when it has one.
+    pub fn key_hint(&self) -> Option<String> {
+        get(&self.key_hint)
+    }
+
+    /// Whether requests need its key.
+    pub fn has_key(&self) -> bool {
+        self.key_hint().is_some()
+    }
+
+    /// Its key, when it is known in this process.
+    pub(crate) fn key(&self) -> Option<Secret> {
+        get(&self.key)
+    }
+
+    /// Takes a key (or none), with its hint.
+    pub(crate) fn set_key(&self, key: Option<Secret>) {
+        set(&self.key_hint, key.as_ref().map(|k| key_hint(k.expose())));
+        set(&self.key, key);
+    }
+
+    /// Knows the key a saved hint stands for (read from the secret store).
+    pub(crate) fn load_key(&self, key: Secret) {
+        set(&self.key, Some(key));
+    }
+
+    /// Puts back a key and its hint as they were (a save that failed).
+    pub(crate) fn restore_key(&self, key: Option<Secret>, hint: Option<String>) {
+        set(&self.key, key);
+        set(&self.key_hint, hint);
+    }
+
+    /// Whether `presented` is its key (the hashes compared in constant time;
+    /// never while the key is not known).
+    pub fn key_matches(&self, presented: &str) -> bool {
+        match get(&self.key) {
+            Some(k) => crate::server::auth::token_matches(
+                &k.sha256_hex(),
+                &crate::claude::secrets::sha256_hex(presented.as_bytes()),
+            ),
+            None => false,
+        }
+    }
+
+    /// Whether its port was chosen in the app (the main server's).
+    pub fn port_chosen(&self) -> bool {
+        self.port_chosen.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn set_port_chosen(&self, chosen: bool) {
+        self.port_chosen.store(chosen, Ordering::SeqCst);
+    }
+
+    /// Whether it starts when Mother Claude opens.
+    pub fn autostart(&self) -> bool {
+        self.autostart.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn set_autostart(&self, on: bool) {
+        self.autostart.store(on, Ordering::SeqCst);
     }
 
     pub fn is_main(&self) -> bool {
@@ -283,7 +364,36 @@ impl ApiServer {
         entry.insert("name".into(), json!(self.name()));
         entry.insert("port".into(), json!(self.port().unwrap_or(0)));
         entry.insert("defaults".into(), defaults);
+        if self.autostart() {
+            entry.insert("autostart".into(), json!(true));
+        } else {
+            entry.remove("autostart");
+        }
+        match self.key_hint() {
+            Some(hint) => entry.insert("keyHint".into(), json!(hint)),
+            None => entry.remove("keyHint"),
+        };
         Value::Object(entry)
+    }
+
+    /// The main server's entry, while there is something to keep of it: its
+    /// last start's defaults when it starts with Mother Claude, the port
+    /// chosen in the app, whether it has a key (else nothing is written).
+    fn to_saved_main(&self) -> Option<Value> {
+        let mut entry = Map::new();
+        if self.autostart() {
+            entry.insert("autostart".into(), json!(true));
+            entry.insert("defaults".into(), json!(self.saved()));
+        }
+        if self.port_chosen() {
+            if let Some(port) = self.port() {
+                entry.insert("port".into(), json!(port));
+            }
+        }
+        if let Some(hint) = self.key_hint() {
+            entry.insert("keyHint".into(), json!(hint));
+        }
+        (!entry.is_empty()).then_some(Value::Object(entry))
     }
 }
 
@@ -488,9 +598,13 @@ pub(crate) fn load(path: &Path) -> Vec<ApiServer> {
         }
         let (defaults, defaults_extra) = read_defaults(id, obj.get("defaults"));
         let server = ApiServer::new(id, &name, Some(port), defaults, TokenPolicy::Required);
+        server.set_autostart(obj.get("autostart").and_then(Value::as_bool) == Some(true));
+        set(&server.key_hint, read_hint(obj.get("keyHint")));
         let extra: Map<String, Value> = obj
             .iter()
-            .filter(|(k, _)| !["id", "name", "port", "defaults"].contains(&k.as_str()))
+            .filter(|(k, _)| {
+                !["id", "name", "port", "defaults", "autostart", "keyHint"].contains(&k.as_str())
+            })
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         set(&server.extra, extra);
@@ -507,7 +621,64 @@ pub(crate) fn save(path: &Path, servers: &[Arc<ApiServer>]) -> std::io::Result<(
         .filter(|s| !s.is_main())
         .map(|s| s.to_saved())
         .collect();
-    crate::persist::write_json_private(path, &json!({ "version": 1, "servers": entries }))
+    let mut file = json!({ "version": 1, "servers": entries });
+    if let Some(main) = servers
+        .iter()
+        .find(|s| s.is_main())
+        .and_then(|m| m.to_saved_main())
+    {
+        file["main"] = main;
+    }
+    crate::persist::write_json_private(path, &file)
+}
+
+/// A key's hint as it is shown (`…abcd`).
+pub fn key_hint(key: &str) -> String {
+    let tail: String = key
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("…{tail}")
+}
+
+/// A saved hint: `…` and up to four visible characters.
+fn read_hint(v: Option<&Value>) -> Option<String> {
+    let hint = v?.as_str()?;
+    let tail = hint.strip_prefix('…')?;
+    (tail.chars().count() <= 4 && tail.chars().all(|c| c.is_ascii_graphic()))
+        .then(|| hint.to_string())
+}
+
+/// The main server's saved entry (`main` in `api-servers.json`): whether it
+/// starts when Mother Claude opens and with which defaults, the port chosen
+/// in the app (unless `MOTHER_CLAUDE_BRIDGE_PORT` names one), whether it has
+/// a key.
+fn load_main(path: &Path, main: &ApiServer) {
+    let Some(entry) = crate::persist::read_json::<Value>(path).and_then(|f| f.get("main").cloned())
+    else {
+        return;
+    };
+    if entry.get("autostart").and_then(Value::as_bool) == Some(true) {
+        let (defaults, _) = read_defaults(MAIN_ID, entry.get("defaults"));
+        main.update_saved(|d| *d = defaults);
+        main.set_autostart(true);
+    }
+    let port = entry
+        .get("port")
+        .and_then(Value::as_u64)
+        .and_then(|p| u16::try_from(p).ok())
+        .filter(|p| *p >= MIN_PORT);
+    if let Some(port) = port {
+        if std::env::var_os("MOTHER_CLAUDE_BRIDGE_PORT").is_none() && main.port().is_some() {
+            main.set_port(Some(port));
+            main.set_port_chosen(true);
+        }
+    }
+    set(&main.key_hint, read_hint(entry.get("keyHint")));
 }
 
 /// The registry of servers, main first. Lives in [`super::BridgeState`].
@@ -525,6 +696,9 @@ impl Servers {
     /// The main server, plus the saved ones from `data_dir` (none without one).
     pub(crate) fn load(main: ApiServer, data_dir: Option<&Path>, token: TokenPolicy) -> Self {
         let path = data_dir.map(|d| d.join(FILE_NAME));
+        if let Some(path) = &path {
+            load_main(path, &main);
+        }
         let mut list = vec![Arc::new(main)];
         if let Some(path) = &path {
             for server in load(path) {
@@ -556,6 +730,13 @@ impl Servers {
             .iter()
             .find(|s| s.id == id)
             .cloned()
+    }
+
+    /// Whether `presented` is any server's key (the context middleware then
+    /// leaves it to the API servers rather than count it as a failed Mother
+    /// Claude credential).
+    pub fn key_matches_any(&self, presented: &str) -> bool {
+        self.all().iter().any(|s| s.key_matches(presented))
     }
 
     /// Whether a server besides the main one exists.

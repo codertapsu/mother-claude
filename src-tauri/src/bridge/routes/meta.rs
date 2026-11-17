@@ -186,12 +186,11 @@ pub async fn metadata(State(state): State<AppState>, mount: MountPolicy) -> Resp
     ok(body)
 }
 
-/// `GET /models` — what this account can select.
-///
-/// A live conversation can report the rich `ModelInfo` list (effort support and
-/// all); with none running, the user's own saved Claude settings are the next
-/// best answer, and cost nothing to read.
-pub async fn models(State(state): State<AppState>, mount: MountPolicy) -> BridgeResult<Response> {
+/// The models this server's account can select: a live conversation's
+/// rich `ModelInfo` list (effort support and all) when one runs; else the
+/// user's own saved Claude settings, which cost nothing to read. With where
+/// it came from, and the settings' selection when they answered.
+pub async fn model_list_from(state: &AppState, mount: &MountPolicy) -> (Vec<Value>, Value) {
     // A live conversation this server shows (one of its account's, when it
     // runs as one only).
     let live = state
@@ -205,15 +204,15 @@ pub async fn models(State(state): State<AppState>, mount: MountPolicy) -> Bridge
             .bridge
             .host
             .call(
-                &state,
+                state,
                 "session.models",
                 json!({ "sessionId": thread.thread_id }),
                 RPC_TIMEOUT,
             )
             .await
         {
-            if let Some(models) = result.get("models") {
-                return Ok(ok(json!({ "data": models, "source": "session" })));
+            if let Some(models) = result.get("models").and_then(Value::as_array) {
+                return (models.clone(), json!({ "source": "session" }));
             }
         }
     }
@@ -234,13 +233,48 @@ pub async fn models(State(state): State<AppState>, mount: MountPolicy) -> Bridge
             })
         })
         .collect();
-    Ok(ok(json!({
-        "data": data,
-        "source": "settings",
-        "selected": defaults.model,
-        "effort": defaults.effort,
-        "efforts": super::threads::EFFORT_LEVELS,
-    })))
+    (
+        data,
+        json!({
+            "source": "settings",
+            "selected": defaults.model,
+            "effort": defaults.effort,
+            "efforts": super::threads::EFFORT_LEVELS,
+        }),
+    )
+}
+
+/// [`model_list_from`]'s models alone.
+pub async fn model_list(state: &AppState, mount: &MountPolicy) -> Vec<Value> {
+    model_list_from(state, mount).await.0
+}
+
+/// `GET /models` — what this account can select. A request that speaks the
+/// Claude API (an `anthropic-version` header, or `?format=anthropic`) gets
+/// that API's list (docs/CLAUDE-API.md); any other the bridge's.
+pub async fn models(
+    State(state): State<AppState>,
+    mount: MountPolicy,
+    headers: axum::http::HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> BridgeResult<Response> {
+    let (data, about) = model_list_from(&state, &mount).await;
+    let api_shape = headers.contains_key("anthropic-version")
+        || query.get("format").map(String::as_str) == Some("anthropic");
+    if api_shape {
+        let page = crate::bridge::claude_api::extras::api_models_page(
+            crate::bridge::claude_api::extras::api_models(&data),
+            &query,
+        );
+        return Ok(ok(page));
+    }
+    let mut body = json!({ "data": data });
+    if let (Some(b), Some(a)) = (body.as_object_mut(), about.as_object()) {
+        for (k, v) in a {
+            b.insert(k.clone(), v.clone());
+        }
+    }
+    Ok(ok(body))
 }
 
 /// `GET /auth` — which Anthropic account Claude is signed in as.
@@ -384,9 +418,10 @@ pub async fn openapi(
         .strip_suffix("/openapi.json")
         .unwrap_or_default()
         .to_string();
-    ok(crate::bridge::openapi::document(
+    ok(crate::bridge::openapi::document_for(
         policy.token,
         state.bridge.messages.is_configured(),
         &mount,
+        policy.server.has_key(),
     ))
 }

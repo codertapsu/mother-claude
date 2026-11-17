@@ -33,6 +33,9 @@ pub struct CapsInput {
     pub owned: bool,
     /// Owned through the HTTP bridge's Agent SDK host.
     pub bridge_thread: bool,
+    /// A conversation of the Claude API (docs/CLAUDE-API.md): its HTTP
+    /// client sends its messages, so nothing else does.
+    pub claude_api: bool,
     /// The session process is alive.
     pub live: bool,
     /// A hook event or wake poll arrived from the session's current process.
@@ -144,6 +147,7 @@ pub fn input_with(state: &AppState, facts: &SessionFacts, extra: &ExtraFacts) ->
         ultracode_switchable,
         owned: facts.owned && !facts.bridge_thread,
         bridge_thread: facts.bridge_thread,
+        claude_api: facts.bridge_thread && state.bridge.api.with(&facts.id, |_| ()).is_some(),
         live: facts.live,
         hooks_active,
         hooks_installed: state.plugin.installed_cached(),
@@ -222,6 +226,7 @@ fn limit(code: &str, text: &str, action: Option<LimitAction>) -> CapLimit {
 /// Stable limit codes (the UI keys copy and actions on them).
 pub mod codes {
     pub const BRIDGE_THREAD: &str = "bridge_thread";
+    pub const CLAUDE_API: &str = "claude_api";
     pub const ENDED: &str = "ended";
     pub const INSTALL: &str = "foreign_control_not_installed";
     pub const HOOKS_NOT_LOADED: &str = "hooks_not_loaded";
@@ -288,6 +293,21 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
                 "Driven through the HTTP bridge.",
                 None,
             ));
+            if input.claude_api {
+                // Its client's history is the conversation: a message or a
+                // setting from anywhere else would change it behind the
+                // client's back.
+                caps.message = MessageCap::None;
+                caps.set_model = false;
+                caps.set_mode = SetModeCap::None;
+                caps.slash_commands = false;
+                caps.fork = false;
+                caps.limits.push(limit(
+                    codes::CLAUDE_API,
+                    "A conversation of the Claude API: its HTTP client sends its messages.",
+                    None,
+                ));
+            }
         }
         return finish(caps);
     }
@@ -540,6 +560,21 @@ mod tests {
         assert!(!b.set_effort && !b.stop_task && !b.attach_images);
         assert_eq!(b.rename, RenameCap::None);
         assert_eq!(b.attach, AttachCap::None);
+
+        // A conversation of the Claude API: its client alone sends to it;
+        // it can still be stopped, interrupted and answered.
+        let api = compute(&CapsInput {
+            bridge_thread: true,
+            claude_api: true,
+            live: true,
+            ..Default::default()
+        });
+        assert!(has(&api, codes::CLAUDE_API));
+        assert_eq!(api.message, MessageCap::None);
+        assert!(!api.set_model && !api.slash_commands && !api.fork);
+        assert_eq!(api.set_mode, SetModeCap::None);
+        assert_eq!(api.interrupt, InterruptCap::Immediate);
+        assert!(api.approve && api.lifecycle.stop);
     }
 
     #[test]

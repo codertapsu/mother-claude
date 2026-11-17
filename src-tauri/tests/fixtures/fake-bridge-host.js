@@ -11,6 +11,14 @@
 // tool request first and finishes once it is answered (`request.respond`).
 // Closing an open conversation ends its stream: a `session` frame follows the
 // reply, as with the real host.
+//
+// A bare conversation (the Claude API's, `options.bare`) answers with the
+// API's own stream events (`stream_event`), as Claude Code does with partial
+// messages on: "Echo (turn N): <the last line of the message's text>", with
+// ", seeded" when the message carries a history. "TOOL" calls the first client
+// tool (a `client_tool` request, the answer streamed after its result);
+// "STOPTEST" says "alpha STOP beta" and keeps its turn open until it is
+// interrupted; "AUTHFAIL" answers as a signed-out Claude Code does.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -38,6 +46,99 @@ const store = new Map();
 const live = new Set();
 // requestId -> { sessionId, turnId }
 const asked = new Map();
+// sessionId -> { options, turns, turnId } for bare conversations.
+const bare = new Map();
+// requestId -> { sessionId, turnId, tool } for client tool calls.
+const toolCalls = new Map();
+
+const lastLine = (content) => {
+  const blocks = Array.isArray(content) ? content : [{ type: 'text', text: String(content || '') }];
+  const texts = blocks.filter((b) => b && b.type === 'text').map((b) => b.text || '');
+  const all = texts.join('\n');
+  const lines = all.split('\n').filter((l) => l.trim());
+  return { line: lines.length ? lines[lines.length - 1] : '', all };
+};
+
+// One API message as Claude Code passes it on: its stream events, then the
+// whole message.
+const apiMessage = (sessionId, turnId, blocks, stopReason) => {
+  const ev = (event) =>
+    send({
+      t: 'event',
+      sessionId,
+      turnId,
+      message: { type: 'stream_event', event, parent_tool_use_id: null, session_id: sessionId },
+    });
+  const id = 'msg_fake' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+  const model = (bare.get(sessionId) || {}).options?.model || 'claude-fake';
+  ev({
+    type: 'message_start',
+    message: {
+      id, type: 'message', role: 'assistant', model, content: [],
+      stop_reason: null, stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 1, cache_read_input_tokens: 0 },
+    },
+  });
+  blocks.forEach((b, index) => {
+    if (b.type === 'text') {
+      ev({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } });
+      const half = Math.ceil(b.text.length / 2);
+      for (const part of [b.text.slice(0, half), b.text.slice(half)]) {
+        if (part) ev({ type: 'content_block_delta', index, delta: { type: 'text_delta', text: part } });
+      }
+    } else {
+      ev({ type: 'content_block_start', index, content_block: { type: 'tool_use', id: b.id, name: b.name, input: {} } });
+      ev({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: JSON.stringify(b.input) } });
+    }
+    ev({ type: 'content_block_stop', index });
+  });
+  if (stopReason) {
+    ev({ type: 'message_delta', delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: 5 } });
+    ev({ type: 'message_stop' });
+  }
+  send({ t: 'event', sessionId, turnId, message: { type: 'assistant', message: { id, content: blocks } } });
+};
+
+const bareTurn = (c) => {
+  const conv = bare.get(c.sessionId);
+  conv.turns += 1;
+  conv.turnId = c.turnId;
+  const { line, all } = lastLine(c.content);
+  if (all.includes('AUTHFAIL')) {
+    // Claude Code signed out: a made-up assistant message, no API events.
+    const event = (message) => send({ t: 'event', sessionId: c.sessionId, turnId: c.turnId, message });
+    event({
+      type: 'assistant',
+      error: 'authentication_failed',
+      message: { content: [{ type: 'text', text: 'Not logged in · Please run /login' }] },
+    });
+    event({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login' });
+    send({ t: 'turn', sessionId: c.sessionId, turnId: c.turnId, status: 'failed',
+           error: { code: 'claude_login_required', message: 'Not logged in · Please run /login' } });
+    return;
+  }
+  const tools = conv.options.clientTools || [];
+  if (all.includes('TOOL') && tools.length) {
+    const toolUseId = 'toolu_fake' + conv.turns;
+    apiMessage(c.sessionId, c.turnId, [
+      { type: 'tool_use', id: toolUseId, name: 'mcp__client__' + tools[0].name, input: { city: 'Paris' } },
+    ], 'tool_use');
+    const requestId = crypto.randomUUID();
+    toolCalls.set(requestId, { sessionId: c.sessionId, turnId: c.turnId, toolUseId });
+    send({
+      t: 'request', requestId, sessionId: c.sessionId, turnId: c.turnId,
+      kind: 'client_tool', tool: tools[0].name, input: { city: 'Paris' },
+    });
+    return;
+  }
+  if (all.includes('STOPTEST')) {
+    apiMessage(c.sessionId, c.turnId, [{ type: 'text', text: 'alpha STOP beta' }], 'end_turn');
+    return; // open until interrupted
+  }
+  const seeded = all.includes('<conversation_so_far>') ? ', seeded' : '';
+  apiMessage(c.sessionId, c.turnId, [{ type: 'text', text: `Echo (turn ${conv.turns}${seeded}): ${line}` }], 'end_turn');
+  finish(c.sessionId, c.turnId);
+};
 
 const finish = (sessionId, turnId) => {
   send({
@@ -68,6 +169,11 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     model: (c.options && c.options.model) || null,
     permissionMode: (c.options && c.options.permissionMode) || null,
     systemPromptAppend: (c.options && c.options.systemPromptAppend) || null,
+    bare: Boolean(c.options && c.options.bare),
+    systemPrompt: c.options && 'systemPrompt' in c.options ? c.options.systemPrompt : null,
+    clientTools: (c.options && c.options.clientTools && c.options.clientTools.map((t) => t.name)) || null,
+    maxOutputTokens: (c.options && c.options.maxOutputTokens) || null,
+    thinkingConfig: (c.options && c.options.thinkingConfig) || null,
     env: env
       ? {
           set: Object.keys(set).sort(),
@@ -80,6 +186,10 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const reply = (result) => send({ t: 'reply', id: c.id, ok: true, result });
   switch (c.op) {
     case 'session.create':
+      if (c.options && c.options.bare) {
+        const from = c.options.resume && bare.get(c.options.resume);
+        bare.set(c.sessionId, { options: c.options, turns: from ? from.turns : 0, turnId: null });
+      }
       store.set(c.sessionId, {
         configDir: set.CLAUDE_CONFIG_DIR || null,
         lastModified: Date.now() + store.size,
@@ -111,6 +221,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     }
     case 'session.input': {
       reply({ turnId: c.turnId });
+      if (bare.has(c.sessionId)) return bareTurn(c);
       // A turn: "AUTHFAIL" in the text answers like an expired token, "ASK"
       // waits on a tool approval, anything else succeeds.
       const text = JSON.stringify(c.content || '');
@@ -138,8 +249,33 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       }
       return;
     }
+    case 'session.interrupt': {
+      const conv = bare.get(c.sessionId);
+      const turnId = conv && conv.turnId;
+      if (conv) conv.turnId = null;
+      reply({ sessionId: c.sessionId, turnId: turnId || null });
+      if (turnId) send({ t: 'turn', sessionId: c.sessionId, turnId, status: 'interrupted' });
+      return;
+    }
     case 'request.respond': {
       reply({ ok: true });
+      const call = toolCalls.get(c.requestId);
+      if (call) {
+        toolCalls.delete(c.requestId);
+        const result = c.result || {};
+        const text = Array.isArray(result.content)
+          ? result.content.map((b) => b.text || '').join('')
+          : String(result.content || '');
+        send({
+          t: 'event', sessionId: call.sessionId, turnId: call.turnId,
+          message: { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: call.toolUseId, content: text }] } },
+        });
+        apiMessage(call.sessionId, call.turnId, [
+          { type: 'text', text: `It is ${result.is_error ? 'unknown' : 'known'} in Paris: ${text}` },
+        ], 'end_turn');
+        finish(call.sessionId, call.turnId);
+        return;
+      }
       const waiting = asked.get(c.requestId);
       if (waiting) {
         asked.delete(c.requestId);

@@ -80,6 +80,9 @@ pub enum SecretName {
     /// This machine's private key for Machines (docs/PLAN-MACHINES.md §5.2):
     /// its public half is the machine's address on the peer transport.
     MachineKey,
+    /// The key an API server takes requests with, by server id
+    /// (docs/CLAUDE-API.md "Access").
+    ApiServerKey(String),
 }
 
 impl SecretName {
@@ -90,6 +93,7 @@ impl SecretName {
             Self::BackupPassphrase => "backup-passphrase".to_string(),
             Self::BackupPassphrasePending => "backup-passphrase-pending".to_string(),
             Self::MachineKey => "machine-key".to_string(),
+            Self::ApiServerKey(id) => format!("api-server-key-{id}"),
         }
     }
 
@@ -100,6 +104,7 @@ impl SecretName {
             Self::BackupPassphrase => "backup-passphrase".to_string(),
             Self::BackupPassphrasePending => "backup-passphrase-pending".to_string(),
             Self::MachineKey => "machine-key".to_string(),
+            Self::ApiServerKey(id) => format!("api-server-key-{id}"),
         }
     }
 
@@ -108,6 +113,7 @@ impl SecretName {
         match self {
             Self::AccountToken(id) => super::accounts::is_account_id(id),
             Self::BackupPassphrase | Self::BackupPassphrasePending | Self::MachineKey => true,
+            Self::ApiServerKey(id) => crate::bridge::servers::is_valid_id(id),
         }
     }
 }

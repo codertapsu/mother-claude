@@ -627,7 +627,7 @@ pub fn target_of(state: &AppState, upstream_port: Option<u16>) -> (String, Optio
         upstream_port,
         state.remote.tunnel_port(),
         state.config.port,
-        state.bridge.config.port,
+        state.bridge.main().port(),
     );
     let mut server = None;
     if target == "other" || target == "bridge" {
@@ -1044,7 +1044,7 @@ pub fn api_ports(state: &AppState) -> Vec<ApiPort> {
             server: (!s.is_main()).then(|| s.id.clone()),
             name: s.name(),
             port: if s.is_main() {
-                state.bridge.config.port
+                s.port()
             } else {
                 s.current_port()
             },
@@ -1212,7 +1212,7 @@ pub async fn status(state: &AppState) -> Value {
     });
     let main = state.bridge.main();
     let mut bridge = json!({
-        "port": state.bridge.config.port,
+        "port": main.port(),
         "running": main.is_running(),
         "exposed": crate::bridge::control::exposed(state, &main),
     });

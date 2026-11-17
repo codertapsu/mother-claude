@@ -415,10 +415,22 @@ pub fn authenticate(
     headers: &HeaderMap,
     uri: &Uri,
 ) -> Result<(), ApiError> {
+    // An API server's listeners beyond this computer are plain HTTP: no
+    // Mother Claude credential is read there (its own key is the bridge's
+    // to check, docs/CLAUDE-API.md "Access").
+    if ctx.ingress == super::context::Ingress::ApiNetwork {
+        return Ok(());
+    }
     let allow_query = ctx.local || allowlisted_bridge_page(state, ctx);
     let Some(token) = presented_token(headers, uri, allow_query) else {
         return Ok(());
     };
+    // An API server's key is no principal: the API servers check it
+    // themselves (docs/CLAUDE-API.md "Access"), and anywhere else it is no
+    // credential at all — not a failed one either.
+    if state.bridge.servers.key_matches_any(&token) {
+        return Ok(());
+    }
     if let Some(p) = principal_for_token(state, ctx, &token) {
         ctx.principal = p;
         return Ok(());

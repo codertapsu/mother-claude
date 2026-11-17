@@ -96,6 +96,40 @@ fn desired(state: &AppState) -> (Vec<LanAddr>, Vec<SkippedAddr>) {
     }
 }
 
+/// The private addresses the LAN listeners bind now — none while Mother
+/// Claude is kept to this machine (a loopback host). The Claude API's
+/// listeners on the network bind the same ones (docs/CLAUDE-API.md).
+pub fn lan_ips(state: &AppState) -> Vec<IpAddr> {
+    if !state.config.is_non_loopback() {
+        return Vec::new();
+    }
+    desired(state)
+        .0
+        .iter()
+        .filter_map(|a| a.ip.parse().ok())
+        .collect()
+}
+
+/// Every address of this computer but loopback — public ones included, IPv6
+/// link-local left out (it needs a scope) — for an API server reachable
+/// from anywhere (docs/CLAUDE-API.md "Access"); none while Mother Claude is
+/// kept to this machine (a loopback host).
+pub fn all_ips(state: &AppState) -> Vec<IpAddr> {
+    if !state.config.is_non_loopback() {
+        return Vec::new();
+    }
+    let mut out: Vec<IpAddr> = Vec::new();
+    for (_, ip) in tls::interface_addrs() {
+        let skip = ip.is_loopback()
+            || ip.is_unspecified()
+            || matches!(ip, IpAddr::V6(v6) if (v6.segments()[0] & 0xffc0) == 0xfe80);
+        if !skip && !out.contains(&ip) {
+            out.push(ip);
+        }
+    }
+    out
+}
+
 /// Start the TLS listeners on the LAN addresses when the configured host is
 /// non-loopback, and keep them in step with the interfaces. Returns once the
 /// first set is bound.
