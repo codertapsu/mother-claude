@@ -4,9 +4,11 @@
 //! `Bash`, `PowerShell`, `Edit` (Edit, Write, MultiEdit, NotebookEdit),
 //! `Read` (Read, Glob, Grep, LS), `WebFetch`, `WebSearch`, or one exact
 //! tool), a command a session runs on another computer, a task it hands to
-//! one — and where it applies: one session, every session in a project
-//! folder, or the whole computer (for runs and tasks: the computer they
-//! run on). Patterns narrow it: the first words of a command (at a word
+//! one, talking to other sessions (`session_read`, `session_send`,
+//! `session_ask`, `session_start`) — and where it applies: one session,
+//! every session in a project folder, or the whole computer (for runs and
+//! tasks: the computer they run on). Patterns narrow it: the first words
+//! of a command (at a word
 //! boundary, as the standing grants for runs had it: `cargo test` covers
 //! `cargo test --lib`, never `cargo test-foo`, and no pattern covers a
 //! command holding a shell metacharacter), files as globs relative to the
@@ -161,7 +163,7 @@ pub fn family_of(tool: &str) -> &str {
 pub fn pattern_kind(kind: RuleKind, tool: Option<&str>) -> Option<PatternKind> {
     match kind {
         RuleKind::Run => Some(PatternKind::Command),
-        RuleKind::Task => None,
+        RuleKind::Task | RuleKind::Sessions => None,
         RuleKind::Tool => match tool? {
             "Bash" | "PowerShell" => Some(PatternKind::Command),
             "Edit" | "Read" => Some(PatternKind::Path),
@@ -365,6 +367,12 @@ pub fn applies(r: &Rule, a: &Ask) -> bool {
                 return false;
             }
         }
+        // Whichever session it talks to, here or on another computer.
+        RuleKind::Sessions => {
+            if r.machine.is_some() || r.tool.is_some() {
+                return false;
+            }
+        }
     }
     let here = match r.scope {
         RuleScope::Session => r.session.as_deref() == Some(a.session),
@@ -394,6 +402,7 @@ pub fn what(kind: RuleKind, tool: Option<&str>, machine_name: &str) -> String {
     match kind {
         RuleKind::Run => format!("commands on {machine_name}"),
         RuleKind::Task => format!("tasks on {machine_name}"),
+        RuleKind::Sessions => "talking to other sessions".into(),
         RuleKind::Tool => match tool.unwrap_or_default() {
             "Bash" => "commands".into(),
             "PowerShell" => "PowerShell commands".into(),
@@ -415,17 +424,25 @@ pub fn describe(r: &Rule) -> String {
     } else {
         format!(" like {}", r.patterns.join(", "))
     };
-    let place = match r.scope {
-        RuleScope::Session => "in this session".to_string(),
-        RuleScope::Project if !r.project_name.is_empty() => format!("in {}", r.project_name),
-        RuleScope::Project => "in this project".to_string(),
-        RuleScope::Computer => match r.kind {
-            RuleKind::Tool => format!(
-                "everywhere on this {}",
-                crate::claude::paths::machine_noun()
-            ),
-            RuleKind::Run | RuleKind::Task => "from any project".to_string(),
-        },
+    let place = match (r.kind, r.scope) {
+        // Who talks: the session, its project's sessions, any session here.
+        (RuleKind::Sessions, RuleScope::Session) => "from this session".to_string(),
+        (RuleKind::Sessions, RuleScope::Project) if !r.project_name.is_empty() => {
+            format!("from {}", r.project_name)
+        }
+        (RuleKind::Sessions, RuleScope::Project) => "from this project".to_string(),
+        (RuleKind::Sessions, RuleScope::Computer) => format!(
+            "from any session on this {}",
+            crate::claude::paths::machine_noun()
+        ),
+        (_, RuleScope::Session) => "in this session".to_string(),
+        (_, RuleScope::Project) if !r.project_name.is_empty() => format!("in {}", r.project_name),
+        (_, RuleScope::Project) => "in this project".to_string(),
+        (RuleKind::Tool, RuleScope::Computer) => format!(
+            "everywhere on this {}",
+            crate::claude::paths::machine_noun()
+        ),
+        (RuleKind::Run | RuleKind::Task, RuleScope::Computer) => "from any project".to_string(),
     };
     format!("{what}{like} {place}")
 }
@@ -592,7 +609,12 @@ pub fn rule_from_offer(
         session_name: offer.session_name.clone().unwrap_or_default(),
         project: offer.project.clone(),
         project_name: offer.project_name.clone().unwrap_or_default(),
-        machine: offer.machine.clone(),
+        // Only runs and tasks name a computer (talking to sessions reaches
+        // whichever the session asks for).
+        machine: offer
+            .machine
+            .clone()
+            .filter(|_| matches!(offer.kind, RuleKind::Run | RuleKind::Task)),
         machine_name: offer.machine_name.clone().unwrap_or_default(),
         created_at: now(),
         created_by: crate::server::devices::sanitize_label(by, 64),
@@ -684,6 +706,7 @@ fn readable(r: &Rule) -> bool {
             .machine
             .as_deref()
             .is_some_and(crate::machines::ids::is_machine_id),
+        RuleKind::Sessions => r.machine.is_none() && r.tool.is_none(),
     };
     let patterns_ok = clean_patterns(pattern_kind(r.kind, r.tool.as_deref()), &r.patterns)
         .is_ok_and(|c| c == r.patterns);

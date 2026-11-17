@@ -698,6 +698,10 @@ pub enum PendingSource {
     /// A command a session asks to run on another computer
     /// (`machines::work`, docs/PLAN-MACHINES.md Phase 4).
     Machine,
+    /// A session asks to read, message, ask or start another session
+    /// through Mother Claude's MCP tools (`mcp::sessions`, docs/MCP.md
+    /// "Sessions working together").
+    Session,
 }
 
 /// Something a human must act on (design §4.2).
@@ -751,6 +755,9 @@ pub enum RuleKind {
     Run,
     /// A task a session hands to another computer (`machine_task`).
     Task,
+    /// Talking to other sessions (`session_read`, `session_send`,
+    /// `session_ask`, `session_start`): here or on another computer.
+    Sessions,
 }
 
 /// What a rule's patterns name.

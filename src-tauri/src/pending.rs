@@ -1385,6 +1385,27 @@ async fn settle_covered(state: &AppState, rule: &rules::Rule) {
                     },
                 )
             })
+        } else if item.source == PendingSource::Session {
+            // Talking to another session: the asking session's project, from
+            // the card's input (`mcp::sessions`).
+            let project = item
+                .input
+                .as_ref()
+                .and_then(|i| i.get("project"))
+                .and_then(Value::as_str)
+                .filter(|p| !p.is_empty());
+            rules::applies(
+                rule,
+                &rules::Ask {
+                    kind: crate::claude::model::RuleKind::Sessions,
+                    tool: None,
+                    session: &item.session_id,
+                    folder: project,
+                    project,
+                    machine: None,
+                    subject: None,
+                },
+            )
         } else {
             let cwd = match state.find_session(&item.session_id).await {
                 Some(s) if !s.cwd.is_empty() => Some(s.cwd),

@@ -668,3 +668,62 @@ async fn saving_a_permission_answers_the_cards_like_it_already_waiting() {
     assert!(left.contains(&"s1 rm -rf build".to_string()));
     assert!(left.contains(&"s2 cargo test".to_string()));
 }
+
+#[test]
+fn talking_to_other_sessions_is_one_kind_without_patterns_or_a_computer() {
+    let shop = "/Users/me/shop";
+    let talk = |session: &'static str, project: Option<&'static str>| Ask {
+        kind: RuleKind::Sessions,
+        tool: None,
+        session,
+        folder: project,
+        project,
+        machine: None,
+        subject: None,
+    };
+    assert_eq!(pattern_kind(RuleKind::Sessions, None), None);
+    let r = rule(RuleKind::Sessions, None, &[], RuleScope::Session);
+    assert!(applies(&r, &talk("s1", Some(shop))));
+    assert!(!applies(&r, &talk("s2", Some(shop))), "another session");
+    assert!(
+        !applies(&r, &bash_ask("s1", Some(shop), "ls")),
+        "not a tool call"
+    );
+    let p = rule(RuleKind::Sessions, None, &[], RuleScope::Project);
+    assert!(applies(&p, &talk("s2", Some(shop))));
+    assert!(!applies(&p, &talk("s2", Some("/Users/me/other"))));
+    let c = rule(RuleKind::Sessions, None, &[], RuleScope::Computer);
+    assert!(applies(&c, &talk("s9", None)));
+    // One that names a computer or a tool is not one (a file edited by hand).
+    let odd = Rule {
+        machine: Some(MAC.into()),
+        ..c.clone()
+    };
+    assert!(!applies(&odd, &talk("s9", None)) && !readable(&odd));
+    assert!(readable(&c) && readable(&r));
+
+    // Its words: who talks.
+    assert_eq!(describe(&r), "talking to other sessions from this session");
+    assert_eq!(describe(&p), "talking to other sessions from shop");
+    assert!(describe(&c).starts_with("talking to other sessions from any session on this "));
+
+    // From a card's offer: no computer kept, no patterns taken.
+    let offer = GrantOffer {
+        kind: RuleKind::Sessions,
+        tool: None,
+        patterns: None,
+        suggested: Vec::new(),
+        session: "s1".into(),
+        session_name: Some("Fix the tests".into()),
+        project: Some(shop.into()),
+        project_name: Some("shop".into()),
+        machine: Some(MAC.into()),
+        machine_name: None,
+        blocked: None,
+    };
+    let made = rule_from_offer(&offer, RuleScope::Project, &[], "Mac").unwrap();
+    assert_eq!(made.kind, RuleKind::Sessions);
+    assert!(made.machine.is_none() && made.tool.is_none() && made.patterns.is_empty());
+    assert!(readable(&made));
+    assert!(rule_from_offer(&offer, RuleScope::Session, &["x".into()], "Mac").is_err());
+}
