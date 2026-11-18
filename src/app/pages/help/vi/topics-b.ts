@@ -1194,7 +1194,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         heading: 'Cuộc trò chuyện',
         points: [
           'Yêu cầu gửi lại lịch sử của một lần trao đổi trước sẽ tiếp tục trong cuộc trò chuyện đó, trong cùng phiên Claude Code — đúng như cách các máy khách gửi toàn bộ lịch sử mỗi lần.',
-          'Để chỉ định một cuộc trò chuyện, gửi header `x-conversation-id` (mỗi câu trả lời đều mang nó) hoặc `conversation_id` trong body. Khi đó yêu cầu có thể chỉ mang tin nhắn tiếp theo: cuộc trò chuyện giữ phần còn lại.',
+          'Để chỉ định một cuộc trò chuyện, gửi header `x-conversation-id` (mỗi câu trả lời đều mang nó) hoặc `conversation_id` trong body — hoặc `latest`, để duy trì một cuộc trò chuyện trong thư mục của máy khách: cuộc mà `latest` dùng gần nhất với cùng thiết lập, hoặc một cuộc mới (yêu cầu không có header này là cuộc dùng một lần, `latest` không động đến). Khi đó yêu cầu có thể chỉ mang tin nhắn tiếp theo: cuộc trò chuyện giữ phần còn lại.',
           'Lịch sử khác với lịch sử của cuộc trò chuyện sẽ bắt đầu một nhánh riêng; cùng lịch sử nhưng với lời nhắc hệ thống hoặc công cụ khác sẽ bắt đầu một cuộc trò chuyện mới từ đó.',
           'Mỗi cuộc trò chuyện là một phiên Claude Code: nó hiện trên bảng điều khiển, giữ bản ghi của nó và tiếp tục sau khi Mother Claude khởi động lại.',
         ],
@@ -1218,7 +1218,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
       {
         heading: 'Tách riêng các máy khách',
         points: [
-          '**Phân biệt máy khách theo** cho mỗi máy khách một thư mục riêng: theo địa chỉ IP, khóa API, `metadata.user_id` hoặc header `X-Client-Id`.',
+          '**Phân biệt máy khách theo** cho mỗi máy khách một thư mục riêng: theo địa chỉ IP, khóa API, `metadata.user_id` hoặc header `X-Client-Id`. Với header, ứng dụng tự chọn thư mục của mình: `X-Client-Id: my-app/<device>/<YYYY-MM-DD>` tách riêng từng ngày của mỗi thiết bị bên trong `my-app`.',
           '**Thư mục của máy khách** cho biết các thư mục đó nằm ở đâu (ví dụ `D:\\claude-api`); để trống thì chúng nằm trong thư mục dữ liệu của Mother Claude. Thư mục mới được chọn trong ứng dụng máy tính.',
           'Mỗi máy khách chỉ thấy và tiếp tục các cuộc trò chuyện của chính nó.',
         ],

@@ -99,6 +99,16 @@ it. So an unchanged client keeps one conversation going without knowing it.
   in `metadata`). Then the request may carry **only its next message** — the
   conversation keeps the rest. A named conversation that is answering another
   request is `409 conflict_error`; one the client does not have, `404`.
+- **`latest`**: `x-conversation-id: latest` names the conversation `latest`
+  used last in the client's folder with the same settings (system prompt,
+  tools, thinking, output format, effort, `max_tokens`; the model may
+  differ), and starts one when there is none — a client that sends only its
+  next message needs to remember nothing. With a folder per day
+  ([Clients](#clients)), that is one conversation per day. A conversation a
+  request began without `latest` (a one-off) is never picked, so a client
+  can start one-offs in the same folder without splitting its day. One
+  still ending its last turn is waited for 10 seconds (35 for a named one),
+  then the answer is `409`.
 - **Other settings, same history** (a new system prompt, other tools,
   thinking, output format, effort or `max_tokens` — what a process starts
   with): a **new conversation forked from it** (`--resume --fork-session`),
@@ -267,6 +277,21 @@ the first 12 characters of its SHA-256, never kept.
 folder for every client), `ip` (the address a request comes from, through a
 tunnel its `X-Forwarded-For`), `key`, `user` (`metadata.user_id`, else the
 IP), `header` (`X-Client-Id`, else the IP).
+
+**`X-Client-Id` is the application's own folder path.** Many applications
+can share one server: each names its folder, and how it splits its own data
+inside — by device, user, IP address, date — is its choice, set in the
+application:
+
+```text
+X-Client-Id: xiangqi-solver/7f3c9e2a/2026-11-18
+  → <Clients' folder>/xiangqi-solver/7f3c9e2a/2026-11-18/
+```
+
+Parts are separated by `/`, six at most; each is a folder name as below
+(lower case), and empty or dot-only parts are left out, so a path never
+leaves the Clients' folder. With `x-conversation-id: latest` on each request,
+such a folder keeps one conversation going.
 
 Each client has a folder under the server's **Clients' folder**
 (`apiDataDir`; empty: `<app data>/claude-api`), named after it (letters,

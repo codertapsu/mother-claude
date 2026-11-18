@@ -2,7 +2,9 @@
 //!
 //! **Clients.** An API server can tell its clients apart (`groupBy`): by
 //! their IP address, the API key they send, `metadata.user_id`, or an
-//! `X-Client-Id` header — or not at all (`default`). Each client has a folder
+//! `X-Client-Id` header — or not at all (`default`). `X-Client-Id` is a
+//! path: the application chooses its folders (`app/device/day`,
+//! [`client_path`]). Each client has a folder
 //! under the server's data folder (`dataDir`; else `<app data>/claude-api`):
 //! its conversations run there (so Claude Code keeps their transcripts per
 //! client too), and Mother Claude keeps there what it knows of each
@@ -82,6 +84,39 @@ pub fn folder_label(raw: &str) -> String {
     out
 }
 
+/// How many folders deep a client's own path may go (`X-Client-Id:
+/// app/device/day`).
+pub const CLIENT_DEPTH: usize = 6;
+
+/// The folder a client names with `X-Client-Id`, inside the server's
+/// clients' folder: its `/`-separated parts as folder names
+/// ([`folder_label`]), empty and dot-only parts left out, [`CLIENT_DEPTH`]
+/// parts at most. The application chooses its own layout this way:
+/// `xiangqi-solver/<device>/2026-11-18`.
+pub fn client_path(raw: &str) -> String {
+    let parts: Vec<String> = raw
+        .split('/')
+        .map(str::trim)
+        .filter(|p| !p.trim_matches('.').is_empty())
+        .take(CLIENT_DEPTH)
+        .map(folder_label)
+        .collect();
+    if parts.is_empty() {
+        "client".into()
+    } else {
+        parts.join("/")
+    }
+}
+
+/// A client's folder under `root`, from the parts of its id.
+pub fn client_folder(root: &Path, id: &str) -> PathBuf {
+    let mut dir = root.to_path_buf();
+    for part in id.split('/') {
+        dir.push(part);
+    }
+    dir
+}
+
 /// An IP address as a folder name: IPv4 as written, IPv6 `ip6-…`.
 pub fn ip_label(ip: std::net::IpAddr) -> String {
     match ip {
@@ -151,6 +186,10 @@ pub struct Record {
     pub forked_from: Option<String>,
     /// The model that last answered, as the API named it.
     pub model_used: Option<String>,
+    /// Begun or gone on in by `x-conversation-id: latest`: what a later
+    /// `latest` continues. One a request began without it (a one-off) is
+    /// never picked, so a client's one-offs leave its day's conversation be.
+    pub latest: bool,
     pub requests: u64,
     pub usage: Usage,
     /// The exchange as the client sees it (the bytes of images and documents
@@ -310,16 +349,41 @@ impl Store {
         }
     }
 
-    /// The client's folder, made when missing (0700).
+    /// The client's folder, made when missing: each folder of its path
+    /// (`app/device/day`) is the owner's alone (0700).
     pub fn client_dir(root: &Path, client: &Client) -> std::io::Result<PathBuf> {
-        let dir = root.join(&client.id);
+        let dir = client_folder(root, &client.id);
         std::fs::create_dir_all(dir.join("conversations"))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+            let mut d = dir.clone();
+            while d != root && d.starts_with(root) {
+                let _ = std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o700));
+                if !d.pop() {
+                    break;
+                }
+            }
         }
         Ok(dir)
+    }
+
+    /// The client's conversation `latest` used last with these settings,
+    /// among those that answered (`x-conversation-id: latest`). One a
+    /// request began without `latest` (a one-off) is never picked.
+    pub fn latest(&self, client_dir: &Path, settings: &str) -> Option<String> {
+        self.load_client(client_dir);
+        let convs = lock(&self.convs);
+        convs
+            .values()
+            .filter(|c| {
+                c.dir == client_dir
+                    && c.record.latest
+                    && c.record.settings == settings
+                    && !c.record.history.is_empty()
+            })
+            .max_by_key(|c| c.record.updated_at)
+            .map(|c| c.record.id.clone())
     }
 
     /// What `history` finds among this client's conversations (read from

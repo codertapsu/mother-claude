@@ -765,7 +765,7 @@ async fn clients_are_kept_apart_and_can_be_deleted() {
     let alpha2 = conversation(&h);
     let (_, h, _) = messages(&api, ask("three"), &[("x-client-id", "Beta")]).await;
     let beta = conversation(&h);
-    let alpha_dir = root.join("client-alpha");
+    let alpha_dir = root.join("alpha");
     assert!(alpha_dir.join("client.json").is_file());
     assert!(alpha_dir
         .join("conversations")
@@ -813,15 +813,9 @@ async fn clients_are_kept_apart_and_can_be_deleted() {
         .map(|c| c["id"].as_str().unwrap())
         .collect();
     assert_eq!(clients.len(), 2);
-    assert!(clients.contains(&"client-alpha") && clients.contains(&"client-beta"));
+    assert!(clients.contains(&"alpha") && clients.contains(&"beta"));
     let q = format!("?root={}", urlencode(&root.to_string_lossy()));
-    let (s, v) = dashboard(
-        &f,
-        "GET",
-        &format!("/api/bridge/clients/client-alpha{q}"),
-        None,
-    )
-    .await;
+    let (s, v) = dashboard(&f, "GET", &format!("/api/bridge/clients/alpha{q}"), None).await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["conversations"].as_array().unwrap().len(), 2);
     let (s, v) = dashboard(
@@ -849,13 +843,7 @@ async fn clients_are_kept_apart_and_can_be_deleted() {
         .join(format!("{alpha1}.json"))
         .exists());
     assert_eq!(list("Alpha").await, 1);
-    let (s, v) = dashboard(
-        &f,
-        "DELETE",
-        &format!("/api/bridge/clients/client-alpha{q}"),
-        None,
-    )
-    .await;
+    let (s, v) = dashboard(&f, "DELETE", &format!("/api/bridge/clients/alpha{q}"), None).await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["deleted"], json!([alpha2]));
     assert!(!alpha_dir.exists());
@@ -870,6 +858,148 @@ async fn clients_are_kept_apart_and_can_be_deleted() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(list("Beta").await, 0);
+}
+
+/// An application chooses its own folders with `X-Client-Id`
+/// (`app/device/day`), and `x-conversation-id: latest` keeps one
+/// conversation going in each: the day's for a device (another model goes on
+/// in it), another for other settings, a new one on the next day. The
+/// dashboard lists such clients by their path, and deleting one leaves no
+/// empty folders behind.
+#[tokio::test]
+async fn an_application_chooses_its_folders_and_goes_on_in_the_latest() {
+    let f = boot().await;
+    let root = f.scratch.path().join("mother-claude-api");
+    let api = f
+        .start(BridgeDefaults {
+            api_data_dir: Some(root.to_string_lossy().into_owned()),
+            group_clients_by: Some("header".into()),
+            ..Default::default()
+        })
+        .await;
+    let ask = |model: &str, text: &str| json!({ "model": model, "max_tokens": 50, "messages": [{ "role": "user", "content": text }] });
+    let ask_longer = |text: &str| json!({ "model": "m", "max_tokens": 900, "messages": [{ "role": "user", "content": text }] });
+    let today = "xiangqi-solver/Device-1/2026-11-18";
+    let latest = |client: &'static str| [("x-client-id", client), ("x-conversation-id", "latest")];
+
+    // The first request of the day: none yet, a new conversation.
+    let (s, h, a) = messages(&api, ask("m", "board one"), &latest(today)).await;
+    assert_eq!(s, StatusCode::OK, "{a}");
+    let first = conversation(&h);
+    let day = root
+        .join("xiangqi-solver")
+        .join("device-1")
+        .join("2026-11-18");
+    assert!(day.join("client.json").is_file());
+    assert!(day
+        .join("conversations")
+        .join(format!("{first}.json"))
+        .is_file());
+    // Its conversations run in that folder.
+    let created = &host_ops("session.create", &first)[0];
+    assert_eq!(
+        created["cwd"].as_str().map(PathBuf::from),
+        Some(day.clone())
+    );
+
+    // The next one goes on in it, with only its own message.
+    let (s, h, a) = messages(&api, ask("m", "board two"), &latest(today)).await;
+    assert_eq!(s, StatusCode::OK, "{a}");
+    assert_eq!(conversation(&h), first);
+    assert_eq!(text_of(&a), "Echo (turn 2): board two");
+
+    // A one-off in the same folder (sent without x-conversation-id, as a
+    // client does after a 409) is a conversation of its own, and `latest`
+    // leaves it be.
+    let (s, h, a) = messages(
+        &api,
+        ask("m", "a second opinion"),
+        &[("x-client-id", today)],
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{a}");
+    let one_off = conversation(&h);
+    assert_ne!(one_off, first);
+    let (_, h, a) = messages(&api, ask("m", "board two and a half"), &latest(today)).await;
+    assert_eq!(conversation(&h), first, "not the one-off");
+    assert_eq!(text_of(&a), "Echo (turn 3): board two and a half");
+
+    // Another model (a re-read on a stronger one) goes on in the same
+    // conversation: the model is switched for that turn.
+    let (_, h, a) = messages(&api, ask("strong", "board two again"), &latest(today)).await;
+    assert_eq!(conversation(&h), first);
+    assert_eq!(text_of(&a), "Echo (turn 4): board two again");
+    assert_eq!(a["model"], "strong");
+    assert_eq!(host_ops("session.setModel", &first).len(), 1);
+
+    // Other settings (here max_tokens): one of their own, and `latest`
+    // keeps each.
+    let (_, h, _) = messages(&api, ask_longer("board three"), &latest(today)).await;
+    let longer = conversation(&h);
+    assert_ne!(longer, first);
+    let (_, h, a) = messages(&api, ask("m", "board four"), &latest(today)).await;
+    assert_eq!(conversation(&h), first);
+    assert_eq!(text_of(&a), "Echo (turn 5): board four");
+    let (_, h, _) = messages(&api, ask_longer("board four again"), &latest(today)).await;
+    assert_eq!(conversation(&h), longer);
+
+    // The next day: another folder, a new conversation.
+    let tomorrow = "xiangqi-solver/Device-1/2026-11-19";
+    let (_, h, a) = messages(&api, ask("m", "board five"), &latest(tomorrow)).await;
+    assert_ne!(conversation(&h), first);
+    assert_eq!(text_of(&a), "Echo (turn 1): board five");
+
+    // `latest` is no other word: anything else that is not an id is refused.
+    let (s, _, e) = messages(
+        &api,
+        ask("m", "x"),
+        &[("x-client-id", today), ("x-conversation-id", "newest")],
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{e}");
+
+    // The dashboard lists the days by their path, and reads one.
+    let (s, v) = dashboard(&f, "GET", "/api/bridge/clients", None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let ours = v["roots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["path"] == root.to_string_lossy().as_ref())
+        .expect("the chosen folder is listed")
+        .clone();
+    let mut ids: Vec<&str> = ours["clients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_str().unwrap())
+        .collect();
+    ids.sort();
+    assert_eq!(
+        ids,
+        [
+            "xiangqi-solver/device-1/2026-11-18",
+            "xiangqi-solver/device-1/2026-11-19",
+        ]
+    );
+    let q = format!("?root={}", urlencode(&root.to_string_lossy()));
+    let id = urlencode("xiangqi-solver/device-1/2026-11-18");
+    let (s, v) = dashboard(&f, "GET", &format!("/api/bridge/clients/{id}{q}"), None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["conversations"].as_array().unwrap().len(), 3);
+    assert_eq!(v["client"]["label"], today);
+
+    // Deleting both days leaves the clients' folder as it was.
+    for day in ["2026-11-18", "2026-11-19"] {
+        let id = urlencode(&format!("xiangqi-solver/device-1/{day}"));
+        let (s, v) = dashboard(&f, "DELETE", &format!("/api/bridge/clients/{id}{q}"), None).await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+    }
+    assert!(
+        !root.join("xiangqi-solver").exists(),
+        "no empty folders left"
+    );
+    assert!(root.is_dir());
 }
 
 /// `GET /v1/models` in the API's shape for a client of the API (the

@@ -13,6 +13,87 @@ fn folder_labels_are_safe_names() {
     assert_eq!(folder_label(&"a".repeat(100)).len(), 64);
 }
 
+/// `X-Client-Id` is the application's own folder path.
+#[test]
+fn client_paths_are_safe_folder_paths() {
+    assert_eq!(
+        client_path("xiangqi-solver/Dev 1/2026-11-18"),
+        "xiangqi-solver/dev-1/2026-11-18"
+    );
+    assert_eq!(client_path("Alpha"), "alpha");
+    // No way out of the clients' folder, no empty folders.
+    assert_eq!(client_path("../../etc/passwd"), "etc/passwd");
+    assert_eq!(client_path("/a//b/./c/"), "a/b/c");
+    assert_eq!(client_path(" / .. / "), "client");
+    // Windows' device names and backslashes stay harmless.
+    assert_eq!(client_path("app/con/x"), "app/client-con/x");
+    assert_eq!(client_path("a\\b"), "a-b");
+    // At most CLIENT_DEPTH folders, each a safe name.
+    assert_eq!(client_path("1/2/3/4/5/6/7/8"), "1/2/3/4/5/6");
+    assert_eq!(client_path(&"x".repeat(100)).len(), 64);
+}
+
+/// Each folder of a client's path is made; `latest` is that folder's own.
+#[test]
+fn a_client_path_is_folders_and_latest_is_its_own() {
+    let root = tempfile::tempdir().unwrap();
+    let day = Store::client_dir(root.path(), &client("app/dev-1/2026-11-18")).unwrap();
+    assert_eq!(
+        day,
+        root.path().join("app").join("dev-1").join("2026-11-18")
+    );
+    assert!(day.join("conversations").is_dir());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for d in [
+            root.path().join("app"),
+            root.path().join("app/dev-1"),
+            day.clone(),
+        ] {
+            let mode = std::fs::metadata(&d).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700, "{}", d.display());
+        }
+    }
+
+    let store = Store::new(None);
+    assert_eq!(store.latest(&day, "s1"), None, "nothing yet");
+    let mut a = record(A, "s1", &["h1"]);
+    a.updated_at = 10;
+    a.latest = true;
+    let mut b = record(B, "s1", &["h1", "h2", "h3"]);
+    b.updated_at = 20;
+    b.latest = true;
+    store.insert(a, day.clone());
+    store.insert(b, day.clone());
+    store.release(A);
+    store.release(B);
+    assert_eq!(
+        store.latest(&day, "s1").as_deref(),
+        Some(B),
+        "the one used last"
+    );
+    assert_eq!(store.latest(&day, "s2"), None, "other settings: another");
+    // Another day's folder has its own.
+    let next = Store::client_dir(root.path(), &client("app/dev-1/2026-11-19")).unwrap();
+    assert_eq!(store.latest(&next, "s1"), None);
+    // One that never answered is not one to go on in.
+    let c = "00000000-0000-4000-8000-00000000000c";
+    let mut fresh = record(c, "s1", &[]);
+    fresh.updated_at = 30;
+    fresh.latest = true;
+    store.insert(fresh, day.clone());
+    store.release(c);
+    assert_eq!(store.latest(&day, "s1").as_deref(), Some(B));
+    // Nor is a one-off, however new: a request began it without `latest`.
+    let d = "00000000-0000-4000-8000-00000000000d";
+    let mut one_off = record(d, "s1", &["h1", "h9"]);
+    one_off.updated_at = 40;
+    store.insert(one_off, day.clone());
+    store.release(d);
+    assert_eq!(store.latest(&day, "s1").as_deref(), Some(B));
+}
+
 #[test]
 fn ip_addresses_are_folder_names() {
     use std::net::IpAddr;

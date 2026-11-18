@@ -3834,7 +3834,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Conversations',
         points: [
           'A request that sends back the history of an earlier exchange goes on in that conversation, in the same Claude Code session — as clients do when they send the whole history each time.',
-          'To name a conversation, send the `x-conversation-id` header (every answer carries it) or `conversation_id` in the body. Then a request may carry only its next message: the conversation keeps the rest.',
+          "To name a conversation, send the `x-conversation-id` header (every answer carries it) or `conversation_id` in the body — or `latest`, to keep one conversation going in the client's folder: the one `latest` used last with the same settings, or a new one (a request without the header is a one-off that `latest` leaves be). Then a request may carry only its next message: the conversation keeps the rest.",
           "A history that differs from the conversation's starts a branch of its own; the same history with another system prompt or other tools starts a new conversation from it.",
           'Each conversation is a Claude Code session: it shows on the dashboard, keeps its transcript and goes on after Mother Claude restarts.',
         ],
@@ -3858,7 +3858,7 @@ const TOPICS: HelpTopicSource[] = [
       {
         heading: 'Keep clients apart',
         points: [
-          '**Tell clients apart by** gives each client a folder of its own: by IP address, API key, `metadata.user_id` or an `X-Client-Id` header.',
+          "**Tell clients apart by** gives each client a folder of its own: by IP address, API key, `metadata.user_id` or an `X-Client-Id` header. With the header, the application chooses its folders: `X-Client-Id: my-app/<device>/<YYYY-MM-DD>` keeps each device's days apart inside `my-app`.",
           "**Clients' folder** says where those folders go (for example `D:\\claude-api`); empty keeps them in Mother Claude's data folder. A new folder is chosen on the desktop app.",
           'A client sees and continues only its own conversations.',
         ],

@@ -2,7 +2,8 @@
 //! Code on this computer (docs/CLAUDE-API.md).
 //!
 //! **A request's conversation.** A client names one (`x-conversation-id`,
-//! `conversation_id`, `metadata.conversation_id`), or its history finds one:
+//! `conversation_id`, `metadata.conversation_id`; `latest` for its folder's
+//! last one with the request's settings), or its history finds one:
 //! the history it sends before its last message is one of its
 //! conversations' (fingerprints, [`super::convert`]). Found with the same
 //! system prompt, tools and output settings, the conversation goes on in
@@ -40,6 +41,20 @@ use crate::state::AppState;
 
 /// The header a client names a conversation with, and gets it back in.
 pub const CONVERSATION_HEADER: &str = "x-conversation-id";
+/// What a client names instead of an id for its folder's latest
+/// conversation with the request's settings (a new one when it has none).
+pub const LATEST: &str = "latest";
+
+fn is_latest(named: &str) -> bool {
+    named.eq_ignore_ascii_case(LATEST)
+}
+
+/// How long a request waits for a named conversation that is ending its
+/// last turn (normally a moment), before it is `409`.
+const SETTLING_WAIT: Duration = Duration::from_secs(35);
+/// The same for `latest`: its client would rather start a one-off than
+/// spend its own deadline on a turn that does not end.
+const LATEST_WAIT: Duration = Duration::from_secs(10);
 /// The header that asks for the Anthropic API instead of Claude Code.
 pub const BACKEND_HEADER: &str = "x-mother-claude-backend";
 
@@ -117,8 +132,9 @@ pub fn client_of(
             .map(str::trim)
             .filter(|v| !v.is_empty())
         {
+            // The application names its folder, as deep as it likes.
             Some(h) => Client {
-                id: super::store::folder_label(&format!("client-{h}")),
+                id: super::store::client_path(h),
                 kind: "header".into(),
                 label: h.chars().take(80).collect(),
             },
@@ -293,6 +309,11 @@ pub async fn create(
         Ok(p) => p,
         Err(e) => return cx.fail(e),
     };
+    // `latest` keeps one conversation going: the one it began or went on in
+    // (never a one-off a request began without it).
+    if named.as_deref().is_some_and(is_latest) {
+        state.bridge.api.with(&id, |c| c.record.latest = true);
+    }
     let account = state
         .bridge
         .api
@@ -392,8 +413,8 @@ fn json_response(cx: &Cx, body: Value, extra: Vec<(HeaderName, HeaderValue)>) ->
 
 /// Waits for a conversation that is ending its last turn, up to a moment
 /// past [`SETTLE`]. Whether it was freed in time.
-async fn wait_released(store: &Store, id: &str) -> bool {
-    let deadline = Instant::now() + SETTLE + Duration::from_secs(5);
+async fn wait_released(store: &Store, id: &str, limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
     loop {
         let released = store.released.notified();
         if store.state_of(id).is_none_or(|(busy, _)| !busy) {
@@ -418,14 +439,26 @@ async fn resolve(
     let last_at = req.messages.len() - 1;
     let history = convert::fingerprints(&req.messages[..last_at]);
 
-    if let Some(id) = named {
+    // `latest`: the folder's conversation `latest` used last with these
+    // settings; when it has none, the request goes on as one that names none.
+    let via_latest = named.is_some_and(is_latest);
+    let named = match named {
+        Some(_) if via_latest => store.latest(dir, &settings),
+        other => other.map(str::to_string),
+    };
+    if let Some(id) = named.as_deref() {
         if !crate::claude::ids::is_uuid(id) {
             return Err(ApiError::invalid(format!(
                 "{CONVERSATION_HEADER}: {id:?} is not a conversation id"
             )));
         }
         let mut claimed = store.claim(dir, id);
-        if claimed == Err(Busy::Settling) && wait_released(store, id).await {
+        let wait = if via_latest {
+            LATEST_WAIT
+        } else {
+            SETTLING_WAIT
+        };
+        if claimed == Err(Busy::Settling) && wait_released(store, id, wait).await {
             claimed = store.claim(dir, id);
         }
         match claimed {
@@ -463,7 +496,7 @@ async fn resolve(
 
     let mut found = store.lookup(dir, &settings, &history);
     if let Lookup::Settling(id) = &found {
-        wait_released(store, id).await;
+        wait_released(store, id, SETTLING_WAIT).await;
         found = store.lookup(dir, &settings, &history);
     }
     match found {

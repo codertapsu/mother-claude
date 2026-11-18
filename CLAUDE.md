@@ -391,7 +391,11 @@ bridge's Messages API client (an API key).
   raise a card) and belong to their HTTP client: nothing else adds a turn
   to one (`bridge::send_message` refuses, caps `claude_api`). A request
   finds its conversation by the fingerprints of the history it sends, or
-  names it (`x-conversation-id`); other settings fork it. An `x-api-key`
+  names it (`x-conversation-id`; `latest`: its folder's last one with the
+  same settings); other settings fork it. Grouped by `X-Client-Id`, the
+  header is the application's own folder path inside the Clients' folder
+  (`app/device/day`, `store::client_path`: safe parts, six deep, never
+  outside it). An `x-api-key`
   or bearer a client sends is never used, logged, stored or forwarded (a
   hash prefix may tell clients apart). **Access** (`bridge::claude_api::
   access`, docs/CLAUDE-API.md "Access"): each server's reach (`access`:

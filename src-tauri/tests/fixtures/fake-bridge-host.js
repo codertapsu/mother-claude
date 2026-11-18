@@ -220,6 +220,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     maxOutputTokens: (c.options && c.options.maxOutputTokens) || null,
     thinkingConfig: (c.options && c.options.thinkingConfig) || null,
     outputFormat: (c.options && c.options.outputFormat) || null,
+    cwd: (c.options && c.options.cwd) || null,
+    setModel: c.op === 'session.setModel' ? c.model : null,
     env: env
       ? {
           set: Object.keys(set).sort(),
@@ -242,6 +244,11 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       });
       live.add(c.sessionId);
       return reply({ sessionId: c.sessionId, cwd: c.options && c.options.cwd });
+    case 'session.setModel': {
+      const conv = bare.get(c.sessionId);
+      if (conv) conv.options = { ...conv.options, model: c.model };
+      return reply({ ok: true });
+    }
     case 'session.close':
       if (!live.has(c.sessionId)) return reply({ ok: true, alreadyClosed: true });
       live.delete(c.sessionId);

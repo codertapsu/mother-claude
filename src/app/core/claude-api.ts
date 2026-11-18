@@ -128,7 +128,7 @@ export const GROUP_CHOICES: readonly { value: string; label: string; hint: strin
   {
     value: 'header',
     label: 'X-Client-Id header',
-    hint: 'A folder per X-Client-Id the client sends; else by IP address.',
+    hint: "The client names its own folder: X-Client-Id is a path in the clients' folder, such as app/device/2026-11-18; else by IP address.",
   },
 ];
 

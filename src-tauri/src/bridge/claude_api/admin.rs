@@ -75,15 +75,73 @@ fn root_named(state: &AppState, asked: Option<&String>) -> ApiResult<PathBuf> {
     }
 }
 
-/// A client folder's name, as the store writes them.
-fn client_id_ok(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 80
-        && id != "."
-        && id != ".."
-        && id
+/// One folder of a client's path, as the store writes them.
+fn part_ok(part: &str) -> bool {
+    !part.is_empty()
+        && part.len() <= 80
+        && part != "."
+        && part != ".."
+        && part
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+}
+
+/// A client's id as the store writes them: a folder name, or a path of them
+/// (`X-Client-Id: app/device/day`), [`super::store::CLIENT_DEPTH`] deep at
+/// most.
+fn client_id_ok(id: &str) -> bool {
+    id.len() <= 512
+        && id.split('/').count() <= super::store::CLIENT_DEPTH
+        && id.split('/').all(part_ok)
+}
+
+/// Every client under `root`: a folder holding a `client.json`, at any depth
+/// the store writes, as `(id, folder)` (the id's parts joined by `/`). Links
+/// are not followed.
+fn client_dirs(root: &FsPath) -> Vec<(String, PathBuf)> {
+    let mut out = Vec::new();
+    let mut todo = vec![(root.to_path_buf(), Vec::<String>::new())];
+    while let Some((dir, parts)) = todo.pop() {
+        if parts.len() >= super::store::CLIENT_DEPTH {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let is_client = dir != root && dir.join("client.json").is_file();
+        for e in entries.flatten() {
+            if !e.file_type().is_ok_and(|t| t.is_dir()) {
+                continue;
+            }
+            let Some(name) = e.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            // A client's own records, not a client.
+            if !part_ok(&name) || (is_client && name == "conversations") {
+                continue;
+            }
+            let path = e.path();
+            let mut id = parts.clone();
+            id.push(name);
+            if path.join("client.json").is_file() {
+                out.push((id.join("/"), path.clone()));
+            }
+            todo.push((path, id));
+        }
+    }
+    out
+}
+
+/// After a client's folder went, the folders above it that it left empty,
+/// up to (not including) `root`.
+fn prune_empty_parents(root: &FsPath, dir: &FsPath) {
+    let mut up = dir.parent().map(FsPath::to_path_buf);
+    while let Some(d) = up {
+        if d == root || !d.starts_with(root) || std::fs::remove_dir(&d).is_err() {
+            break;
+        }
+        up = d.parent().map(FsPath::to_path_buf);
+    }
 }
 
 fn client_record(dir: &FsPath) -> Option<ClientRecord> {
@@ -134,44 +192,34 @@ pub async fn list_clients(Authed(_ctx): Authed, State(state): State<AppState>) -
             .into_iter()
             .map(|(root, servers)| {
                 let mut clients = Vec::new();
-                if let Ok(entries) = std::fs::read_dir(&root) {
-                    for e in entries.flatten() {
-                        let dir = e.path();
-                        let Some(name) = dir.file_name().and_then(|n| n.to_str()) else {
-                            continue;
-                        };
-                        if !dir.is_dir() || !client_id_ok(name) {
-                            continue;
-                        }
-                        let Some(rec) = client_record(&dir) else {
-                            continue;
-                        };
-                        let convs = answered(&st, &dir);
-                        let mut usage = super::store::Usage::default();
-                        for r in &convs {
-                            usage.input_tokens += r.usage.input_tokens;
-                            usage.output_tokens += r.usage.output_tokens;
-                            usage.cache_read_input_tokens += r.usage.cache_read_input_tokens;
-                            usage.cache_creation_input_tokens +=
-                                r.usage.cache_creation_input_tokens;
-                        }
-                        let active = convs
-                            .iter()
-                            .filter(|r| st.bridge.api.state_of(&r.id).is_some_and(|(b, w)| b || w))
-                            .count();
-                        clients.push(json!({
-                            "id": name,
-                            "kind": rec.kind,
-                            "label": rec.label,
-                            "firstSeen": rec.first_seen,
-                            "lastSeen": rec.last_seen,
-                            "requests": rec.requests,
-                            "conversations": convs.len(),
-                            "active": active,
-                            "usage": usage,
-                            "folder": dir.to_string_lossy(),
-                        }));
+                for (name, dir) in client_dirs(&root) {
+                    let Some(rec) = client_record(&dir) else {
+                        continue;
+                    };
+                    let convs = answered(&st, &dir);
+                    let mut usage = super::store::Usage::default();
+                    for r in &convs {
+                        usage.input_tokens += r.usage.input_tokens;
+                        usage.output_tokens += r.usage.output_tokens;
+                        usage.cache_read_input_tokens += r.usage.cache_read_input_tokens;
+                        usage.cache_creation_input_tokens += r.usage.cache_creation_input_tokens;
                     }
+                    let active = convs
+                        .iter()
+                        .filter(|r| st.bridge.api.state_of(&r.id).is_some_and(|(b, w)| b || w))
+                        .count();
+                    clients.push(json!({
+                        "id": name,
+                        "kind": rec.kind,
+                        "label": rec.label,
+                        "firstSeen": rec.first_seen,
+                        "lastSeen": rec.last_seen,
+                        "requests": rec.requests,
+                        "conversations": convs.len(),
+                        "active": active,
+                        "usage": usage,
+                        "folder": dir.to_string_lossy(),
+                    }));
                 }
                 clients.sort_by_key(|c| std::cmp::Reverse(c["lastSeen"].as_i64().unwrap_or(0)));
                 json!({
@@ -199,7 +247,7 @@ pub async fn get_client(
         return Err(ApiError::bad_request("Not a client."));
     }
     let root = root_named(&state, q.get("root"))?;
-    let dir = root.join(&client);
+    let dir = super::store::client_folder(&root, &client);
     let Some(rec) = client_record(&dir) else {
         return Err(ApiError::not_found(
             "client_not_found",
@@ -231,16 +279,13 @@ fn find(state: &AppState, id: &str) -> Option<Record> {
         return Some(r);
     }
     for (root, _) in roots(state) {
-        let Ok(entries) = std::fs::read_dir(&root) else {
-            continue;
-        };
-        for e in entries.flatten() {
-            if e.path()
+        for (_, dir) in client_dirs(&root) {
+            if dir
                 .join("conversations")
                 .join(format!("{id}.json"))
                 .is_file()
             {
-                state.bridge.api.records_in(&e.path());
+                state.bridge.api.records_in(&dir);
                 return state.bridge.api.with(id, |c| c.record.clone());
             }
         }
@@ -405,7 +450,7 @@ pub async fn delete_client(
         auth::require_dangerous(&ctx, "Deleting a client's transcripts")?;
     }
     let root = root_named(&state, q.get("root"))?;
-    let dir = root.join(&client);
+    let dir = super::store::client_folder(&root, &client);
     if client_record(&dir).is_none() {
         return Err(ApiError::not_found(
             "client_not_found",
@@ -433,6 +478,9 @@ pub async fn delete_client(
         json!([])
     };
     remove_client_files(&dir);
+    if !dir.exists() {
+        prune_empty_parents(&root, &dir);
+    }
     state.bridge.api.unload(&dir);
     auth::note_device_action(
         &state,
@@ -468,13 +516,64 @@ mod tests {
     use super::*;
 
     #[test]
-    fn client_ids_are_folder_names_only() {
+    fn client_ids_are_folder_names_or_paths_of_them() {
         assert!(client_id_ok("127.0.0.1"));
         assert!(client_id_ok("key-key_0123"));
+        assert!(client_id_ok("xiangqi-solver/dev-1/2026-11-18"));
         assert!(!client_id_ok(".."));
-        assert!(!client_id_ok("a/b"));
+        assert!(!client_id_ok("a/../b"));
+        assert!(!client_id_ok("a//b"));
+        assert!(!client_id_ok("/a"));
         assert!(!client_id_ok("a\\b"));
         assert!(!client_id_ok(""));
+        assert!(
+            !client_id_ok("a/b/c/d/e/f/g"),
+            "deeper than the store writes"
+        );
+    }
+
+    /// Clients at any depth; another client's records are not a client.
+    #[test]
+    fn clients_are_found_at_any_depth() {
+        let root = tempfile::tempdir().unwrap();
+        let make = |id: &str| {
+            let dir = super::super::store::client_folder(root.path(), id);
+            std::fs::create_dir_all(dir.join("conversations")).unwrap();
+            std::fs::write(dir.join("client.json"), "{}").unwrap();
+        };
+        make("127.0.0.1");
+        make("xiangqi-solver/dev-1/2026-11-17");
+        make("xiangqi-solver/dev-1/2026-11-18");
+        make("xiangqi-solver");
+        std::fs::create_dir_all(root.path().join("notes/old")).unwrap();
+        let mut ids: Vec<String> = client_dirs(root.path())
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        ids.sort();
+        assert_eq!(
+            ids,
+            [
+                "127.0.0.1",
+                "xiangqi-solver",
+                "xiangqi-solver/dev-1/2026-11-17",
+                "xiangqi-solver/dev-1/2026-11-18",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_deleted_clients_empty_parents_go_and_no_more() {
+        let root = tempfile::tempdir().unwrap();
+        let day = root.path().join("app").join("dev-1").join("2026-11-18");
+        let other = root.path().join("app").join("dev-2");
+        std::fs::create_dir_all(&day).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::remove_dir(&day).unwrap();
+        prune_empty_parents(root.path(), &day);
+        assert!(!root.path().join("app").join("dev-1").exists());
+        assert!(other.is_dir(), "a folder with something in it stays");
+        assert!(root.path().is_dir(), "the root always stays");
     }
 
     #[test]

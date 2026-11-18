@@ -761,7 +761,7 @@ interface ClaudeLine {
         <h2>{{ 'Clients and conversations' | t }}</h2>
         <p class="muted">
           {{
-            'Who called the Claude API, and the conversations each keeps going. A client continues one by sending its history back, or by naming it in the x-conversation-id header.'
+            "Who called the Claude API, and the conversations each keeps going. A client continues one by sending its history back, or by naming it in the x-conversation-id header — latest for its folder's most recent one."
               | t
           }}
         </p>
