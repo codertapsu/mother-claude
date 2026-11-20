@@ -52,7 +52,7 @@ sender chooses, unique per connection); the reply carries the same `id`.
 |---|---|---|
 | ext → app | `{"type":"pair","id":"…","code":"ABCD-EFGH","name":"Chrome on MacBook","browser":{"name":"Chrome","version":"156.0"},"extensionVersion":"0.1.0"}` | Pair with the 8-character code the desktop shows (Browser › Pair a browser). Allowed before `hello`. |
 | app → ext | `{"type":"paired","id":"…","token":"mcx_…","browserId":"brw_…"}` | The token to keep in `chrome.storage.local`; never shown again. |
-| ext → app | `{"type":"hello","id":"…","token":"mcx_…","extensionVersion":"0.1.0","browser":{"name":"Chrome","version":"156.0"},"capabilities":{"debugger":true,"sidePanel":true,"tabGroups":true}}` | Authenticate a connection. Must be the first frame other than `pair`; anything else first closes the connection with `error` `unauthenticated`. |
+| ext → app | `{"type":"hello","id":"…","token":"mcx_…","extensionVersion":"0.1.0","browser":{"name":"Chrome","version":"156.0"},"capabilities":{"debugger":true,"sidePanel":true,"tabGroups":true}}` | Authenticate a connection. Must be the first frame other than `pair`; anything else first closes the connection with `error` `unauthenticated`. *(0.1.5)* `capabilities` adds `uploadPaths: true` (it takes an `upload` by path) and `fileAccess` (Chrome's "Allow access to file URLs" for it; Chrome restarts the extension when that changes, so the next hello says the new state): the desktop refuses an upload by path before asking anyone when either is missing or false. |
 | app → ext | `{"type":"welcome","id":"…","browserId":"brw_…","protocol":1,"appVersion":"0.8.0","siteModes":{…},"settings":{…}}` | Authenticated. `siteModes` and `settings` as in `state` below. |
 | app → ext | `{"type":"error","id":"…","code":"unauthenticated"\|"revoked"\|"bad_code"\|"expired_code"\|"rate_limited"\|…,"message":"…"}` | A refusal. `revoked`: the user removed this browser on the desktop; the extension forgets its token. |
 
@@ -158,7 +158,8 @@ depth: the desktop checks first). Error codes: `stale_ref`, `not_found`,
 `dialog_open`, `navigation`, `debugger_unavailable`, `permission_needed`
 (the extension needs an optional permission the user has not granted; `data`
 names it), `unsupported`, `internal`; *(added)* `secret_field` (see
-`refuseSecret` below).
+`refuseSecret` below); *(0.1.5)* `file_access_off` (an `upload` by path
+while Chrome's "Allow access to file URLs" is off for the extension).
 
 What the desktop does around commands *(added detail)*:
 
@@ -223,11 +224,11 @@ What the desktop does around commands *(added detail)*:
 | `eval` | `{"expression","awaitPromise"?:true}` | `{"value"}` (JSON-serializable; the desktop gates this as dangerous) |
 | `console` | `{"since"?:<ms>,"level"?}` | `{"messages":[{"level","text","at"}]}` (needs `debugger`) |
 | `dialog` | `{"accept":true,"text"?}` | `{}` |
-| `upload` | `{"ref","files":[{"name","mimeType","data":"<base64>"}]}` | `{}` (the desktop reads the files; the extension never reads the disk) |
+| `upload` | `{"ref","files":[{"name","mimeType","data":"<base64>"}]}` · by path *(0.1.5)*: `{"ref","paths":[{"path","name","mimeType","size"}]}` | `{"files":n}` (bytes: the desktop reads the files, up to 5 MiB in all; by path, `"byPath":true`: for a larger upload the desktop checks the files and sends only absolute paths, the extension marks the file input, finds it from an isolated world and sets the files with `DOM.setFileInputFiles`, and Chrome reads them itself; needs `debugger` and Chrome's "Allow access to file URLs" for the extension, else `file_access_off`; a file input only) |
 | `highlight` | `{"ref","ms"?:800}` | `{}` (shows the user what is about to be touched) |
 | `drag` *(added)* | `{"ref"\|"selector","toRef"\|"toSelector","trusted"?:false}` | `{"html5","dropped"?,"snapshot"?,"url","title"}` (HTML drag-and-drop events when the source is draggable, else pointer events; `trusted`: the real mouse, needs `debugger`) |
 | `network` *(added)* | `{"filter"?,"type"?,"failed"?,"since"?,"limit"?:50}` · `{"requestId","body"?:false}` · `{"clear":true}` | a list `{"requests":[{"id","method","url","type","at","status"?,"mimeType"?,"size"?,"ms"?,"failed"?,"fromCache"?,"redirects"?,"frames"?}],"total","recordingSince","note"?}`; one request `{"request":{… ,"requestHeaders","responseHeaders","postData"?,"frames"?},"body"?:{"text"\|"base64","size","truncated"?}\|{"unavailable"}}` (needs `debugger`; the last 500 requests per tab, across page loads) |
-| `cookies` *(added)* | `{"name"?,"values"?:false}` | `{"url","cookies":[{"name","domain","path","size","httpOnly","secure","sameSite"?,"expires"?,"session"?,"value"?}]}` (the cookies sent to the page's URL; `value` only with `values`; needs `debugger`) |
+| `cookies` *(added)* | `{"name"?,"values"?:false}` | `{"url","cookies":[{"name","domain","path","size","httpOnly","secure","sameSite"?,"expires"?,"session"?,"value"?}]}` (the cookies sent to the page's URL; `value` only with `values`; needs `debugger`. `browser_cookies` `export` sends this same command with `values`, plus `export`, `names` and `format` the extension ignores; the desktop writes the values to a file and the model never sees them) |
 | `cookies.set` / `cookies.delete` *(added)* | `{"name","value"?,"domain"?,"path"?,"secure"?,"httpOnly"?,"sameSite"?,"expires"?}` | `{"name"}` (the page's own site only: a `domain` it is not under is `unsupported`) |
 | `storage` *(added)* | `{"area":"local"\|"session","key"?,"values"?:false}` · `{"area":"indexeddb","db"?,"store"?,"limit"?:20,"values"?}` | `{"area","origin","count","entries":[{"key","size","value"?}],"truncated"?}`; IndexedDB: `{"databases":[{"name","version"}]}`, `{"db","version","stores":[{"name","keyPath","autoIncrement","indexes","count"}]}` or `{"db","store","count","records":[{"key","size","value"?}]}` (read only: a database is never created or upgraded) |
 | `storage.set` / `storage.remove` / `storage.clear` *(added)* | `{"area","key"?,"value"?}` | `{"area","key"?,…}` (local and session storage) |

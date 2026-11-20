@@ -12,6 +12,7 @@ import {
   highlight,
   hover,
   isOurs,
+  markFileInput,
   press,
   pressEnterOn,
   scroll,
@@ -401,6 +402,13 @@ const methods: Record<string, Method> = {
       what,
     );
     return { files: n };
+  },
+
+  /** An upload by path: mark the file input for the service worker's debugger. */
+  uploadMark(p) {
+    const { el, what } = target(p);
+    markFileInput(el, str(p['token']) ?? '', num(p['count'], 1), what);
+    return {};
   },
 
   /** Where a debugger click lands; starts collecting changes for `trustedDone`. */

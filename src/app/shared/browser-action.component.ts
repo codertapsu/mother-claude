@@ -21,6 +21,7 @@ const VERBS: Record<string, string> = {
   eval: 'Run a script in the page',
   upload: 'Upload files',
   scroll: 'Scroll',
+  cookies: 'Read cookie values',
 };
 
 /**
@@ -77,6 +78,10 @@ const VERBS: Record<string, string> = {
         @if (v.key) {
           <dt>{{ 'Key' | t }}</dt>
           <dd class="mono">{{ v.key }}</dd>
+        }
+        @if (v.names.length) {
+          <dt>{{ 'Cookies' | t }}</dt>
+          <dd class="mono">{{ v.names.join(', ') }}</dd>
         }
         @if (v.files.length) {
           <dt>{{ 'Files' | t }}</dt>
@@ -145,7 +150,9 @@ export class BrowserActionComponent {
 
   protected readonly view = computed(() => browserActionView(this.input()));
   protected readonly verb = computed(() => {
-    const a = this.view()?.action ?? '';
+    const v = this.view();
+    const a = v?.action ?? '';
+    if (a === 'cookies' && v?.export) return tr('Save cookies to a file for a program');
     return VERBS[a] ? tr(VERBS[a]) : a;
   });
 

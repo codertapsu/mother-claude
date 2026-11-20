@@ -75,6 +75,39 @@ describe('BrowserActionComponent', () => {
     expect(text(el.querySelector('.warn'))).toContain('cookies, storage or credentials');
   });
 
+  it('says a cookie export goes to a file, and which cookies', () => {
+    const fixture = TestBed.createComponent(BrowserActionComponent);
+    fixture.componentRef.setInput('input', {
+      action: 'cookies',
+      url: 'https://www.bilibili.com/',
+      values: true,
+      export: true,
+      names: ['SESSDATA', 'buvid3'],
+    });
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(text(el)).toContain('Save cookies to a file for a program');
+    expect(text(el)).toContain('SESSDATA, buvid3');
+    // Reading the values themselves says so.
+    fixture.componentRef.setInput('input', { action: 'cookies', values: true });
+    fixture.detectChanges();
+    expect(text(el)).toContain('Read cookie values');
+  });
+
+  it('shows how large an upload is', () => {
+    const fixture = TestBed.createComponent(BrowserActionComponent);
+    fixture.componentRef.setInput('input', {
+      action: 'upload',
+      url: 'https://www.facebook.com/',
+      files: [{ name: 'part-1.mp4', size: 734003200 }],
+    });
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(text(el)).toContain('Upload files');
+    expect(text(el)).toContain('part-1.mp4');
+    expect(text(el)).toMatch(/700(\.0)? MB/);
+  });
+
   it('is the body of a browser approval card', async () => {
     const fixture = TestBed.createComponent(PendingCardComponent);
     fixture.componentRef.setInput('item', item());

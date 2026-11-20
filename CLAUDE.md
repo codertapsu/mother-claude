@@ -607,12 +607,21 @@ the `browser_*` tools are `extension::mcp`). Invariants:
   everything the extension returns is redacted again (`extension::redact`)
   before a model sees it — a network request's credential headers whole
   (`redact::header`), cookie and storage values only when the call asked
-  for them and the user approved.
+  for them and the user approved. `browser_cookies` `export` (the same
+  approval) gives a program on this machine a site's cookies without a
+  model: the desktop writes them to `<app data>/exports/cookies-*` (0600,
+  never uploaded; deleted after 10 minutes and at startup) and the model
+  gets the path, names and expiry only (`extension::export`).
 - **Records hold no values.** The activity log and the audit lines name the
   session, tool, action, origin and path (never a query string) and the
   outcome — never typed text, page content or tokens. Uploads read only the
   calling session's project or a folder the user approved, never a config
-  directory or a file that usually holds secrets.
+  directory or a file that usually holds secrets. Up to 5 MiB in all the
+  desktop sends the bytes; a larger upload sends only checked paths and
+  the extension (0.1.5+) sets them with `DOM.setFileInputFiles`, so Chrome
+  reads the files itself — refused before any approval unless the hello
+  said `uploadPaths` and `fileAccess` (Chrome's "Allow access to file
+  URLs").
 - **Connecting from the side panel reuses a session, never starts one.**
   `extension::connect`: the live sessions, a lease opened in the asking
   browser, the user's tab adopted into it, then the user's words through

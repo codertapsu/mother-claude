@@ -3286,6 +3286,7 @@ const TOPICS: HelpTopicSource[] = [
           'A session can keep several tabs in its group, one site in each, and work in them side by side. Each site keeps its own mode.',
           "**Network**: the requests a tab made (address, status, size, time), one in full with its headers and bodies, and WebSocket messages. Recording starts with the session's first action in the tab: reload a page to see its requests from the start.",
           '**Cookies**: names, expiry and flags of the cookies sent to the page. Their values, and setting or deleting one, wait for your approval.',
+          "**Cookies for another program**: a session can save a site's cookies to a private file for a program on this computer, such as a downloader. It gets the file's path, never the values. It asks you first, and the file is deleted after 10 minutes.",
           "**Storage**: the site's local and session storage, and its IndexedDB databases (read only). Values, and every change, wait for your approval.",
           'Sign-in headers (such as `Authorization` and `Cookie`) always show as `«redacted»`.',
           "Network requests, cookies, screenshots and the console need the extension's **debugger** permission. Chrome shows a bar while it is in use.",
@@ -3329,6 +3330,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Sessions never type into password, card, one-time-code or other secret fields: they ask you to type them yourself.',
           "Uploads come only from the session's project folder or a folder you added under **Folders sessions may upload files from**, in **Options** on the **Browser** page, never from Claude Code's folders, `~/.ssh` or files that usually hold secrets.",
+          'Up to 5 MB in all, files go straight to the page. Larger files, such as videos (up to 4 GB each), are read by Chrome itself: turn on **Allow access to file URLs** for the Mother Claude extension (`chrome://extensions` → Mother Claude → Details).',
           '**Activity** records the tool, site, path, outcome and time, never what was typed or read.',
         ],
       },

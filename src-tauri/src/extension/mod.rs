@@ -32,6 +32,7 @@ pub mod activity;
 pub mod channel;
 pub mod connect;
 pub mod danger;
+pub mod export;
 pub mod hub;
 pub mod leases;
 pub mod mcp;
@@ -80,6 +81,8 @@ pub struct ExtensionState {
     pub hub: hub::Hub,
     pub leases: leases::Leases,
     pub activity: activity::ActivityLog,
+    /// Cookie exports (`browser_cookies` `export`): `<app data>/exports`.
+    pub exports: export::Exports,
     approvals: Mutex<HashMap<String, Approval>>,
     lease_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     notify_scheduled: AtomicBool,
@@ -95,8 +98,11 @@ impl std::fmt::Debug for ExtensionState {
 }
 
 impl ExtensionState {
-    /// Load the paired browsers and the settings from the app data dir.
+    /// Load the paired browsers and the settings from the app data dir, and
+    /// delete the cookie exports a previous run left behind.
     pub fn load(data_dir: Option<&Path>) -> Self {
+        let exports = export::Exports::new(data_dir.map(|d| d.join("exports")));
+        exports.sweep(Duration::ZERO);
         Self {
             browsers: store::BrowserStore::load(data_dir),
             settings: sites::SettingsStore::load(data_dir),
@@ -104,6 +110,7 @@ impl ExtensionState {
             hub: hub::Hub::default(),
             leases: leases::Leases::default(),
             activity: activity::ActivityLog::default(),
+            exports,
             approvals: Mutex::new(HashMap::new()),
             lease_locks: Mutex::new(HashMap::new()),
             notify_scheduled: AtomicBool::new(false),

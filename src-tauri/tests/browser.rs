@@ -1571,3 +1571,193 @@ async fn a_session_without_permission_prompts_is_told_what_to_do_on_the_desktop_
     assert_eq!(next_of(&mut ws, "error").await["code"], "needs_desktop");
     assert!(mother_claude_lib::server::hooks::queued(&st, SESSION).is_empty());
 }
+
+// ───────────────────────────────────────── cookie exports and large uploads
+
+#[tokio::test]
+async fn cookies_export_to_a_file_the_model_never_reads() {
+    let (base, st) = boot().await;
+    let exports = tempfile::tempdir().unwrap();
+    st.extension
+        .exports
+        .set_dir(Some(exports.path().join("exports")));
+    let (mut ws, _, _) = paired(&base, &st).await;
+    set_mode(&st, "https://www.example.test", "read").await;
+    let task = call(
+        &st,
+        SESSION,
+        "browser_cookies",
+        json!({"action": "export", "names": ["SESSDATA", "buvid3", "DedeUserID"]}),
+    );
+    open_lease_with_tab(&mut ws, "https://www.example.test/").await;
+    // Values into a file ask first (on a read-only site too), and the card
+    // says where they go and which.
+    let id = pending_approval(&st).await;
+    let item = st.pending.get(&id).unwrap();
+    assert!(item.dangerous);
+    let input = item.input.clone().unwrap();
+    assert_eq!(input["export"], true);
+    assert_eq!(input["names"], json!(["SESSDATA", "buvid3", "DedeUserID"]));
+    assert!(
+        input["reasons"][0].as_str().unwrap().contains("to a file"),
+        "{input}"
+    );
+    send(
+        &mut ws,
+        json!({"type": "answer", "id": "a1", "pending": id, "allow": true}),
+    )
+    .await;
+    let cmd = next_of(&mut ws, "command").await;
+    assert_eq!(cmd["action"], "cookies");
+    assert_eq!(cmd["params"]["values"], true);
+    send(
+        &mut ws,
+        json!({"type": "result", "id": cmd["id"], "ok": true, "data": {
+        "url": "https://www.example.test/",
+        "cookies": [
+            {"name": "SESSDATA", "value": "s3cr3t%2Cvalue", "domain": ".example.test",
+             "path": "/", "httpOnly": true, "secure": true, "expires": 1790000000},
+            {"name": "buvid3", "value": "device-1", "domain": ".example.test",
+             "path": "/", "httpOnly": false, "secure": false, "session": true},
+            {"name": "other", "value": "not-asked", "domain": ".example.test",
+             "path": "/", "httpOnly": false, "secure": false, "session": true}
+        ]}}),
+    )
+    .await;
+    let out = task.await.unwrap();
+    let text = text_of(&out);
+    assert!(!out.is_error, "{text}");
+    for value in ["s3cr3t", "device-1", "not-asked"] {
+        assert!(!text.contains(value), "no value reaches the model: {text}");
+    }
+    let v: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["missing"], json!(["DedeUserID"]));
+    assert_eq!(v["format"], "netscape");
+    assert_eq!(v["cookies"].as_array().unwrap().len(), 2);
+    assert_eq!(v["cookies"][0]["name"], "SESSDATA");
+    assert_eq!(v["cookies"][0]["httpOnly"], true);
+    let file = std::path::PathBuf::from(v["file"].as_str().unwrap());
+    assert!(file.starts_with(exports.path()), "{}", file.display());
+    let body = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        body.contains(
+            "#HttpOnly_.example.test\tTRUE\t/\tTRUE\t1790000000\tSESSDATA\ts3cr3t%2Cvalue"
+        ),
+        "{body}"
+    );
+    assert!(body.contains(".example.test\tTRUE\t/\tFALSE\t0\tbuvid3\tdevice-1"));
+    assert!(!body.contains("not-asked"), "only the cookies asked for");
+    // The records name what happened, never a value.
+    let audit = format!("{:?}", st.devices.audit.recent(100));
+    assert!(!audit.contains("s3cr3t") && !audit.contains("device-1"));
+    let activity = format!("{:?}", st.extension.activity.recent(Some(SESSION), 10));
+    assert!(!activity.contains("s3cr3t"));
+    // A startup sweep removes what a reader left behind.
+    assert_eq!(st.extension.exports.sweep(Duration::ZERO), 1);
+    assert!(!file.exists());
+}
+
+/// A tool call from a session working in `cwd`.
+fn call_in(
+    st: &AppState,
+    cwd: &std::path::Path,
+    tool: &str,
+    args: Value,
+) -> tokio::task::JoinHandle<ToolOutput> {
+    let ctx = ToolCtx {
+        state: st.clone(),
+        caller: Caller {
+            session_id: Some(SESSION.into()),
+            cwd: Some(cwd.to_string_lossy().into_owned()),
+            ..Default::default()
+        },
+    };
+    let tool = tool.to_string();
+    tokio::spawn(async move {
+        mcp::registry()
+            .call(&tool, ctx, args)
+            .await
+            .expect("a registered tool")
+    })
+}
+
+#[tokio::test]
+async fn a_large_upload_goes_by_path_only_to_an_extension_that_can() {
+    let (base, st) = boot().await;
+    let (mut ws, _, browser) = paired(&base, &st).await;
+    set_mode(&st, "https://example.test", "act").await;
+    let project = tempfile::tempdir().unwrap();
+    // Sparse: 6 MiB on paper.
+    std::fs::File::create(project.path().join("part-1.mp4"))
+        .unwrap()
+        .set_len(6 * 1024 * 1024)
+        .unwrap();
+    let args = json!({"ref": "e3", "paths": ["part-1.mp4"]});
+
+    // An extension older than 0.1.5 (no `uploadPaths`): refused before anyone
+    // is asked.
+    let task = call_in(&st, project.path(), "browser_upload", args.clone());
+    open_lease_with_tab(&mut ws, "https://example.test/").await;
+    let out = task.await.unwrap();
+    assert!(out.is_error);
+    let text = text_of(&out);
+    assert!(text.contains("0.1.5"), "{text}");
+    assert!(st.extension.approvals_for(None).is_empty());
+
+    let conn = st.extension.hub.get(&browser).unwrap();
+    // Able, but Chrome's file access is off: said before anyone is asked.
+    *conn.capabilities.lock().unwrap() = json!({"uploadPaths": true, "fileAccess": false});
+    let out = call_in(&st, project.path(), "browser_upload", args.clone())
+        .await
+        .unwrap();
+    assert!(out.is_error);
+    assert!(
+        text_of(&out).contains("Allow access to file URLs"),
+        "{}",
+        text_of(&out)
+    );
+    assert!(st.extension.approvals_for(None).is_empty());
+
+    // Able and allowed: the card says how much, the command carries paths,
+    // never bytes.
+    *conn.capabilities.lock().unwrap() = json!({"uploadPaths": true, "fileAccess": true});
+    let task = call_in(&st, project.path(), "browser_upload", args);
+    let id = pending_approval(&st).await;
+    let item = st.pending.get(&id).unwrap();
+    assert!(item.dangerous);
+    let input = item.input.clone().unwrap();
+    assert_eq!(input["files"][0]["name"], "part-1.mp4");
+    assert_eq!(input["files"][0]["size"], 6 * 1024 * 1024);
+    send(
+        &mut ws,
+        json!({"type": "answer", "id": "a1", "pending": id, "allow": true}),
+    )
+    .await;
+    // (The element was highlighted for whoever approves.)
+    let cmd = loop {
+        let c = next_of(&mut ws, "command").await;
+        if c["action"] != "highlight" {
+            break c;
+        }
+    };
+    assert_eq!(cmd["action"], "upload");
+    assert!(cmd["params"].get("files").is_none(), "no bytes: {cmd}");
+    let sent = &cmd["params"]["paths"][0];
+    assert_eq!(sent["name"], "part-1.mp4");
+    assert_eq!(sent["mimeType"], "video/mp4");
+    assert_eq!(sent["size"], 6 * 1024 * 1024);
+    let path = std::path::PathBuf::from(sent["path"].as_str().unwrap());
+    assert!(path.is_absolute() && path.ends_with("part-1.mp4"));
+    send(
+        &mut ws,
+        json!({"type": "result", "id": cmd["id"], "ok": true, "data": {"files": 1, "byPath": true}}),
+    )
+    .await;
+    let out = task.await.unwrap();
+    let text = text_of(&out);
+    assert!(!out.is_error, "{text}");
+    assert!(
+        text.contains("by path") && text.contains("progress"),
+        "{text}"
+    );
+}

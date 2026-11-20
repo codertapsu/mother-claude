@@ -736,9 +736,13 @@ pub fn register(r: &mut Registry) {
             "browser_upload",
             "Upload files",
             "Attach files from this computer to a file input by ref. paths: files in this \
-             session's project folder (or a folder the user approved), at most 10 files and \
-             5 MiB. Files that usually hold secrets (.env, keys) and anything in Claude Code's \
-             configuration are refused. Waits for the user's approval."
+             session's project folder (or a folder the user approved), at most 10. Up to 5 MiB \
+             in all they go to the page directly (a drop zone works too); a larger upload \
+             (videos: each file up to 4 GiB) goes into a file input by path and Chrome reads \
+             the files itself, which needs extension 0.1.5 and the user's “Allow access to \
+             file URLs” for it. The page then uploads them at its own pace: follow its progress \
+             before going on. Files that usually hold secrets (.env, keys) and anything in \
+             Claude Code's configuration are refused. Waits for the user's approval."
                 .into(),
             object(
                 json!({
@@ -792,13 +796,20 @@ pub fn register(r: &mut Registry) {
              permission). action: get (default: names, domain, path, expiry, flags and sizes; \
              values: true for the values too, which waits for the user's approval) | set \
              (name, value; domain, path, secure, httpOnly, sameSite, expires: epoch seconds) | \
-             delete (name). Changing cookies waits for the user's approval and needs the site \
-             in act mode."
+             delete (name) | export (names: the cookies to include, default all; format: \
+             netscape, a cookies.txt (default), or json): the values go into a private file for \
+             a program on this computer, never to you; it returns the file's path, what it \
+             holds and the names that are not set, and waits for the user's approval. Hand \
+             the path to the program that needs it and never open the file yourself; Mother \
+             Claude deletes it 10 minutes later. Changing cookies waits for the user's \
+             approval and needs the site in act mode."
                 .into(),
             object(
                 json!({
-                    "action": {"type": "string", "enum": ["get", "set", "delete"]},
+                    "action": {"type": "string", "enum": ["get", "set", "delete", "export"]},
                     "name": {"type": "string"},
+                    "names": {"type": "array", "items": {"type": "string"}, "maxItems": 50},
+                    "format": {"type": "string", "enum": ["netscape", "json"]},
                     "value": {"type": "string"},
                     "values": {"type": "boolean"},
                     "domain": {"type": "string"},
@@ -1504,7 +1515,12 @@ async fn upload(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         .unwrap_or_default();
     let files = super::upload::check(&ctx.state, ctx.caller.cwd.as_deref(), &paths)?;
     let n = files.len();
-    let summary = format!("Upload {n} file{} to", if n == 1 { "" } else { "s" });
+    let by_path = super::upload::mode(&files) == super::upload::Mode::Paths;
+    let size = super::upload::size_label(files.iter().map(|f| f.size).sum());
+    let summary = format!(
+        "Upload {n} file{} ({size}) to",
+        if n == 1 { "" } else { "s" }
+    );
     let mut c = call(
         "browser_upload",
         "upload",
@@ -1515,7 +1531,16 @@ async fn upload(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
     c.upload = Some(files);
     c.timeout_ms = 60_000;
     let done = actions::perform(&ctx, c).await?;
-    Ok(acted(format!("Attached {n} file(s) to {r}."), &done))
+    let what = if by_path {
+        format!(
+            "Attached {n} file(s) ({size}) to {r} by path: Chrome reads them from this computer \
+             as the page uploads them. Follow the page's own progress (browser_find or \
+             browser_snapshot, waiting between looks) before going on."
+        )
+    } else {
+        format!("Attached {n} file(s) to {r}.")
+    };
+    Ok(acted(what, &done))
 }
 
 /// Longest request or response body a model gets.
@@ -1684,15 +1709,24 @@ fn values_out(list: Option<&mut Value>, values: bool) {
     }
 }
 
+/// A cookie's name as a tool may give it.
+fn cookie_name_ok(n: &str) -> bool {
+    n.len() <= 256 && !n.chars().any(|c| c.is_control() || c == ';' || c == '=')
+}
+
 async fn cookies(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-    let action = one_of(&args, "action", &["get", "set", "delete"])?.unwrap_or("get");
+    let action = one_of(&args, "action", &["get", "set", "delete", "export"])?.unwrap_or("get");
     let name = str_arg(&args, "name")?
         .map(str::trim)
         .filter(|s| !s.is_empty());
     if let Some(n) = name {
-        if n.len() > 256 || n.chars().any(|c| c.is_control() || c == ';' || c == '=') {
+        if !cookie_name_ok(n) {
             return Err(ToolError::invalid("`name` is a cookie's name."));
         }
+    }
+    if action == "export" {
+        let name = name.map(str::to_string);
+        return export_cookies(ctx, args, name).await;
     }
     let mut params = json!({});
     if let Some(n) = name {
@@ -1766,6 +1800,117 @@ async fn cookies(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         *u = json!(redact::text(u.as_str().unwrap_or_default()));
     }
     Ok(ToolOutput::json(data))
+}
+
+/// The most names one export lists.
+const MAX_EXPORT_NAMES: usize = 50;
+
+/// `browser_cookies` `export`: the values go into a private file for a
+/// program on this computer ([`super::export`]); the model learns the file's
+/// path, the cookies' names and expiry, and which names are not set.
+async fn export_cookies(
+    ctx: ToolCtx,
+    args: Value,
+    name: Option<String>,
+) -> Result<ToolOutput, ToolError> {
+    use super::export::{self, Format};
+    let format = Format::parse(str_arg(&args, "format")?)
+        .ok_or_else(|| ToolError::invalid("`format` is netscape or json."))?;
+    let bad_names = || ToolError::invalid("`names` lists cookies' names.");
+    let mut names: Vec<String> = Vec::new();
+    match args.get("names") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(list)) => {
+            for v in list {
+                let n = v
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|n| !n.is_empty() && cookie_name_ok(n))
+                    .ok_or_else(bad_names)?;
+                if !names.iter().any(|o| o == n) {
+                    names.push(n.to_string());
+                }
+            }
+        }
+        Some(_) => return Err(bad_names()),
+    }
+    if let Some(n) = name {
+        if !names.contains(&n) {
+            names.push(n);
+        }
+    }
+    if names.len() > MAX_EXPORT_NAMES {
+        return Err(ToolError::invalid(format!(
+            "At most {MAX_EXPORT_NAMES} names in one export."
+        )));
+    }
+    if ctx.state.extension.exports.dir().is_none() {
+        return Err(ToolError::new(
+            "unavailable",
+            "Mother Claude has no data folder to write the export to.",
+        ));
+    }
+    // The extension reads the values for the desktop; the `export` flag
+    // gives the approval card its own sentence.
+    let mut params = json!({ "values": true, "export": true, "format": format.as_str() });
+    if !names.is_empty() {
+        params["names"] = json!(names);
+    }
+    let c = call(
+        "browser_cookies",
+        "cookies",
+        params,
+        &args,
+        "Save cookie values to a file",
+    )?;
+    let done = actions::perform(&ctx, c).await?;
+    let named = |c: &Value, n: &str| c.get("name").and_then(Value::as_str) == Some(n);
+    let chosen: Vec<Value> = done
+        .data
+        .get("cookies")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|c| names.is_empty() || names.iter().any(|n| named(c, n)))
+        .cloned()
+        .collect();
+    let missing: Vec<&String> = names
+        .iter()
+        .filter(|n| !chosen.iter().any(|c| named(c, n)))
+        .collect();
+    let mut out = json!({
+        "format": format.as_str(),
+        "cookies": chosen.iter().map(export::described).collect::<Vec<_>>(),
+        "missing": missing,
+    });
+    if let Some(u) = done.data.get("url").and_then(Value::as_str) {
+        out["url"] = json!(redact::text(u));
+    }
+    if chosen.is_empty() {
+        out["file"] = Value::Null;
+        out["note"] = json!("None of those cookies is set for this page: nothing was written.");
+        return Ok(ToolOutput::json(out));
+    }
+    let path = ctx
+        .state
+        .extension
+        .exports
+        .write(format, &chosen)
+        .map_err(|e| {
+            ToolError::new(
+                "unavailable",
+                format!("Mother Claude could not write the export: {e}."),
+            )
+        })?;
+    export::remove_later(path.clone());
+    out["file"] = json!(path.to_string_lossy());
+    out["deletedAfterMinutes"] = json!(export::TTL.as_secs() / 60);
+    out["note"] = json!(
+        "The values are in the file, not here. Give its path to the program that needs them; \
+         it should delete the file after reading it, and Mother Claude deletes it after 10 \
+         minutes otherwise. Never open, print or upload the file."
+    );
+    Ok(ToolOutput::json(out))
 }
 
 async fn storage(ctx: ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {

@@ -82,6 +82,9 @@ export class Browser {
       '--disable-backgrounding-occluded-windows',
       '--disable-renderer-backgrounding',
       '--disable-features=Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider,AutofillServerCommunication,CertificateTransparencyComponentUpdater',
+      // "Allow access to file URLs" on for the test build: an upload by path
+      // (DOM.setFileInputFiles) needs it, and a person would turn it on.
+      '--disable-extensions-file-access-check',
       // Never the real Keychain or password store.
       '--use-mock-keychain',
       '--password-store=basic',

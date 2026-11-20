@@ -86,7 +86,8 @@ tools, sessions can too:
   action in the tab and keeps the last 500 requests, across page loads.
 - `browser_cookies`: the cookies sent to the page — names, domains, expiry and
   flags (`HttpOnly` ones too) — and, when you approve it, their values; set
-  or delete one of the site's own.
+  or delete one of the site's own; or **export** their values to a file for
+  a program on this computer, which the session never reads (§6).
 - `browser_storage`: the site's local and session storage (keys and sizes;
   values when you approve it; set, remove, clear) and its IndexedDB
   databases, stores and records (read only).
@@ -166,8 +167,8 @@ page says — which browser actions wait for you:
   fields (typing *into* such a field is never allowed: see §6);
 - `browser_eval` (a script in the page);
 - `browser_upload` (files from this computer);
-- reading cookie or storage **values**, and every change to cookies or
-  storage (they can hold your sign-in);
+- reading cookie or storage **values** (exporting cookies to a file too),
+  and every change to cookies or storage (they can hold your sign-in);
 - more than the per-minute limit of actions on one site (30 by default: a
   session stuck in a loop);
 - any session's action in a browser where you pressed Stop for another
@@ -199,6 +200,18 @@ The Stop rule has no grant.
   (or allowed "read or change cookies and site storage" on that site for
   good); names, sizes and flags need no approval. Even then, well-known token
   formats stay `«redacted»`.
+- **Cookies for another program.** When a program on this computer needs
+  your sign-in to a site (a downloader that takes a `cookies.txt`, for
+  example), a session can have Mother Claude write that site's cookie values
+  (all of them, or the ones it names) to a private file and give the program
+  its path: `browser_cookies` with `export`. The session gets the path, the
+  cookies' names and expiry, and the names that are not set, never a value.
+  It asks you first, as reading values does. The file is in Mother Claude's
+  own data folder (`exports/`, readable only by you, never uploaded); the
+  program deletes it after reading it, and Mother Claude deletes it after 10
+  minutes, and any left when it starts. The format is Netscape's
+  `cookies.txt` (`HttpOnly` cookies marked `#HttpOnly_`, as curl and yt-dlp
+  write them) or JSON.
 - In network requests, credential headers (`Authorization`, `Cookie`,
   `Set-Cookie`, API keys, CSRF and session tokens) always show as
   `«redacted»`; bodies, addresses and values are redacted like page text.
@@ -225,12 +238,23 @@ The Browser page has a **Stop** button for each session too.
 `browser_upload` reads files only from the session's project folder or a
 folder you added under *Browser › Options › Folders sessions may
 upload files from*
-(adding one needs the Mac). Never from a Claude Code configuration folder,
-Mother Claude's own data, `~/.ssh`, shell startup files or git hooks, and
-never a file that usually holds secrets (`.env`, keys, `.npmrc`, `.netrc`,
-credentials files): upload those yourself. At most 10 files and 5 MB at a
-time, and every upload asks first (unless you allowed uploads to that site
-for good).
+(adding one needs the Mac; a folder covers its subfolders). Never from a
+Claude Code configuration folder, Mother Claude's own data, `~/.ssh`, shell
+startup files or git hooks, and never a file that usually holds secrets
+(`.env`, keys, `.npmrc`, `.netrc`, credentials files): upload those
+yourself. At most 10 files at a time, and every upload asks first (unless
+you allowed uploads to that site for good); the card says how much.
+
+- **Up to 5 MB in all**, Mother Claude sends the files' contents to the page
+  (a drop zone works too).
+- **Larger files** (a video: up to 4 GB each) go by path. Mother Claude
+  checks them as above and gives the extension only their paths; Chrome
+  reads them from this computer itself as the page uploads them, so nothing
+  large passes through Mother Claude or the session. They go into a file
+  input only, and need extension 0.1.5 or later with Chrome's **Allow access
+  to file URLs** on for it (chrome://extensions → Mother Claude → Details;
+  Chrome restarts the extension when you change it). The page uploads at
+  its own pace afterwards, and the session follows its progress.
 
 ## 9. What is recorded
 
@@ -242,6 +266,9 @@ for good).
   its audit): one line per browser action, approval, pairing, removal, site
   mode, grant, Stop and resume — who, from where, the session, the site, the
   action, the outcome. Never values, page content or tokens.
+- **Cookie exports** (§6): files in `exports/` in Mother Claude's data folder
+  that live for at most 10 minutes; the audit line names the site and the
+  cookies, never a value.
 - **Settings** (`browser-settings.json`: site modes, grants, settings) and
   **paired browsers** (`browsers.json`: names, versions, the pinned extension
   id, token hashes), both private (0600) in Mother Claude's data folder.
@@ -300,4 +327,6 @@ result — so open only the sites you are happy for it to read.
 | *The user pressed Stop* (`stopped`) | Resume it on the Browser page, or wait a minute. |
 | *Nobody approved …* (`approval_timeout`) | Answer approvals sooner, or add a grant. |
 | *needs the extension's optional debugger permission* | Press **Grant** next to **Debugger** on the extension's options page. |
+| *Chrome does not let the Mother Claude extension hand files …* (`file_access_off`) | Turn on **Allow access to file URLs** for the extension (chrome://extensions → Mother Claude → Details). |
+| *… needs the Mother Claude extension 0.1.5 or later* (`extension_outdated`) | Update the extension (§1). |
 | *Mother Claude could not tell which session is calling* (`no_session`) | The session reaches Mother Claude without its identity; check that the Mother Claude plugin is enabled in it. |

@@ -322,6 +322,10 @@ export interface BrowserActionView {
   expression?: string;
   touchesStorage?: boolean;
   submit?: boolean;
+  /** `cookies` with `export`: the values go to a file for a program, never to the session. */
+  export?: boolean;
+  /** The cookies an export takes (all when empty). */
+  names: string[];
   fields: { ref: string; name?: string; value?: string }[];
   files: { name: string; size?: number }[];
   reasons: string[];
@@ -352,6 +356,10 @@ export function browserActionView(input: unknown): BrowserActionView | null {
     expression: str(i['expression']),
     touchesStorage: i['touchesStorage'] === true,
     submit: i['submit'] === true,
+    export: i['export'] === true,
+    names: Array.isArray(i['names'])
+      ? (i['names'] as unknown[]).filter((n): n is string => typeof n === 'string')
+      : [],
     fields: list(i['fields']).map((f) => ({
       ref: str(f['ref']) ?? '',
       name: str(f['name']),
@@ -367,10 +375,11 @@ export function browserActionView(input: unknown): BrowserActionView | null {
   };
 }
 
-/** `12 KB`, `3.4 MB`. */
+/** `12 KB`, `3.4 MB`, `1.4 GB`. */
 export function fileSize(bytes: number | undefined): string {
   if (bytes === undefined) return '';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }

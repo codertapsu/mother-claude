@@ -189,6 +189,15 @@ Asked for when needed:
 | Navigation events   | Notices page loads earlier and reports why a page failed to load.                                                                                                                                                     |
 | Downloads           | Tells the session when a page it works on starts a download (the file name only).                                                                                                                                     |
 
+**Files from this computer** *(0.1.5)*. An upload larger than 5 MB (a
+video) goes by path: Mother Claude checks the file and gives the extension
+its path, and Chrome reads it from the disk itself as the page uploads it.
+Chrome allows that only with **Allow access to file URLs** on for the
+extension (`chrome://extensions` → Mother Claude → **Details**). The options
+page shows whether it is on, with a button to Chrome's settings. Without it,
+smaller uploads still work, and a session told about a large one asks you to
+turn it on. The extension never opens `file://` pages itself.
+
 **The debugger comes with the install.** Chrome does not let an extension
 ask for the debugger later (it is one of the few permissions that cannot be
 optional), so the extension requires it, and Chrome lists it among the

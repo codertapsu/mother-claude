@@ -251,6 +251,8 @@ describe(
       assert.equal(caps['debugger'], true);
       assert.equal(caps['tabGroups'], true);
       assert.equal(caps['sidePanel'], true);
+      assert.equal(caps['uploadPaths'], true);
+      assert.equal(caps['fileAccess'], true, 'file access on (the launch switch)');
       assert.ok((hello['granted'] as string[]).includes('debugger'), JSON.stringify(hello));
       assert.ok(desktop.origins.every((o) => o === `chrome-extension://${EXPECTED_ID}`));
       const status = await ui(options.sessionId, { op: 'status' });
@@ -638,6 +640,38 @@ describe(
       );
       await sleep(100);
       assert.equal(await text('#file-out'), 'notes.txt text/plain 12 hello upload');
+    });
+
+    it('uploads a large file by path: Chrome reads it from the disk, no bytes sent', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'mc-ext-e2e-upload-'));
+      const file = join(dir, 'clip.txt');
+      writeFileSync(file, 'hello by path');
+      try {
+        const snap = String(ok(await cmd('snapshot'), 'snapshot')['snapshot']);
+        const input = refOf(snap, /button "Attachment"/);
+        const r = ok(
+          await cmd('upload', {
+            ref: input,
+            paths: [{ path: file, name: 'clip.txt', mimeType: 'text/plain', size: 13 }],
+          }),
+          'upload by path',
+        );
+        assert.equal(r['files'], 1);
+        assert.equal(r['byPath'], true);
+        await sleep(200);
+        assert.equal(await text('#file-out'), 'clip.txt text/plain 13 hello by path');
+        // The one-time mark is gone again.
+        const marks = ok(await cmd('find', { selector: '[data-mc-upload]' }), 'find marks');
+        assert.equal((marks['matches'] as unknown[] | undefined)?.length ?? 0, 0);
+        // Two files into an input that takes one: refused before anything is set.
+        fails(
+          await cmd('upload', { ref: input, paths: [file, file] }),
+          'unsupported',
+          'two files, one input',
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     it('opens a link meant for a new tab inside the lease, then closes it', async () => {

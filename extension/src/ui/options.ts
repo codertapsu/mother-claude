@@ -36,6 +36,40 @@ const PERMISSIONS: { name: string; label: string; why: string }[] = [
 let formFilled = false;
 
 /**
+ * Chrome's "Allow access to file URLs" for this extension, read once: Chrome
+ * restarts the extension (and closes this page) when it changes.
+ */
+let fileAccess: boolean | null = null;
+
+function fileAccessRow(): HTMLElement {
+  return h(
+    'tr',
+    {},
+    h('th', { scope: 'row' }, 'Files from this computer'),
+    h(
+      'td',
+      { class: 'muted' },
+      'Large uploads (a video over 5 MB): Chrome reads the file a session uploads from this computer itself. Turn on “Allow access to file URLs” for this extension in Chrome’s extension settings.',
+    ),
+    h(
+      'td',
+      {},
+      h('div', {}, fileAccess === null ? '…' : fileAccess ? 'On' : 'Off'),
+      h(
+        'button',
+        {
+          type: 'button',
+          'data-key': 'file-access',
+          onclick: () =>
+            void chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` }),
+        },
+        'Open Chrome’s settings',
+      ),
+    ),
+  );
+}
+
+/**
  * Grant or remove one permission. The debugger is not optional to Chrome (it
  * gave it at install), so its Grant is the extension's own switch; the
  * others are Chrome's prompt, which must come straight from the click.
@@ -148,6 +182,7 @@ function renderPermissions(s: UiStatus): void {
         ),
       );
     }),
+    fileAccessRow(),
   );
   const origins = s.granted.filter((g) => g.includes('://') || g === '<all_urls>');
   byId('sites').replaceChildren(
@@ -189,7 +224,21 @@ function render(s: UiStatus): void {
 }
 
 function start(): void {
-  watchStatus(render);
+  let last: UiStatus | null = null;
+  watchStatus((s) => {
+    last = s;
+    render(s);
+  });
+  void chrome.extension.isAllowedFileSchemeAccess().then(
+    (on) => {
+      fileAccess = on;
+      if (last) render(last);
+    },
+    () => {
+      fileAccess = false;
+      if (last) render(last);
+    },
+  );
   byId<HTMLFormElement>('desktop-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const host = byId<HTMLInputElement>('host').value;

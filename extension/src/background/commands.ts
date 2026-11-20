@@ -13,8 +13,16 @@ import {
   type DebuggerManager,
   type NetRecord,
 } from './debugger.ts';
+import {
+  FILE_COUNT_FUNCTION,
+  UNMARK_FUNCTION,
+  fileAccessOff,
+  findMarkedExpression,
+  uploadPaths,
+  uploadToken,
+} from '../shared/upload.ts';
 import type { DialogInfo, Dialogs } from './dialogs.ts';
-import { hasHostAccess } from './env.ts';
+import { fileSchemeAccess, hasHostAccess } from './env.ts';
 import type { Leases } from './leases.ts';
 import type { PageBridge } from './page.ts';
 import type { LeaseRecord, Store } from './state.ts';
@@ -160,7 +168,7 @@ export class Commands {
       fill: (c) => this.raced(c),
       select: (c) => this.raced(c),
       check: (c) => this.raced(c),
-      upload: (c) => this.raced(c),
+      upload: (c) => (Array.isArray(c.params['paths']) ? this.uploadByPath(c) : this.raced(c)),
       press: (c) => (c.params['trusted'] === true ? this.trustedPress(c) : this.raced(c)),
       wait: (c) => this.wait(c),
       screenshot: (c) => this.screenshot(c),
@@ -289,6 +297,87 @@ export class Commands {
 
   private content(c: Cmd): Promise<Data> {
     return this.call(c, c.action);
+  }
+
+  // ------------------------------------------------------- upload by path
+
+  /**
+   * An upload too large for a frame: the desktop sends the files' paths
+   * (checked and approved there), never their bytes. The content script
+   * marks the file input; the debugger finds it from a world of our own (the
+   * page's scripts cannot stand in for it) and sets the files with
+   * DOM.setFileInputFiles, which fires the input's own input and change
+   * events. Chrome reads the files as the page uploads them, and only with
+   * "Allow access to file URLs" on for the extension.
+   */
+  private uploadByPath(c: Cmd): Promise<Data> {
+    const tabId = this.tabId(c);
+    return this.raceDialog(tabId, this.setFilesByPath(c, tabId));
+  }
+
+  private async setFilesByPath(c: Cmd, tabId: number): Promise<Data> {
+    const files = uploadPaths(c.params['paths']);
+    if (!files.length) throw new CommandError('unsupported', 'no files to upload');
+    if (!(await fileSchemeAccess())) throw fileAccessOff();
+    await this.d.dbg.ensure(tabId, 'uploading large files');
+    const token = uploadToken();
+    // The content script needs the target, not the paths.
+    const mark: Data = { ...c.params, token, count: files.length };
+    delete mark['paths'];
+    await this.call(c, 'uploadMark', mark);
+    const objectId = await this.markedInput(tabId, token);
+    try {
+      try {
+        await this.d.dbg.send(tabId, 'DOM.setFileInputFiles', { files, objectId });
+      } catch (e) {
+        if (/not allowed/i.test(messageOf(e))) throw fileAccessOff();
+        throw e;
+      }
+      const held = await this.d.dbg.send<{ result?: { value?: unknown } }>(
+        tabId,
+        'Runtime.callFunctionOn',
+        { objectId, functionDeclaration: FILE_COUNT_FUNCTION, returnByValue: true },
+      );
+      const n = typeof held.result?.value === 'number' ? held.result.value : files.length;
+      return { files: n, byPath: true };
+    } finally {
+      await this.d.dbg
+        .send(tabId, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: UNMARK_FUNCTION,
+          arguments: [{ value: token }],
+        })
+        .catch(() => undefined);
+      await this.d.dbg.send(tabId, 'Runtime.releaseObject', { objectId }).catch(() => undefined);
+    }
+  }
+
+  /** The input `uploadMark` marked, found from an isolated world of ours. */
+  private async markedInput(tabId: number, token: string): Promise<string> {
+    const tree = await this.d.dbg.send<{ frameTree?: { frame?: { id?: string } } }>(
+      tabId,
+      'Page.getFrameTree',
+    );
+    const frameId = tree.frameTree?.frame?.id;
+    if (!frameId) throw new CommandError('unsupported', 'the page has no frame to upload into');
+    const world = await this.d.dbg.send<{ executionContextId?: number }>(
+      tabId,
+      'Page.createIsolatedWorld',
+      { frameId, worldName: 'mother-claude-upload' },
+    );
+    const found = await this.d.dbg.send<{ result?: { objectId?: string; subtype?: string } }>(
+      tabId,
+      'Runtime.evaluate',
+      {
+        expression: findMarkedExpression(token),
+        contextId: world.executionContextId,
+        returnByValue: false,
+      },
+    );
+    const objectId = found.result?.objectId;
+    if (!objectId || found.result?.subtype !== 'node')
+      throw new CommandError('stale_ref', 'the file input went away: take a new snapshot');
+    return objectId;
   }
 
   // ----------------------------------------------------------------- tabs

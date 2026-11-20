@@ -3,6 +3,7 @@ import { afterEach, describe, it } from 'node:test';
 import {
   click,
   fillField,
+  markFileInput,
   press,
   selectOptions,
   setChecked,
@@ -11,6 +12,12 @@ import {
 } from '../../src/content/actions.ts';
 import { CommandError } from '../../src/shared/errors.ts';
 import { parseKey } from '../../src/shared/keys.ts';
+import {
+  UPLOAD_MARK,
+  findMarkedExpression,
+  uploadPaths,
+  uploadToken,
+} from '../../src/shared/upload.ts';
 import { page, type TestPage } from './dom.ts';
 
 let open: TestPage[] = [];
@@ -221,5 +228,43 @@ describe('clicks, keys and uploads', () => {
         ),
       /takes one file/,
     );
+  });
+
+  it('an upload by path marks the input the ref stands for, and nothing else', () => {
+    const p = load(`
+      <input id="one" type="file">
+      <label id="lab" for="many">Videos</label><input id="many" type="file" multiple>
+      <div id="zone"><span>Drop here</span><input id="inner" type="file"></div>
+      <div id="bare">No input</div>
+      <input id="off" type="file" disabled>`);
+    const token = uploadToken();
+    markFileInput(get(p, '#lab'), token, 2, 'e2');
+    assert.equal(get(p, '#many').getAttribute(UPLOAD_MARK), token);
+    markFileInput(get(p, '#zone'), token, 1, 'e3');
+    assert.equal(get(p, '#inner').getAttribute(UPLOAD_MARK), token);
+    assert.throws(() => markFileInput(get(p, '#one'), token, 2, 'e1'), /takes one file/);
+    assert.throws(() => markFileInput(get(p, '#bare'), token, 1, 'e4'), /holds none/);
+    assert.throws(() => markFileInput(get(p, '#off'), token, 1, 'e5'), /disabled/);
+    assert.throws(() => markFileInput(get(p, '#one'), 'not-a-token', 1, 'e1'), /bad upload token/);
+    assert.equal(get(p, '#one').getAttribute(UPLOAD_MARK), null);
+  });
+});
+
+describe('upload by path, the service worker side', () => {
+  it('takes paths as strings or as the desktop sends them', () => {
+    assert.deepEqual(
+      uploadPaths(['C:\\a.mp4', { path: '/b.mp4', name: 'b.mp4', size: 1 }, { name: 'x' }, '', 3]),
+      ['C:\\a.mp4', '/b.mp4'],
+    );
+    assert.deepEqual(uploadPaths('C:\\a.mp4'), []);
+  });
+
+  it('finds the marked input only with a real token', () => {
+    const token = uploadToken();
+    assert.match(token, /^[0-9a-f]{32}$/);
+    assert.notEqual(uploadToken(), token);
+    const expr = findMarkedExpression(token);
+    assert.ok(expr.includes(`[${UPLOAD_MARK}=\\"${token}\\"]`), expr);
+    assert.throws(() => findMarkedExpression('x"] , body'), CommandError);
   });
 });

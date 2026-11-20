@@ -661,6 +661,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
           'Một phiên có thể giữ nhiều thẻ trong nhóm của nó, mỗi thẻ một trang, và làm việc song song trên chúng. Mỗi trang giữ chế độ riêng.',
           '**Mạng**: các yêu cầu một thẻ đã gửi (địa chỉ, trạng thái, kích thước, thời gian), một yêu cầu đầy đủ với header và nội dung, và các tin nhắn WebSocket. Việc ghi lại bắt đầu từ thao tác đầu tiên của phiên trong thẻ: tải lại trang để thấy các yêu cầu của nó từ đầu.',
           '**Cookie**: tên, hạn dùng và các cờ của những cookie được gửi tới trang. Giá trị của chúng, và việc đặt hay xóa một cookie, đều chờ bạn duyệt.',
+          '**Cookie cho chương trình khác**: một phiên có thể lưu cookie của một trang vào một tệp riêng tư cho một chương trình trên máy này, chẳng hạn trình tải video. Phiên chỉ nhận đường dẫn của tệp, không bao giờ nhận giá trị. Việc này luôn hỏi bạn trước, và tệp bị xóa sau 10 phút.',
           '**Dữ liệu lưu trữ**: local storage và session storage của trang, và các cơ sở dữ liệu IndexedDB của nó (chỉ đọc). Giá trị, và mọi thay đổi, đều chờ bạn duyệt.',
           'Các header đăng nhập (như `Authorization` và `Cookie`) luôn hiện là `«redacted»`.',
           'Yêu cầu mạng, cookie, ảnh chụp màn hình và console cần quyền **debugger** của tiện ích. Chrome hiện một thanh thông báo khi quyền này đang được dùng.',
@@ -704,6 +705,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         points: [
           'Phiên không bao giờ nhập vào ô mật khẩu, thẻ thanh toán, mã dùng một lần hay các ô bí mật khác: phiên sẽ nhờ bạn tự nhập.',
           'Tệp tải lên chỉ lấy từ thư mục dự án của phiên hoặc thư mục bạn đã thêm ở **Thư mục các phiên được tải tệp lên từ đó**, trong **Tùy chọn** trên trang **Trình duyệt**, không bao giờ từ các thư mục của Claude Code, `~/.ssh` hay những tệp thường chứa bí mật.',
+          'Tổng cộng tới 5 MB, tệp được gửi thẳng tới trang. Tệp lớn hơn, như video (mỗi tệp tới 4 GB), do chính Chrome đọc: hãy bật **Allow access to file URLs** cho tiện ích Mother Claude (`chrome://extensions` → Mother Claude → Details).',
           '**Hoạt động** ghi lại công cụ, trang, đường dẫn, kết quả và thời gian, không bao giờ ghi nội dung đã nhập hay đã đọc.',
         ],
       },

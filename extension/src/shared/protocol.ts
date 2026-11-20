@@ -33,6 +33,9 @@ export const ERROR_CODES = [
   // Added by the desktop side: `type`/`fill` with `refuseSecret: true` into a
   // field whose value the extension redacts.
   'secret_field',
+  // `upload` by path (0.1.5): Chrome's "Allow access to file URLs" is off for
+  // the extension, so it cannot hand a page a file from the disk.
+  'file_access_off',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

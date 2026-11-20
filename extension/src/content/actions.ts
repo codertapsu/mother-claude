@@ -24,6 +24,7 @@ import {
 } from './dom.ts';
 import { CommandError } from '../shared/errors.ts';
 import { charKey, type KeyDef, type KeySpec } from '../shared/keys.ts';
+import { UPLOAD_MARK, isUploadToken } from '../shared/upload.ts';
 import { roleOf } from './roles.ts';
 import { isDisabled } from './snapshot.ts';
 
@@ -913,6 +914,25 @@ function fileInputFor(el: Element): HTMLInputElement | null {
   if (inside) return inside;
   const root = shadowRootOf(el);
   return root?.querySelector<HTMLInputElement>('input[type="file"]') ?? null;
+}
+
+/**
+ * Mark the file input `el` stands for (the input, its label, or one inside
+ * it) for an upload by path: the service worker finds it by `token` through
+ * the debugger and hands it the files there (Chrome reads them from the
+ * disk). A drop zone without an input cannot take files by path.
+ */
+export function markFileInput(el: Element, token: string, count: number, what: string): void {
+  if (!isUploadToken(token)) throw new CommandError('unsupported', 'a bad upload token');
+  const input = fileInputFor(el);
+  if (!input)
+    throw new CommandError(
+      'unsupported',
+      `${what} is not a file input and holds none: large files go only into a file input`,
+    );
+  if (isDisabled(input)) throw new CommandError('unsupported', `${what} is disabled`);
+  if (!input.multiple && count > 1) throw new CommandError('unsupported', `${what} takes one file`);
+  input.setAttribute(UPLOAD_MARK, token);
 }
 
 /**

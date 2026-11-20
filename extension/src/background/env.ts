@@ -152,6 +152,20 @@ export async function hasHostAccess(url: string | undefined): Promise<boolean> {
   }
 }
 
+/**
+ * Chrome's "Allow access to file URLs" for this extension (chrome://extensions
+ * → Details). An upload by path needs it: without it Chrome refuses
+ * DOM.setFileInputFiles ("Not allowed"). Chrome reloads the extension when
+ * the switch changes, so the hello after that says the new state.
+ */
+export async function fileSchemeAccess(): Promise<boolean> {
+  try {
+    return await chrome.extension.isAllowedFileSchemeAccess();
+  } catch {
+    return false;
+  }
+}
+
 export async function capabilities(): Promise<Record<string, boolean>> {
   return {
     debugger: (await hasPermission('debugger')) && typeof chrome.debugger !== 'undefined',
@@ -160,5 +174,8 @@ export async function capabilities(): Promise<Record<string, boolean>> {
     webNavigation: await hasPermission('webNavigation'),
     downloads: await hasPermission('downloads'),
     screenshotFallback: typeof chrome.tabs.captureVisibleTab === 'function',
+    // 0.1.5: `upload` with `paths`.
+    uploadPaths: true,
+    fileAccess: await fileSchemeAccess(),
   };
 }

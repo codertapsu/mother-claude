@@ -52,6 +52,8 @@ describe('browser helpers', () => {
     expect(outcomeBadge('refused')).toEqual({ label: 'refused', cls: 'warn' });
     expect(outcomeBadge('ok').cls).toBe('ok');
     expect(fileSize(2048)).toBe('2 KB');
+    expect(fileSize(5 * 1024 * 1024)).toBe('5.0 MB');
+    expect(fileSize(1.5 * 1024 * 1024 * 1024)).toBe('1.5 GB');
   });
 
   it('reads an approval input tolerantly', () => {

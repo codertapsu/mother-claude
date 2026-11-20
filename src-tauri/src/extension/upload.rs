@@ -7,8 +7,15 @@
 //! Claude's own data, `~/.ssh`, shell startup files, `.claude/`, `.mcp.json`
 //! or git hooks (`pending::sensitive_path`), and never a file that usually
 //! holds secrets (`.env`, keys, `.npmrc`, `.netrc`, …): the user uploads
-//! those by hand. At most [`MAX_FILES`] files and [`MAX_BYTES`] in all, so
-//! the `upload` frame stays under the 8 MiB frame limit.
+//! those by hand. At most [`MAX_FILES`] files.
+//!
+//! Two ways to the page ([`Mode`]): up to [`MAX_BYTES`] in all the desktop
+//! reads the files and sends their bytes, so the `upload` frame stays under
+//! the 8 MiB frame limit; a larger upload (each file up to
+//! [`MAX_PATH_FILE_BYTES`]) sends only the files' paths, and Chrome reads
+//! them from the disk itself when the page uploads them (the extension's
+//! `DOM.setFileInputFiles`, which needs Chrome's "Allow access to file URLs"
+//! for the extension). Nothing passes through a model either way.
 
 use std::path::{Path, PathBuf};
 
@@ -20,8 +27,43 @@ use crate::state::AppState;
 
 /// Files in one upload.
 pub const MAX_FILES: usize = 10;
-/// Bytes in one upload (base64 makes it about 6.7 MiB on the wire).
+/// Bytes an upload carries in its frame (base64 makes it about 6.7 MiB on
+/// the wire); above it the files go by path.
 pub const MAX_BYTES: u64 = 5 * 1024 * 1024;
+/// The largest file an upload by path takes.
+pub const MAX_PATH_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+
+/// How the files reach the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Their bytes, in the `upload` frame.
+    Bytes,
+    /// Their paths: Chrome reads them itself (extension 0.1.5+).
+    Paths,
+}
+
+/// Bytes for an upload that fits in a frame, paths for a larger one.
+pub fn mode(files: &[UploadFile]) -> Mode {
+    if files.iter().map(|f| f.size).sum::<u64>() <= MAX_BYTES {
+        Mode::Bytes
+    } else {
+        Mode::Paths
+    }
+}
+
+/// "1.4 GB", "332 KB": a size for an approval card, as the dashboard writes
+/// sizes (`fileSize`: powers of 1024).
+pub fn size_label(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * KB;
+    const GB: u64 = 1024 * MB;
+    match bytes {
+        b if b < KB => format!("{b} bytes"),
+        b if b < MB => format!("{} KB", (b as f64 / KB as f64).round()),
+        b if b < GB => format!("{:.1} MB", b as f64 / MB as f64),
+        b => format!("{:.1} GB", b as f64 / GB as f64),
+    }
+}
 
 /// A file that passed the checks.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,7 +227,6 @@ pub fn check(
     }
     let forbidden = config_dirs(state);
     let env = crate::pending::DangerEnv::current(cwd);
-    let mut total = 0u64;
     let mut out = Vec::new();
     for raw in paths {
         let raw = raw.trim();
@@ -245,11 +286,10 @@ pub fn check(
                  folders (Mother Claude › Browser › Options)."
             )));
         }
-        total += meta.len();
-        if total > MAX_BYTES {
+        if meta.len() > MAX_PATH_FILE_BYTES {
             return Err(refuse(format!(
-                "The files add up to more than {} MiB, the most one upload carries.",
-                MAX_BYTES / (1024 * 1024)
+                "{name} is larger than {} GiB, the most one file uploads.",
+                MAX_PATH_FILE_BYTES / (1024 * 1024 * 1024)
             )));
         }
         out.push(UploadFile {
@@ -263,6 +303,50 @@ pub fn check(
     Ok(out)
 }
 
+fn changed(f: &UploadFile) -> ToolError {
+    refuse(format!(
+        "{} changed after it was approved: not uploaded.",
+        f.name
+    ))
+}
+
+/// `f` opened again after the approval, when it is still the file that was
+/// checked and approved: the same resolved path (no symlink swapped in
+/// since) and, where the system tells, the same file.
+fn reopen(f: &UploadFile) -> Result<(std::fs::File, std::fs::Metadata), ToolError> {
+    if canonical(&f.path).as_deref() != Some(f.path.as_path()) {
+        return Err(changed(f));
+    }
+    let file = std::fs::File::open(&f.path)
+        .map_err(|e| ToolError::new("not_found", format!("{} cannot be read: {e}.", f.name)))?;
+    let meta = file.metadata().map_err(|_| changed(f))?;
+    if !meta.is_file() || identity(&meta) != f.identity {
+        return Err(changed(f));
+    }
+    Ok((file, meta))
+}
+
+/// The `paths` of an `upload` command by path ([`Mode::Paths`], after the
+/// approval): each file checked again as [`read`] does, then only its path,
+/// name, type and size. Chrome opens it when the page uploads it.
+pub fn paths(files: &[UploadFile]) -> Result<Vec<Value>, ToolError> {
+    files
+        .iter()
+        .map(|f| {
+            let (_, meta) = reopen(f)?;
+            if meta.len() > MAX_PATH_FILE_BYTES {
+                return Err(refuse(format!("{} grew too large to upload.", f.name)));
+            }
+            Ok(json!({
+                "path": f.path.to_string_lossy(),
+                "name": f.name,
+                "mimeType": f.mime,
+                "size": meta.len(),
+            }))
+        })
+        .collect()
+}
+
 /// The `files` of an `upload` command (read after the approval). Each must
 /// still be the file that was checked and approved: the same resolved path
 /// (no symlink swapped in since) and, where the system tells, the same file.
@@ -271,22 +355,7 @@ pub fn read(files: &[UploadFile]) -> Result<Vec<Value>, ToolError> {
     files
         .iter()
         .map(|f| {
-            let changed = || {
-                refuse(format!(
-                    "{} changed after it was approved: not uploaded.",
-                    f.name
-                ))
-            };
-            if canonical(&f.path).as_deref() != Some(f.path.as_path()) {
-                return Err(changed());
-            }
-            let file = std::fs::File::open(&f.path).map_err(|e| {
-                ToolError::new("not_found", format!("{} cannot be read: {e}.", f.name))
-            })?;
-            let meta = file.metadata().map_err(|_| changed())?;
-            if !meta.is_file() || identity(&meta) != f.identity {
-                return Err(changed());
-            }
+            let (file, _) = reopen(f)?;
             let mut bytes = Vec::new();
             file.take(MAX_BYTES + 1)
                 .read_to_end(&mut bytes)
@@ -409,5 +478,51 @@ mod tests {
         }
         assert_eq!(mime_for("a.PNG"), "image/png");
         assert_eq!(mime_for("noext"), "application/octet-stream");
+    }
+
+    #[test]
+    fn a_large_upload_goes_by_path_and_checks_the_file_again() {
+        let st = state();
+        let project = tempfile::tempdir().unwrap();
+        let p = project.path();
+        let cwd = p.to_string_lossy().into_owned();
+        std::fs::write(p.join("small.txt"), b"hello").unwrap();
+        // Sparse: 6 MiB on paper, nothing on the disk.
+        let big = std::fs::File::create(p.join("part-1.mp4")).unwrap();
+        big.set_len(MAX_BYTES + 1024 * 1024).unwrap();
+        drop(big);
+
+        let small = check(&st, Some(&cwd), &["small.txt".into()]).unwrap();
+        assert_eq!(mode(&small), Mode::Bytes);
+        let large = check(&st, Some(&cwd), &["part-1.mp4".into()]).unwrap();
+        assert_eq!(mode(&large), Mode::Paths);
+        // Together they go by path too.
+        let both = check(&st, Some(&cwd), &["small.txt".into(), "part-1.mp4".into()]).unwrap();
+        assert_eq!(mode(&both), Mode::Paths);
+
+        let sent = paths(&large).unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["name"], "part-1.mp4");
+        assert_eq!(sent[0]["mimeType"], "video/mp4");
+        assert_eq!(sent[0]["size"], MAX_BYTES + 1024 * 1024);
+        let path = sent[0]["path"].as_str().unwrap();
+        assert!(Path::new(path).is_absolute());
+        assert!(
+            !path.starts_with(r"\\?\"),
+            "a plain path for Chrome: {path}"
+        );
+        assert!(sent[0].get("data").is_none());
+
+        // Gone, or replaced, after the approval: refused.
+        std::fs::remove_file(p.join("part-1.mp4")).unwrap();
+        assert!(paths(&large).is_err());
+    }
+
+    #[test]
+    fn sizes_read_as_the_dashboard_writes_them() {
+        assert_eq!(size_label(512), "512 bytes");
+        assert_eq!(size_label(340 * 1024), "340 KB");
+        assert_eq!(size_label(5 * 1024 * 1024), "5.0 MB");
+        assert_eq!(size_label(3 * 1024 * 1024 * 1024 / 2), "1.5 GB");
     }
 }

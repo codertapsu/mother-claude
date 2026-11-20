@@ -193,7 +193,13 @@ fn submits(f: &Facts) -> bool {
 /// secret.
 fn secrets_text(f: &Facts) -> Option<&'static str> {
     let values = param(f, "values").and_then(Value::as_bool) == Some(true);
+    let export = param(f, "export").and_then(Value::as_bool) == Some(true);
     match f.action {
+        "cookies" if export => Some(
+            "It saves the site's cookie values, which can include the user's sign-in session, \
+             to a file for a program on this computer (the session gets the file's path, not \
+             the values).",
+        ),
         "cookies" if values => {
             Some("It reads the site's cookie values, which can include the user's sign-in session.")
         }
@@ -381,6 +387,17 @@ mod tests {
             at("cookies", &json!({"values": true})),
             [DangerKind::Secrets]
         );
+        // An export to a file asks the same way, and its card says so.
+        let export = json!({"values": true, "export": true});
+        assert_eq!(at("cookies", &export), [DangerKind::Secrets]);
+        let text = &classify(&Facts {
+            action: "cookies",
+            params: Some(&export),
+            page_origin: Some("https://app.example.com"),
+            ..Default::default()
+        })[0]
+            .text;
+        assert!(text.contains("to a file"), "{text}");
         assert_eq!(
             at("storage", &json!({"area": "indexeddb", "values": true})),
             [DangerKind::Secrets]

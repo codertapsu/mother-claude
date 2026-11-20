@@ -242,6 +242,47 @@ pub enum CmdError {
     Disconnected,
 }
 
+/// What a session is told when Chrome keeps the extension from handing a
+/// page a file by path.
+const FILE_ACCESS_OFF: &str = "Chrome does not let the Mother Claude extension hand files from \
+    this computer to a page. Ask the user to turn on “Allow access to file URLs” for the Mother \
+    Claude extension (chrome://extensions → Mother Claude → Details), then try again.";
+
+/// Whether this browser's extension takes an upload by path: 0.1.5 or later
+/// (`uploadPaths`), with Chrome's "Allow access to file URLs" on for it, as
+/// its hello said (Chrome reloads the extension when that switch changes).
+fn check_path_uploads(conn: &Conn) -> Result<(), ToolError> {
+    let caps = conn
+        .capabilities
+        .lock()
+        .map(|c| c.clone())
+        .unwrap_or_default();
+    if caps.get("uploadPaths").and_then(Value::as_bool) != Some(true) {
+        let version = conn
+            .extension_version
+            .lock()
+            .map(|v| v.clone())
+            .unwrap_or_default();
+        return Err(ToolError::new(
+            "extension_outdated",
+            format!(
+                "Files over 5 MiB go to the page by path, which needs the Mother Claude \
+                 extension 0.1.5 or later{}. Ask the user to update the extension (Mother \
+                 Claude › Browser), then try again.",
+                if version.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (this browser has {})", clip(&version, 20))
+                }
+            ),
+        ));
+    }
+    if caps.get("fileAccess").and_then(Value::as_bool) == Some(false) {
+        return Err(ToolError::new("file_access_off", FILE_ACCESS_OFF));
+    }
+    Ok(())
+}
+
 /// The readable error for a failed command.
 pub fn tool_error(e: &CmdError, page: Option<&str>) -> ToolError {
     let (code, message, data) =
@@ -318,6 +359,7 @@ pub fn tool_error(e: &CmdError, page: Option<&str>) -> ToolError {
                 .map(|p| format!(" ({p})"))
                 .unwrap_or_default()
         ),
+        "file_access_off" => FILE_ACCESS_OFF.to_string(),
         "secret_field" => "That is a password, card, one-time-code or other secret field. \
                            Mother Claude never lets a model type into one: ask the user to \
                            type it themselves."
@@ -961,6 +1003,22 @@ fn approval_input(
             if let Some(v) = p.get("values").and_then(Value::as_bool) {
                 out["values"] = json!(v);
             }
+            // `export`: which cookies go into the file (never their values).
+            if p.get("export").and_then(Value::as_bool) == Some(true) {
+                out["export"] = json!(true);
+                let names: Vec<Value> = p
+                    .get("names")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .take(50)
+                    .map(|n| json!(clip(n, 100)))
+                    .collect();
+                if !names.is_empty() {
+                    out["names"] = json!(names);
+                }
+            }
         }
         "upload" => {
             out["files"] = json!(call
@@ -1283,7 +1341,9 @@ pub async fn perform(ctx: &ToolCtx, call: Call) -> Result<Done, ToolError> {
             let outcome = match e.code.as_str() {
                 "denied" | "stopped" | "approval_timeout" => e.code.clone(),
                 "site_off" | "site_read_only" | "secret_field" | "upload_refused"
-                | "screenshots_off" | "not_a_site" => "refused".to_string(),
+                | "screenshots_off" | "not_a_site" | "file_access_off" | "extension_outdated" => {
+                    "refused".to_string()
+                }
                 _ => "error".to_string(),
             };
             (outcome, Some(e.code.clone()))
@@ -1388,6 +1448,13 @@ async fn run(
     if let Some((r, name)) = danger::secret_target(call.action, &call.params, tab.as_ref()) {
         return Err(secret_field(&r, &name));
     }
+    // An upload by path needs an extension that can do it: said before
+    // anyone is asked to approve it.
+    if let Some(files) = &call.upload {
+        if super::upload::mode(files) == super::upload::Mode::Paths {
+            check_path_uploads(&conn)?;
+        }
+    }
 
     // Approval.
     let counted = if class == Class::Navigate {
@@ -1455,7 +1522,10 @@ async fn run(
         params["refuseSecret"] = json!(true);
     }
     if let Some(files) = &call.upload {
-        params["files"] = json!(super::upload::read(files)?);
+        match super::upload::mode(files) {
+            super::upload::Mode::Bytes => params["files"] = json!(super::upload::read(files)?),
+            super::upload::Mode::Paths => params["paths"] = json!(super::upload::paths(files)?),
+        }
     }
     let mut reply = command(
         state,
