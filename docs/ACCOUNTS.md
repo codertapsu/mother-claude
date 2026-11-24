@@ -1921,6 +1921,18 @@ consent, §11.2, as "Continue on" does — `409 copy_consent_required`):
   `--allow-dangerously-skip-permissions` only when it had it and the caller
   may launch with it. Fast mode is not carried (the target account's own
   applies), and thinking on starts with a launch's budget.
+- **Bypass permissions, the same way.** An owned session launched without
+  `--allow-dangerously-skip-permissions` (a caller without the dangerous
+  right started it) cannot switch to `bypassPermissions` live — the CLI
+  refuses. `POST /api/sessions/{id}/mode {mode: "bypassPermissions"}` from
+  someone holding the dangerous right then restarts it in place under its
+  own account (`switch::restart_for_bypass`): closed, stopped and reaped,
+  `--resume <id>` with the flag, in `bypassPermissions`, with the model,
+  effort, thinking and ultracode it ran with (`{ok: true, restarted:
+  true}`). Never while a turn runs or messages wait (`409 turn_running`),
+  its background work runs (`409 background_running`: a restart would end
+  it) or an account switch waits (`409 switch_underway`); a launch the CLI
+  refuses brings it back as it ran, without the flag.
 - **Before anything stops**, every refusal is checked: `422
   invalid_session_id`, `unknown_account` (also an empty `account`),
   `invalid_when`; `409 account_token_missing`; a session without permission

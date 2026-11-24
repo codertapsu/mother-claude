@@ -870,3 +870,120 @@ async fn over_http_a_switch_is_audited_and_a_device_is_named_to_the_desktop() {
     let _ = Arc::clone(&f.st);
     f.stop(&id).await;
 }
+
+/// Bypass permissions for an owned session launched without it (a caller
+/// without the dangerous right started it): the CLI refuses that live, so
+/// over the mode route the session restarts in place — same id, `--resume`,
+/// the first process gone first — with bypass available, in
+/// bypassPermissions, with the settings it ran with. Busy: refused, nothing
+/// restarts. Once available, later switches are live.
+#[tokio::test]
+async fn bypass_permissions_restarts_a_session_launched_without_it_in_place() {
+    let f = Fixture::new();
+    let plain = Caller {
+        may_dangerous: false,
+        desktop: true,
+    };
+    let id = owned::spawn_as(
+        &f.st,
+        plain,
+        SpawnRequest {
+            cwd: f.cwd(),
+            prompt: Some("hello".into()),
+            model: Some("opus".into()),
+            effort: Some("high".into()),
+            permission_mode: Some("acceptEdits".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    wait_for("the session to settle", || {
+        owned::live_state(&f.st, &id)
+            .is_some_and(|l| l.started && !l.turn_active && l.applied.is_some())
+    })
+    .await;
+    f.write_transcript(f.home.path(), &id);
+    let first = f.processes()[0].clone();
+    assert!(!argv(&first).contains("--allow-dangerously-skip-permissions"));
+    assert!(!owned::bypass_available(&f.st, &id));
+
+    let base = serve(mother_claude_lib::server::router(f.st.clone())).await;
+    let c = reqwest::Client::new();
+    let url = format!("{base}/api/sessions/{id}/mode");
+    let desk = f.st.auth.token.clone();
+
+    // Working: refused, the turn goes on.
+    owned::send(&f.st, &id, "slow", &[]).await.unwrap();
+    wait_for("the turn to start", || {
+        f.st.control.is_idle(&id) == Some(false)
+    })
+    .await;
+    let r = c
+        .post(&url)
+        .bearer_auth(&desk)
+        .json(&json!({ "mode": "bypassPermissions" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409);
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(v["error"]["code"], "turn_running");
+    assert_eq!(f.processes().len(), 1);
+    wait_for("the turn to end", || {
+        f.st.control.is_idle(&id) == Some(true)
+    })
+    .await;
+
+    // Idle: restarted in place.
+    let r = c
+        .post(&url)
+        .bearer_auth(&desk)
+        .json(&json!({ "mode": "bypassPermissions" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().await.unwrap();
+    assert_eq!(v, json!({ "ok": true, "restarted": true }));
+    let procs = f.processes_once(2).await;
+    assert!(
+        !alive(first["pid"].as_u64().unwrap() as u32),
+        "the first process ended before the second started"
+    );
+    let line = argv(&procs[1]);
+    for part in [
+        format!("--resume {id}"),
+        "--allow-dangerously-skip-permissions".to_string(),
+        "--permission-mode bypassPermissions".to_string(),
+        "--model claude-opus-5-5".to_string(),
+        "--effort high".to_string(),
+    ] {
+        assert!(line.contains(&part), "{part:?} missing from {line}");
+    }
+    assert!(!line.contains("--fork-session") && !line.contains("--session-id"));
+    assert!(owned::has_handle(&f.st, &id));
+    assert!(owned::bypass_available(&f.st, &id));
+    assert_eq!(
+        owned::live_state(&f.st, &id)
+            .unwrap()
+            .permission_mode
+            .as_deref(),
+        Some("bypassPermissions")
+    );
+
+    // From now on the switches are live: no third process.
+    owned::set_mode(&f.st, &id, "default").await.unwrap();
+    let r = c
+        .post(&url)
+        .bearer_auth(&desk)
+        .json(&json!({ "mode": "bypassPermissions" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let v: Value = r.json().await.unwrap();
+    assert!(v.get("restarted").is_none(), "{v}");
+    assert_eq!(f.processes().len(), 2, "no process was started");
+    f.stop(&id).await;
+}

@@ -471,6 +471,7 @@ const TOPICS: HelpTopicSource[] = [
           'The arrow at the top left goes back to **Sessions**; beside the list on a wide screen it is **✕**, which closes the session. The line under the name says what Claude is doing, such as the tool it runs, and for how long.',
           'The next row shows where the session runs and how it is reached (for example **VS Code · Via hooks**), then its model, permission mode and effort, its context use and cost.',
           "Tap a chip to change it. A chip that can't be changed explains why when you tap it.",
+          'A session Mother Claude runs that was started without **Bypass permissions** available restarts when you switch it to that mode: the same conversation goes on, with its model and effort. Not while Claude works or its background work runs.',
           '**⋮** opens the session menu: what you can do with the session.',
         ],
       },

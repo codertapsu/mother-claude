@@ -1060,6 +1060,133 @@ async fn switch_ended(state: &AppState, id: &str, to: &str) -> ApiResult<Outcome
     })
 }
 
+// ───────────────────────── bypass available ─────────────────────────
+
+/// Switch an owned session launched without bypass available to
+/// bypassPermissions. The CLI refuses that live, so the session restarts in
+/// place as a switch to its own account would: between turns, closed to new
+/// messages, its process stopped and reaped, then resumed (`--resume <id>`)
+/// under the same account with bypass available, in bypassPermissions, with
+/// the model, effort, thinking and ultracode it ran with. The caller holds
+/// the dangerous right (the mode route checks it). While a turn runs or
+/// messages wait: `409 turn_running`; while its background work runs (a
+/// restart would end it): `409 background_running`; while an account switch
+/// waits or runs: `409 switch_underway`.
+pub async fn restart_for_bypass(state: &AppState, id: &str) -> ApiResult<()> {
+    if state.control.switches.target(id).is_some() {
+        return Err(switch_underway());
+    }
+    let background = owned::live_state(state, id).is_some_and(|l| {
+        l.tasks
+            .iter()
+            .any(|t| !t.ambient && matches!(t.status.as_str(), "running" | "pending"))
+    });
+    if background {
+        return Err(ApiError::conflict(
+            "background_running",
+            "This session's background work is running. Bypass permissions needs the session \
+             restarted, which would stop that work: switch when it ends, or stop it first.",
+        ));
+    }
+    let closing =
+        match state.control.close_for_switch(id, true) {
+            Ok(c) => c,
+            Err(CloseRefused::Busy) => return Err(ApiError::conflict(
+                "turn_running",
+                "Claude is working. Bypass permissions needs this session restarted, which would \
+                 stop its turn: switch when the turn ends, or interrupt it first.",
+            )),
+            Err(CloseRefused::Gone) => return Err(ApiError::no_such_session(id)),
+        };
+    let account = closing.account.clone();
+    let caller = Caller {
+        may_dangerous: true,
+        desktop: true,
+    };
+    let ready = owned::launch_mode(Some("bypassPermissions"), caller).and_then(|mode| {
+        state
+            .accounts
+            .env(&account)
+            .map(|env| (mode, env))
+            .map_err(owned::account_error)
+    });
+    let (mode, account_env) = match ready {
+        Ok(r) => r,
+        Err(e) => {
+            state.control.reopen(id);
+            return Err(e);
+        }
+    };
+    // The process stops (its pending approvals are withdrawn as it goes):
+    // only then may the same conversation run again.
+    if !state.control.stop_and_wait(id, STOP_WAIT).await {
+        return Err(ApiError::new(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "restart_failed",
+            "The session's process did not stop in time, so it was not restarted: a second \
+             process on the same conversation would write over it.",
+        ));
+    }
+    crate::pending::withdraw_session(state, id, "restarting with bypass permissions").await;
+    crate::server::monitor::tick_once(state).await;
+    let home = state
+        .accounts
+        .home(&account)
+        .unwrap_or_else(|| state.home.clone());
+    let resume = !super::transfer::transcripts_of(&home, id).is_empty();
+    let live = &closing.live;
+    let opts = super::control::SpawnOptions {
+        cwd: closing.cwd.clone(),
+        model: carried_model(live),
+        effort: carried_effort(live),
+        thinking: live.thinking.map(|t| {
+            match t {
+                OwnedThinking::Off => "off",
+                OwnedThinking::On(_) => "on",
+            }
+            .to_string()
+        }),
+        permission_mode: Some(mode),
+        resume: resume.then(|| id.to_string()),
+        session_id: (!resume).then(|| id.to_string()),
+        allow_bypass: true,
+        caller_may_dangerous: true,
+        account: Some(account.clone()),
+        account_env,
+        quiet: true,
+        ..Default::default()
+    };
+    if let Err(mut e) = state
+        .control
+        .spawn(state, opts)
+        .await
+        .map_err(owned::spawn_error)
+    {
+        // Back as it ran, so a refused flag never leaves the session stopped.
+        if spawn_resumed(state, caller, id, &account, &closing, resume)
+            .await
+            .is_err()
+        {
+            return Err(nothing_runs(e));
+        }
+        after_resume(state, id, &closing, Vec::new()).await;
+        e.message = format!(
+            "{} It runs again as before, without bypass permissions.",
+            e.message.trim_end()
+        );
+        return Err(e);
+    }
+    after_resume(state, id, &closing, Vec::new()).await;
+    let name = session_name(state, id).await;
+    ws::publish_notice(
+        state,
+        NoticeLevel::Success,
+        format!("{name} restarted with Bypass permissions available, and runs in it now."),
+        Some(id),
+    );
+    Ok(())
+}
+
 // ───────────────────────────── telling ─────────────────────────────
 
 /// Put the session's `switchingTo` in step with the registry.

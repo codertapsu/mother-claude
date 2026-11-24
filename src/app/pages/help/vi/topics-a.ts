@@ -472,6 +472,7 @@ const TOPICS: HelpTopicSource[] = [
           'Mũi tên ở góc trên bên trái đưa bạn về trang **Phiên**; khi phiên mở bên cạnh danh sách trên màn hình rộng, đó là **✕**, để đóng phiên. Dòng dưới tên cho biết Claude đang làm gì, ví dụ công cụ nó đang chạy, và đã bao lâu.',
           'Hàng kế tiếp cho biết phiên chạy ở đâu và được kết nối thế nào (ví dụ **VS Code · Qua hook**), rồi đến mô hình, chế độ quyền và mức nỗ lực, mức dùng ngữ cảnh và chi phí.',
           'Chạm vào một nhãn để thay đổi nó. Nhãn nào không đổi được sẽ giải thích lý do khi bạn chạm vào.',
+          'Một phiên do Mother Claude chạy mà lúc khởi động chưa có sẵn **Bỏ qua quyền** sẽ khởi động lại khi bạn chuyển nó sang chế độ đó: cuộc trò chuyện vẫn tiếp tục, giữ nguyên mô hình và mức nỗ lực. Không làm được khi Claude đang làm việc hoặc công việc nền của phiên đang chạy.',
           '**⋮** mở menu của phiên: những việc bạn có thể làm với phiên.',
         ],
       },

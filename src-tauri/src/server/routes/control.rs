@@ -428,6 +428,15 @@ pub async fn set_mode(
         require_dangerous(&ctx, "Switching to a mode without permission prompts")?;
     }
     match route_for(&state, &id).await? {
+        Route::Owned
+            if body.mode == "bypassPermissions" && !owned::bypass_available(&state, &id) =>
+        {
+            // Launched without bypass available, the CLI refuses the live
+            // switch: the session restarts in place with it (the dangerous
+            // right was checked above).
+            crate::claude::switch::restart_for_bypass(&state, &id).await?;
+            return Ok(Json(json!({ "ok": true, "restarted": true })));
+        }
         Route::Owned => owned::set_mode(&state, &id, &body.mode).await?,
         Route::Bridge => {
             state

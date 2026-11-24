@@ -1197,6 +1197,14 @@ pub async fn set_model(state: &AppState, id: &str, model: &str) -> ApiResult<()>
     Ok(())
 }
 
+/// Whether owned session `id` was launched with bypass available
+/// (`--allow-dangerously-skip-permissions`), so it can switch to
+/// bypassPermissions live. Without it the mode route restarts it in place
+/// (`switch::restart_for_bypass`).
+pub fn bypass_available(state: &AppState, id: &str) -> bool {
+    live_state(state, id).is_some_and(|l| l.bypass_available)
+}
+
 /// Switch permission mode live (`set_permission_mode`). The dangerous-mode
 /// gate is the route's; a session launched without bypass available refuses
 /// bypassPermissions here with a clear message.

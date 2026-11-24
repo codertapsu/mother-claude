@@ -69,7 +69,11 @@ a rotating key and an undocumented protocol).
   the pair's copy consent), then `--resume <id>` under the other account's
   environment with the settings it ran with (`claude/switch.rs`,
   docs/ACCOUNTS.md §15.1); a foreign session's process cannot change
-  accounts (`409 session_not_owned`: *Continue on* forks it). The Agent SDK
+  accounts (`409 session_not_owned`: *Continue on* forks it). Bypass
+  permissions for one launched without `--allow-dangerously-skip-permissions`
+  (the CLI refuses that live) restarts it the same way under its own
+  account, with the flag (`switch::restart_for_bypass`: between turns, never
+  while its background work runs, back as it was if the launch fails). The Agent SDK
   sidecar (Path A) stays behind `MOTHER_CLAUDE_SIDECAR=1`. Background jobs are
   addressed by their SHORT job id only.
 - **Foreign sessions** → monitoring (transcripts, pidfiles, hook events),
