@@ -1281,13 +1281,28 @@ async fn step_for(state: &AppState, account: &str) {
         .ok()
         .flatten();
     let now = now_ms();
-    let clients = state.hub.client_count();
+    // The usage guard needs the windows while sessions work, with nobody
+    // looking too, and every minute once one nears its threshold (with reads
+    // set to manual only, no helper starts for it: the stream and the CLI's
+    // own snapshot are what it gets).
+    let (guard_on, guard_near) =
+        super::usage_guard::read_wants(state, &current_for(state, account).windows);
+    let clients = match state.hub.client_count() {
+        0 if guard_on && activity => 1,
+        n => n,
+    };
     let inputs = with(state, account, |g| {
         note_quota(g, quota, now);
         let auth_changed = note_auth(g, &auth, now);
+        let interval_ms = i64::from(g.interval_secs) * 1000;
+        let interval_ms = if guard_near && activity && interval_ms > 0 {
+            interval_ms.min(MIN_GAP_MS)
+        } else {
+            interval_ms
+        };
         let inputs = Inputs {
             now,
-            interval_ms: i64::from(g.interval_secs) * 1000,
+            interval_ms,
             clients,
             first_connect: std::mem::take(&mut g.first_connect),
             manual: g.manual,

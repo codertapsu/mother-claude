@@ -52,6 +52,7 @@ fn plenty(now: i64) -> Signals {
         five_hour: Some((10.0, None)),
         rate: None,
         budget: None,
+        paused: None,
     }
 }
 
@@ -158,6 +159,21 @@ fn the_five_hour_window_admits_only_the_lead_then_nothing() {
             .admission
             .is_admit()
     );
+}
+
+#[test]
+fn an_account_paused_near_its_limit_starts_nothing_the_lead_neither() {
+    let l = Limits::default();
+    let why = "Mother Claude paused this account's sessions at 91 % of the 5-hour limit (it \
+               resumes in 1 h 16 min)";
+    let s = Signals {
+        paused: Some(why.into()),
+        ..plenty(T0)
+    };
+    for lead in [false, true] {
+        let v = decide(&l, &s, &req("/Users/me/app", "backend", 1, lead), &[], &[]);
+        assert_eq!(reasons(&v), [why], "lead: {lead}");
+    }
 }
 
 #[test]

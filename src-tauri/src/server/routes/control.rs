@@ -237,6 +237,8 @@ async fn deliver_on(
     text: &str,
     images: &[ImageInput],
 ) -> ApiResult<MessageReceipt> {
+    // Someone chose to go on with it: a usage pause leaves it alone now.
+    crate::claude::usage_guard::note_message(state, id).await;
     let message_id = uuid::Uuid::new_v4().to_string();
     let delivery = match route {
         Route::Bridge => {
@@ -329,36 +331,43 @@ pub async fn interrupt(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    match route_for(&state, &id).await? {
-        Route::Owned => owned::interrupt(&state, &id).await?,
-        Route::Tmux(s) => match tmux::send_key(&state, &s, "Escape").await {
-            Err(e) if tmux::is_unreachable_error(&e) && hooks::is_active(&state, &id) => {
-                crate::claude::caps::refresh(&state, &id).await;
-                hooks::request_interrupt(&state, &id).await?
+    interrupt_session(&state, &id).await?;
+    Ok(ok())
+}
+
+/// Interrupt session `id` by whatever reaches it — what the Interrupt button
+/// does, and the usage guard when a limit is near (`claude::usage_guard`).
+pub async fn interrupt_session(state: &AppState, id: &str) -> ApiResult<()> {
+    match route_for(state, id).await? {
+        Route::Owned => owned::interrupt(state, id).await?,
+        Route::Tmux(s) => match tmux::send_key(state, &s, "Escape").await {
+            Err(e) if tmux::is_unreachable_error(&e) && hooks::is_active(state, id) => {
+                crate::claude::caps::refresh(state, id).await;
+                hooks::request_interrupt(state, id).await?
             }
             other => other?,
         },
-        Route::Hooks(_) => hooks::request_interrupt(&state, &id).await?,
+        Route::Hooks(_) => hooks::request_interrupt(state, id).await?,
         Route::Bridge => {
             // Interrupt the conversation's running turn, if any (naming the
             // turn lets the host refuse if a different one is live).
-            if let Some(turn) = state.bridge.thread(&id).await.and_then(|t| t.active_turn) {
+            if let Some(turn) = state.bridge.thread(id).await.and_then(|t| t.active_turn) {
                 state
                     .bridge
                     .host
                     .call(
-                        &state,
+                        state,
                         "session.interrupt",
                         json!({ "sessionId": id, "turnId": turn }),
                         BRIDGE_CALL_TIMEOUT,
                     )
                     .await?;
-                state.bridge.set_active_turn(&id, None).await;
+                state.bridge.set_active_turn(id, None).await;
             }
         }
         other => return Err(unsupported("Interrupting", &other)),
     }
-    Ok(ok())
+    Ok(())
 }
 
 #[derive(Debug, Default, Deserialize)]

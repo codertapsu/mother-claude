@@ -196,6 +196,23 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
       },
       {
+        heading: 'Tạm dừng trước khi giới hạn cắt ngang công việc',
+        intro:
+          'Mother Claude có thể dừng công việc của một tài khoản ngay trước khi hết hạn mức, và cho chạy tiếp sau khi giới hạn được đặt lại.',
+        steps: [
+          'Mở **Cài đặt › Giới hạn sử dụng**.',
+          'Giữ **Tạm dừng các phiên khi gần chạm giới hạn sử dụng** ở trạng thái bật, và đặt **Tạm dừng ở mức** (90 % nếu bạn không đổi).',
+        ],
+        points: [
+          'Khi giới hạn 5 giờ hoặc hằng tuần của một tài khoản chạm mức đó, các phiên đang làm việc của tài khoản dừng ở một điểm an toàn: phiên do Mother Claude chạy dừng ngay (cả các tác tử chạy nền của nó), phiên mở ở nơi khác dừng ở lần gọi công cụ kế tiếp. Giới hạn hằng tuần theo mô hình chỉ dừng các phiên dùng mô hình đó. Các cuộc trò chuyện của HTTP API được để yên: ứng dụng của chúng tự gửi từng yêu cầu.',
+          'Việc mỗi phiên đang làm được lưu lại. Một phút sau khi giới hạn được đặt lại, mỗi phiên được nhắn tiếp tục đúng chỗ đã dừng, kể cả khi Mother Claude đã bị đóng trong lúc đó.',
+          'Một biểu ngữ phía trên mọi trang cho biết lúc chúng chạy tiếp. **Chạy tiếp ngay** cho chúng chạy lại ngay; **Đừng chạy tiếp** giữ chúng dừng đến khi bạn cho chạy.',
+          'Tin nhắn bạn gửi cho một phiên đang tạm dừng vẫn được gửi đi: sau đó phiên đó không bị dừng nữa. Trong lúc này, các nhóm không khởi động phiên vai trò nào trên tài khoản đó.',
+          'Tắt **Tự chạy tiếp sau khi giới hạn được đặt lại** để tự tay cho chạy tiếp, hoặc tắt **Cả các phiên mở ở nơi khác** để chỉ tạm dừng các phiên do Mother Claude chạy.',
+        ],
+        links: [{ label: 'Mở Cài đặt', path: '/settings' }],
+      },
+      {
         heading: 'Mỗi gói còn lại bao nhiêu',
         points: [
           '**Tài khoản › Mức dùng** hiện, trong **Còn lại bao nhiêu**, các khung của từng tài khoản (khung 5 giờ và các khung theo tuần) cùng thời điểm đặt lại, mức dùng thêm nếu có, lúc mức dùng được đọc và số phiên của tài khoản đó đang chạy.',
@@ -214,6 +231,7 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
         points: [
           'Ứng dụng đọc theo nhịp đó khi có bảng điều khiển đang mở và một phiên đang hoạt động, và 30 phút một lần khi không có gì hoạt động.',
+          'Khi bật **Tạm dừng các phiên khi gần chạm giới hạn sử dụng**, mức dùng còn được đọc khi các phiên đang làm việc mà không có bảng điều khiển nào mở, và mỗi phút khi một giới hạn còn cách mức tạm dừng không quá 10 điểm.',
           'Với **Chỉ thủ công**, mức dùng được đọc khi bạn nhấn **Làm mới**, hoặc bởi một phiên do Mother Claude chạy khi có bảng điều khiển kết nối hay khi chạm giới hạn.',
           'Điện thoại hiện cài đặt này; bạn đổi nó trong ứng dụng máy tính.',
         ],

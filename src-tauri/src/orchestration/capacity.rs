@@ -135,6 +135,10 @@ pub struct Signals {
     pub rate: Option<RateLimitNote>,
     /// The project's daily budget: spent and limit (estimated USD).
     pub budget: Option<(f64, f64)>,
+    /// The usage guard paused the account (or the model it would run on)
+    /// near a plan limit: why, in the user's words (`claude::usage_guard`).
+    /// Nothing starts meanwhile.
+    pub paused: Option<String>,
 }
 
 /// One decision as kept and shown.
@@ -390,6 +394,11 @@ pub fn decide(
     let mut slot_reasons = 0usize;
     let now = s.now;
 
+    // Paused near a plan limit: nothing starts, the lead neither.
+    if let Some(why) = &s.paused {
+        reasons.push(why.clone());
+    }
+
     // Rate limits: a rejection stops everyone; a warning, the workers.
     if let Some(note) = &s.rate {
         if rejection_holds(note, now) {
@@ -598,6 +607,7 @@ pub fn signals_for(state: &AppState, req: &StartRequest, account: &str, now: i64
         budget: limits
             .project_budget(&req.project)
             .map(|limit| (state.scheduler.spend().project_today(&req.project), limit)),
+        paused: crate::claude::usage_guard::admission_reason(state, account, &req.model, now),
     }
 }
 

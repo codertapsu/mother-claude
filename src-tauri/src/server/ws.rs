@@ -202,6 +202,10 @@ pub enum ServerEvent {
     /// The permissions changed (everyone): `{t:"permissions"}` — refetch
     /// `GET /api/permissions` (`pending::rules`, docs/PERMISSIONS.md).
     Permissions,
+    /// The usage guard's settings or pauses changed (everyone):
+    /// `{t:"usageGuard"}` — refetch `GET /api/usage-guard`
+    /// (`claude::usage_guard`).
+    UsageGuard,
     /// A move of a session to or from another computer changed (everyone):
     /// `{t:"move", move}` with the move's whole record as `GET
     /// /api/moves/{id}` answers it (`machines::moves`, docs/PLAN-MACHINES.md
@@ -251,7 +255,8 @@ impl ServerEvent {
             | ServerEvent::AccountUsage { .. }
             | ServerEvent::Browser { .. }
             | ServerEvent::Jobs { .. }
-            | ServerEvent::Permissions => Audience::All,
+            | ServerEvent::Permissions
+            | ServerEvent::UsageGuard => Audience::All,
             ServerEvent::Teams(_) | ServerEvent::Machines { .. } | ServerEvent::Move { .. } => {
                 Audience::All
             }

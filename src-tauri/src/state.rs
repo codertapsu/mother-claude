@@ -148,6 +148,9 @@ pub struct Inner {
     /// The claude.ai plan's usage limits and their refresh scheduler
     /// (`claude/usage.rs`).
     pub usage: UsageStore,
+    /// Pausing work near a plan limit, and resuming it after the reset
+    /// (`claude/usage_guard.rs`, Settings › Usage limits).
+    pub usage_guard: crate::claude::usage_guard::UsageGuard,
     /// The Claude accounts sessions can run under, and their secrets
     /// (`claude/accounts.rs`, docs/ACCOUNTS.md).
     pub accounts: AccountRegistry,
@@ -254,6 +257,7 @@ impl Inner {
             tmux: TmuxState::new(),
             push: PushService::new(data_dir),
             usage: UsageStore::new(data_dir),
+            usage_guard: crate::claude::usage_guard::UsageGuard::load(data_dir),
             accounts,
             jobs,
             reveal: crate::claude::reveal::Revealer::default(),

@@ -167,6 +167,7 @@ pub async fn serve(state: AppState) -> anyhow::Result<()> {
     state.accounts.publish_config_dirs();
     push::start(&state);
     crate::claude::usage::start(&state);
+    crate::claude::usage_guard::start(&state);
     crate::claude::backup::ops::start(&state);
     crate::orchestration::scheduler::start(&state);
     crate::extension::start(&state);

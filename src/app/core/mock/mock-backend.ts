@@ -58,6 +58,12 @@ import { mockFolder, mockFoldersLike, mockHostOs } from './mock-os';
 import { MOCK_SERVERS, MockServers } from './mock-servers';
 import { isAbsoluteAnywhere, machineNoun, trimSeparators } from '../paths';
 import type { PermissionRule } from '../permission-rules';
+import {
+  DEFAULT_GUARD_SETTINGS,
+  THRESHOLD_MAX,
+  THRESHOLD_MIN,
+  type UsageGuardView,
+} from '../usage-guard';
 import { urlParam } from '../platform';
 import { SessionFilters, sessionPasses } from '../../shared/session-search';
 
@@ -439,6 +445,9 @@ class FixtureBackend implements MockBackend {
     if (path === '/inbox') return json({ items: this.pending() });
     if (path === '/projects') return json({ projects: this.fx.projects });
     if (path === '/defaults') return json(this.fx.defaults);
+    if (path === '/usage-guard' || path.startsWith('/usage-guard/')) {
+      return this.usageGuard(path, method, body);
+    }
     if (path === '/usage' || path.startsWith('/usage/')) {
       if (USAGE_MODE === 'none') {
         return json(
@@ -952,6 +961,102 @@ class FixtureBackend implements MockBackend {
     this.streamPos = 0;
     this.streamMsg += 1;
     this.streamPause = 45;
+  }
+
+  /** The usage guard (`/usage-guard*`): its settings, and with
+   * `?mockguard=paused` one pause holding two sessions. */
+  private guard: UsageGuardView = {
+    settings: { ...DEFAULT_GUARD_SETTINGS },
+    pauses:
+      urlParam('mockguard') === 'paused'
+        ? [
+            {
+              id: 'up_0123456789ab',
+              account: DEFAULT_ACCOUNT,
+              accountName: 'Personal',
+              window: 'five_hour',
+              label: 'Current session',
+              pct: 91,
+              thresholdPct: 90,
+              pausedAt: Date.now() - 5 * 60_000,
+              resetsAt: Date.now() + 75 * 60_000,
+              resumeAt: Date.now() + 76 * 60_000,
+              sessions: [
+                {
+                  id: 's-auth',
+                  name: 'auth',
+                  owned: true,
+                  stopped: true,
+                  doing: ['the turn it was working on'],
+                  released: false,
+                },
+                {
+                  id: 's-docs',
+                  name: 'docs',
+                  owned: false,
+                  stopped: true,
+                  doing: ['Agent “check the links”'],
+                  released: false,
+                },
+              ],
+              hold: false,
+            },
+          ]
+        : [],
+  };
+
+  private usageGuard(path: string, method: string, body: unknown): Response {
+    const missing = () =>
+      json({ error: { code: 'pause_not_found', message: 'No such pause.' } }, 404);
+    const changed = () => {
+      this.broadcast({ t: 'usageGuard' });
+      return json(this.guard);
+    };
+    if (path === '/usage-guard' && method === 'GET') return json(this.guard);
+    if (path === '/usage-guard/settings' && method === 'PUT') {
+      const patch = body as Partial<UsageGuardView['settings']>;
+      const pct = patch.thresholdPct;
+      if (pct !== undefined && (pct < THRESHOLD_MIN || pct > THRESHOLD_MAX)) {
+        return json(
+          {
+            error: {
+              code: 'invalid_settings',
+              message: `The threshold is a percentage from ${THRESHOLD_MIN} to ${THRESHOLD_MAX}.`,
+            },
+          },
+          422,
+        );
+      }
+      this.guard = { ...this.guard, settings: { ...this.guard.settings, ...patch } };
+      return changed();
+    }
+    const end = (id: string | undefined, ended: 'resumedByHand' | 'dismissed') => {
+      const hit = this.guard.pauses.filter((p) => !p.ended && (!id || p.id === id));
+      if (!hit.length) return missing();
+      this.guard = {
+        ...this.guard,
+        pauses: this.guard.pauses.map((p) =>
+          hit.includes(p) ? { ...p, ended, endedAt: Date.now() } : p,
+        ),
+      };
+      return changed();
+    };
+    if (path === '/usage-guard/resume' && method === 'POST') {
+      return end((body as { pause?: string }).pause, 'resumedByHand');
+    }
+    const m = /^\/usage-guard\/pauses\/([^/]+)(\/hold)?$/.exec(path);
+    if (m && method === 'DELETE' && !m[2]) return end(m[1], 'dismissed');
+    if (m && method === 'POST' && m[2]) {
+      const p = this.guard.pauses.find((x) => x.id === m[1] && !x.ended);
+      if (!p) return missing();
+      const hold = (body as { hold?: boolean }).hold === true;
+      this.guard = {
+        ...this.guard,
+        pauses: this.guard.pauses.map((x) => (x === p ? { ...x, hold } : x)),
+      };
+      return changed();
+    }
+    return json({ error: { code: 'not_found', message: `No mock for ${method} ${path}` } }, 404);
   }
 
   private broadcast(frame: ServerFrame): void {

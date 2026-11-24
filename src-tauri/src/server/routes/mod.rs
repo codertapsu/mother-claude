@@ -196,6 +196,12 @@ pub fn api_router() -> Router<AppState> {
         .route("/usage", get(usage::get_usage))
         .route("/usage/refresh", post(usage::refresh))
         .route("/usage/settings", put(usage::put_settings))
+        // ── pausing work near a plan limit (claude::usage_guard) ──
+        .route("/usage-guard", get(usage::get_guard))
+        .route("/usage-guard/settings", put(usage::put_guard_settings))
+        .route("/usage-guard/resume", post(usage::post_guard_resume))
+        .route("/usage-guard/pauses/{id}", delete(usage::delete_guard_pause))
+        .route("/usage-guard/pauses/{id}/hold", post(usage::post_guard_hold))
         // ── capacity, routing, budgets (docs/ROUTING.md) ──
         .merge(crate::orchestration::capacity_api::router())
         .route("/inbox", get(data::inbox))

@@ -43,6 +43,7 @@ import { ProjectSettingsSheetComponent } from './pages/project-settings/project-
 import { SheetComponent } from './shared/sheet.component';
 import { TimeAgoComponent } from './shared/time-ago.component';
 import { ToastComponent } from './shared/toast.component';
+import { UsagePauseBannerComponent } from './shared/usage-pause-banner.component';
 
 const ONBOARDING_SKIP_KEY = 'mc_onboarding_skipped';
 const WELCOME_SEEN_KEY = 'mc_welcome_seen';
@@ -70,6 +71,7 @@ const WELCOME_SEEN_KEY = 'mc_welcome_seen';
     TimeAgoComponent,
     ToastComponent,
     TPipe,
+    UsagePauseBannerComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',

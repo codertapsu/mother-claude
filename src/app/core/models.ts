@@ -1951,7 +1951,8 @@ export type ServerFrame =
   // A move of a session to or from another computer (`core/moves.ts`).
   | import('./moves').MoveFrame
   // Permissions changed (`core/permission-rules.ts`).
-  | import('./permission-rules').PermissionsFrame;
+  | import('./permission-rules').PermissionsFrame
+  | import('./usage-guard').UsageGuardFrame;
 
 /** `machine` on `sub`/`unsub`: another computer's session (its id). */
 export type ClientFrame =

@@ -26,6 +26,7 @@ import { PageHeadComponent } from '../../shared/page-head.component';
 import { UpdaterComponent } from '../../shared/updater.component';
 import { SettingsPagesComponent } from './settings-pages.component';
 import { StartupSettingComponent } from './startup-setting.component';
+import { UsageGuardSettingComponent } from './usage-guard-setting.component';
 
 type PrefKey =
   'permission' | 'question' | 'plan' | 'finished' | 'failed' | 'claude' | 'idle' | 'showDetails';
@@ -76,6 +77,7 @@ const INGRESS: Record<string, string> = {
     StartupSettingComponent,
     TPipe,
     UpdaterComponent,
+    UsageGuardSettingComponent,
   ],
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss',

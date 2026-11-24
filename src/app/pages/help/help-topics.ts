@@ -2835,6 +2835,23 @@ const TOPICS: HelpTopicSource[] = [
         ],
       },
       {
+        heading: 'Pause before a limit cuts work off',
+        intro:
+          'Mother Claude can stop an account’s work just before it runs out, and start it again after the limit resets.',
+        steps: [
+          'Open **Settings › Usage limits**.',
+          'Keep **Pause sessions near a usage limit** on, and set **Pause at** (90 % unless you change it).',
+        ],
+        points: [
+          'When the 5-hour or weekly limit of an account reaches it, that account’s working sessions stop at a safe point: Mother Claude’s own at once (their background agents too), sessions started elsewhere at their next tool call. A per-model weekly limit stops only the sessions on that model. Conversations of the HTTP API are left alone: their apps send each request themselves.',
+          'What each was doing is saved. A minute after the limit resets, each one is told to go on exactly where it left off, also after Mother Claude was closed in between.',
+          "A banner above every page says when they resume. **Resume now** starts them again at once; **Don't resume** keeps them stopped until you do.",
+          'A message you send a paused session goes through: it is left alone after that. Teams start no role session on that account meanwhile.',
+          'Turn off **Resume by itself after the reset** to resume by hand, or **Also sessions started elsewhere** to pause only Mother Claude’s own sessions.',
+        ],
+        links: [{ label: 'Open Settings', path: '/settings' }],
+      },
+      {
         heading: 'How much of each plan is left',
         points: [
           "**Accounts › Usage** shows, under **How much is left**, each account's windows (the 5-hour window and the weekly ones) with their reset times, any extra usage, when they were read and how many of its sessions run.",
@@ -2853,6 +2870,7 @@ const TOPICS: HelpTopicSource[] = [
         ],
         points: [
           'It is read at that pace while a dashboard is open and a session is active, and every 30 minutes while nothing is.',
+          'With **Pause sessions near a usage limit** on, it is also read while sessions work and no dashboard is open, and every minute once a limit is within 10 points of where it pauses.',
           'With **Manually only**, it is read when you press **Refresh**, or by a session Mother Claude runs when a dashboard connects or a limit is hit.',
           'A phone shows the setting; it is changed in the desktop app.',
         ],

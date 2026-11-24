@@ -38,6 +38,7 @@ pub mod transcript;
 pub mod transfer;
 pub mod uievents;
 pub mod usage;
+pub mod usage_guard;
 pub mod watcher;
 
 /// Resolve the Claude Code binary: `$MOTHER_CLAUDE_CLI` if set, else `claude`.

@@ -313,6 +313,26 @@ classifier and billing overrides desktop only); the policy: desktop only.
 The optional Haiku classifier is off by default and goes through the
 bridge's Messages API client (an API key).
 
+**Pausing near a plan limit** (`claude::usage_guard`, Settings › Usage
+limits, `/api/usage-guard*`, `{t:"usageGuard"}`): when an account's
+`five_hour` or `seven_day` window (or a `seven_day_<model>` one, for the
+sessions on that model) reaches the threshold (90 % by default, 50–99,
+`ManageData`), its working sessions are interrupted through the same paths
+as the Interrupt button (`routes::control::interrupt_session`; an owned
+session's background agents and workflows get `stop_task`), what each was
+doing is saved in `<app data>/usage-guard.json` (0600, atomic), and a timer
+in Mother Claude fires the buffer (60 s) after the reset and sends each one a
+resume message through `deliver_message` as the desktop (an owned session
+that ended meanwhile is continued with it). Once per reset; *Resume now*
+holds that window off until it resets; a message someone sends a paused
+session releases it; an owned session that starts a turn by itself while
+paused is stopped again; one two pauses hold resumes with the last of them;
+the HTTP API's conversations are left alone (their client sends each turn);
+`capacity::admit` waits while its account (or the model it would run on) is
+paused. With the guard on, `claude::usage` reads while sessions work with no
+dashboard open, and every minute near the threshold (never the helper while
+reads are manual only).
+
 ## Architecture rules (enforced)
 
 - **All data for both desktop and mobile flows through the axum server, never

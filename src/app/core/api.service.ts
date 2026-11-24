@@ -62,6 +62,7 @@ import {
   normalizePermissions,
   normalizeRule,
 } from './permission-rules';
+import { UsageGuardPatch, UsageGuardView, normalizeUsageGuard } from './usage-guard';
 import {
   CatalogView,
   PluginChange,
@@ -206,6 +207,9 @@ import {
  *             updatePermission(id, patch) · removePermission(id)
  *   Usage     getPlanUsage() · refreshPlanUsage(account?) ·
  *             setPlanUsageSettings(intervalSecs)
+ *   Guard     getUsageGuard() · setUsageGuardSettings(patch) ·
+ *             resumeUsagePause(pause?) · holdUsagePause(id, hold) ·
+ *             dismissUsagePause(id)
  *   Accounts  getAccounts() · addAccount(body) · updateAccount(id, patch) ·
  *             removeAccount(id) · setAccountDefaults(d) ·
  *             setCopyConsent(from, to, granted) · recheckAccount(id) ·
@@ -592,6 +596,53 @@ export class ApiService {
   async removePermission(id: string): Promise<PermissionsView> {
     return normalizePermissions(
       await this.req<unknown>(`/permissions/${enc(id)}`, { method: 'DELETE' }),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────── Usage guard
+
+  /** `GET /api/usage-guard`: pausing work near a plan limit — its settings,
+   * and the pauses (active first). */
+  async getUsageGuard(): Promise<UsageGuardView> {
+    return normalizeUsageGuard(await this.req<unknown>('/usage-guard'));
+  }
+
+  /** `PUT /api/usage-guard/settings` (`422 invalid_settings`). */
+  async setUsageGuardSettings(patch: UsageGuardPatch): Promise<UsageGuardView> {
+    return normalizeUsageGuard(
+      await this.req<unknown>('/usage-guard/settings', {
+        method: 'PUT',
+        body: JSON.stringify(patch),
+      }),
+    );
+  }
+
+  /** `POST /api/usage-guard/resume {pause?}`: *Resume now* — that pause, or
+   * every active one. */
+  async resumeUsagePause(pause?: string): Promise<UsageGuardView> {
+    return normalizeUsageGuard(
+      await this.req<unknown>('/usage-guard/resume', {
+        method: 'POST',
+        body: JSON.stringify(pause ? { pause } : {}),
+      }),
+    );
+  }
+
+  /** `POST /api/usage-guard/pauses/{id}/hold {hold}`: *Don't resume*, or
+   * let it resume by itself again. */
+  async holdUsagePause(id: string, hold: boolean): Promise<UsageGuardView> {
+    return normalizeUsageGuard(
+      await this.req<unknown>(`/usage-guard/pauses/${enc(id)}/hold`, {
+        method: 'POST',
+        body: JSON.stringify({ hold }),
+      }),
+    );
+  }
+
+  /** `DELETE /api/usage-guard/pauses/{id}`: forget it without resuming. */
+  async dismissUsagePause(id: string): Promise<UsageGuardView> {
+    return normalizeUsageGuard(
+      await this.req<unknown>(`/usage-guard/pauses/${enc(id)}`, { method: 'DELETE' }),
     );
   }
 

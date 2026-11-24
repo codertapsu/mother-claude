@@ -43,6 +43,7 @@ import { normalizeAccountUsages, normalizePlanUsage } from './plan-usage';
 import type { MachinesFrame, RemoteFrame, RemoteSessionsView } from './machines';
 import { MoveFrame, normalizeMove } from './moves';
 import type { PermissionsFrame } from './permission-rules';
+import type { UsageGuardFrame } from './usage-guard';
 import type { TeamsFrame } from './teams';
 import { TranscriptStore, TranscriptStoreOptions } from './transcript-store';
 import { computerNoun, tr } from './i18n/i18n';
@@ -377,6 +378,9 @@ export class RealtimeService {
    * again): refetch `/api/permissions`. */
   private readonly permissionsS = new Subject<PermissionsFrame>();
   readonly permissions$: Observable<PermissionsFrame> = this.permissionsS.asObservable();
+  /** `{t:'usageGuard'}`: the usage guard's settings or pauses changed. */
+  private readonly usageGuardS = new Subject<UsageGuardFrame>();
+  readonly usageGuard$: Observable<UsageGuardFrame> = this.usageGuardS.asObservable();
   readonly refetch$: Observable<RefetchReason> = this.refetchS.asObservable();
   readonly pollTick$: Observable<void> = this.pollTickS.asObservable();
 
@@ -1087,6 +1091,9 @@ export class RealtimeService {
         break;
       case 'permissions':
         this.permissionsS.next(frame);
+        break;
+      case 'usageGuard':
+        this.usageGuardS.next(frame);
         break;
       case 'resync':
         this.resync();

@@ -35,6 +35,7 @@ rule that holds adds its reason, so the page shows all of them at once.
 
 | Rule | Who it holds | Where the number comes from | Default |
 |---|---|---|---|
+| The account is **paused near a plan limit** | everyone, the lead too | the usage guard (Settings › Usage limits, below) paused its whole account, or the weekly window of the model the role would run on | until it resumes |
 | A rate-limit **rejection** that has not reset | everyone, the lead too | the newest `rate_limit_event` of the account's owned sessions (`status: rejected`, `resetsAt`), or a hooked session's `StopFailure` on a rate limit | until `resetsAt`, else 5 min |
 | A **warning** about the 5-hour limit | workers | `rate_limit_event` `status: allowed_warning` with `rateLimitType: five_hour` (or none) | 5 min |
 | The **5-hour window** | workers at `leadOnlyPct`, everyone at `stopPct` | `claude::usage` for the account the session runs under (the request's, else the project's default account) | 85 %, 95 % |
@@ -54,6 +55,43 @@ shown but not used: the work runs remotely, builds and tests are what load
 the machine.
 
 The weekly windows do not hold anything up; they feed the router.
+
+### Pausing near a plan limit (the usage guard)
+
+Settings › Usage limits (`claude::usage_guard`, on by default) pauses an
+account's work before a plan window cuts it off mid-step:
+
+- **When.** A window reaches the threshold (90 %, 50–99): `five_hour` and
+  `seven_day` pause the whole account, `seven_day_<model>` only the sessions
+  on that model; extra usage and unscoped windows never pause. Once per
+  reset: a window that was paused (and resumed) pauses again only in its next
+  period, and *Resume now* or *Dismiss pause* holds it off until it resets.
+- **What stops.** Every working session of the account, through the
+  Interrupt button's own paths: an owned session at once (its background
+  agents and workflows are stopped with `stop_task`; background shells keep
+  running, they spend no usage), a session started elsewhere at its next
+  tool call (the plugin's hooks) or through its tmux pane — unless *Also
+  sessions started elsewhere* is off. The HTTP API's conversations
+  (`crate::bridge`) are left alone: their client sends each turn and gets
+  the limit's own error. What stopped (the turn, agents,
+  workflows, the todos) is saved with the pause in
+  `<app data>/usage-guard.json` (0600, atomic).
+- **Meanwhile.** Teams start nothing on the account (the rule above). An
+  owned session that starts a turn by itself (a wakeup, a cron job, a
+  finished background task) is stopped again; a session someone sends a
+  message is left alone from then on.
+- **Resuming.** A timer in Mother Claude — not in Claude — fires the buffer
+  (60 s) after the reset, checks the window again (still full: it waits for
+  the next reset), and sends each stopped session a message that names what
+  stopped and asks it to go on exactly where it left off. An owned session
+  whose process ended meanwhile (Mother Claude restarted) is continued with
+  that message, in its mode, model and effort. A session another pause still
+  holds (the weekly limit, its model's) is handed over to that pause and
+  resumes with it. *Resume by itself* off: the pause waits for *Resume now*.
+- **Usage reads.** With the guard on, `claude::usage` reads while sessions
+  work even with no dashboard open, and every minute once a window is within
+  10 points of the threshold; with reads set to manual only it never starts
+  the helper for it (owned sessions' stream and the CLI's own snapshot).
 
 The last decision per (project, role) is kept with its reasons (a waiting one
 for 10 minutes after its last ask, a started one for 2 minutes), and the role
@@ -231,6 +269,8 @@ replaced whole) and is refused with the field that is wrong.
 | `PUT`, `DELETE /api/routing/policy` | the desktop |
 | `GET /api/routing/report`, `/api/routing/report.csv?rows=groups\|outcomes` | any signed-in caller |
 | `POST /api/routing/classify {title, goal, haiku?}` | any signed-in caller; `haiku: true` the desktop or a paired device, and only when it is on |
+| `GET /api/usage-guard` (the settings and the pauses, now and the last ten) | any signed-in caller |
+| `PUT /api/usage-guard/settings {enabled?, thresholdPct?, autoResume?, bufferSecs?, includeElsewhere?}`, `POST /api/usage-guard/resume {pause?}`, `POST /api/usage-guard/pauses/{id}/hold {hold}`, `DELETE /api/usage-guard/pauses/{id}` | the desktop or a paired device (never the local-script token); a device's change is named on the desktop |
 
 ## Tuning
 
