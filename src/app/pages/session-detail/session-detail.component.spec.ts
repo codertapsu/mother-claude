@@ -3,7 +3,9 @@ import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 
 import { FakeBackend, flush, useFakeServer } from '../../core/mock/fake-server.testing';
+import { ownedCaps } from '../../core/mock/fixtures';
 import { setActiveMock } from '../../core/mock/mock-api';
+import { SessionDetail } from '../../core/models';
 import { SessionContext } from './session-context';
 import { SessionDetailComponent } from './session-detail.component';
 
@@ -58,6 +60,57 @@ describe('SessionDetailComponent routing', () => {
     harness.detectChanges();
     expect(text()).toContain("Can't load this session");
     expect(text()).not.toContain('Session not found');
+  });
+
+  it('puts the model, mode, effort and ultracode above the message box on Chat, and keeps them on Info', async () => {
+    const detail = {
+      id: 's1',
+      name: 'auth',
+      projectName: 'api',
+      cwd: '/Users/me/dev/api',
+      surface: 'mother-claude',
+      owned: true,
+      live: true,
+      status: 'idle',
+      activity: { kind: 'idle', label: 'Idle' },
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      messageCount: 0,
+      agents: { running: 0, total: 0, workflowsRunning: 0, backgroundRunning: 0 },
+      queued: 0,
+      pending: [],
+      model: { id: 'claude-opus-4-7', label: 'Opus 4.7' },
+      permissionMode: 'default',
+      ultracode: 'off',
+      ultracodeSource: 'applied',
+      control: ownedCaps(),
+    } as unknown as SessionDetail;
+    backend.routes.set('/sessions/s1', () => ({ status: 200, body: detail }));
+    const page = () => harness.routeNativeElement as HTMLElement;
+    const settings = ['Model', 'Permission mode', 'Effort'];
+
+    await harness.navigateByUrl('/session/s1');
+    await flush();
+    harness.detectChanges();
+    expect(ctx().tab()).toBe('chat');
+    for (const name of settings) {
+      expect(page().querySelector(`.sd-dock select[aria-label="${name}"]`)).not.toBeNull();
+      // Not twice: the row at the top of the transcript leaves them out.
+      expect(page().querySelector(`.sd-scroll select[aria-label="${name}"]`)).toBeNull();
+    }
+    expect(page().querySelector('.sd-dock [role="switch"][aria-label="Ultracode"]')).not.toBeNull();
+    expect(page().querySelector('.sd-scroll mc-channel-badge')).not.toBeNull();
+
+    await harness.navigateByUrl('/session/s1?tab=info');
+    await flush();
+    harness.detectChanges();
+    expect(ctx().tab()).toBe('info');
+    expect(page().querySelector('.sd-dock')).toBeNull();
+    for (const name of settings) {
+      expect(page().querySelector(`.sd-scroll select[aria-label="${name}"]`)).not.toBeNull();
+    }
+    expect(
+      page().querySelector('.sd-scroll [role="switch"][aria-label="Ultracode"]'),
+    ).not.toBeNull();
   });
 
   it('says "not found" for a 404', async () => {

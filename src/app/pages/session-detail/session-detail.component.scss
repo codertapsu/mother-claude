@@ -156,8 +156,11 @@
     z-index: 25;
     padding-top: env(safe-area-inset-top);
   }
+  /* While typing, the transcript keeps the room: the tabs, the note and the
+     settings above the message box come back with the keyboard down. */
   :host(.kbd) .sd-tabs,
-  :host(.kbd) .sd-note {
+  :host(.kbd) .sd-note,
+  :host(.kbd) .sd-controls {
     display: none;
   }
   :host(.kbd) .sd-dock {

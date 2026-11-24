@@ -56,7 +56,9 @@
       [attr.aria-labelledby]="'sd-tab-' + ctx.tab()"
     >
       <div class="inner">
-        <mc-session-chips />
+        <!-- On Chat, the settings sit above the message box instead (they
+             stay in view there; this row scrolls away with the transcript). -->
+        <mc-session-chips [part]="ctx.tab() === 'chat' ? 'rest' : 'all'" />
         @switch (ctx.tab()) {
           @case ('chat') {
             <mc-transcript
@@ -90,6 +92,8 @@
       <div class="sd-dock">
         <div class="inner">
           <mc-pending-dock />
+          <!-- Model, permission mode, effort and ultracode, as on Info. -->
+          <mc-session-chips class="sd-controls" part="settings" />
           <mc-composer />
         </div>
       </div>

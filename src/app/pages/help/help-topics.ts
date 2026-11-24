@@ -689,7 +689,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Change model, effort or mode',
         steps: [
           'Open the session.',
-          'Tap the model, mode or effort chip in the row under its name.',
+          'Tap the model, mode or effort chip: on **Chat** just above the message box, on the other tabs in the row at the top.',
           'Pick the new value.',
         ],
         terms: [

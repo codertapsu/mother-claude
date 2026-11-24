@@ -691,7 +691,7 @@ const TOPICS: HelpTopicSource[] = [
         heading: 'Đổi mô hình, mức nỗ lực hoặc chế độ',
         steps: [
           'Mở phiên.',
-          'Chạm vào nhãn mô hình, chế độ hoặc mức nỗ lực ở hàng dưới tên phiên.',
+          'Chạm vào nhãn mô hình, chế độ hoặc mức nỗ lực: ở thẻ **Trò chuyện** ngay phía trên ô tin nhắn, ở các thẻ khác trong hàng trên cùng.',
           'Chọn giá trị mới.',
         ],
         terms: [

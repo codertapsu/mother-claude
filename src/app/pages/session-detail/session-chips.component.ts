@@ -5,6 +5,7 @@ import {
   computed,
   effect,
   inject,
+  input,
   signal,
   untracked,
   viewChild,
@@ -47,6 +48,14 @@ import { PickerKind, SessionContext } from './session-context';
 
 type ExplainKind = PickerKind | 'ultracode' | 'thinking' | 'fast';
 
+/**
+ * Which chips a row shows: `all` (the row above Info, Agents and Changes),
+ * `settings` (model, permission mode, effort and ultracode only: the Chat
+ * tab's row above the message box, which stays in view) or `rest`
+ * (everything but those four: the row at the top of the Chat tab).
+ */
+export type ChipsPart = 'all' | 'settings' | 'rest';
+
 interface Why {
   title: string;
   lines: string[];
@@ -69,11 +78,13 @@ interface Why {
  * value is known — or, for ultracode not known yet in a session running
  * elsewhere, why and when it will be; an ultracode request the model can't
  * run can be withdrawn from its sheet), fast mode, context, cost, branch,
- * PR, running agents, todos, queue and the last error.
+ * PR, running agents, todos, queue and the last error. `part` splits it in
+ * two for the Chat tab (`ChipsPart`).
  */
 @Component({
   selector: 'mc-session-chips',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[class.settings]': "part() === 'settings'" },
   imports: [
     CapLimitsComponent,
     ChannelBadgeComponent,
@@ -87,248 +98,264 @@ interface Why {
   ],
   template: `
     @if (ctx.session(); as s) {
-      <div class="chips" role="group" [attr.aria-label]="'Session settings and stats' | t">
-        <mc-channel-badge [surface]="s.surface" [control]="s.control" [session]="s" />
-
-        <!-- Model -->
-        @if (s.control.setModel && s.live) {
-          <label class="pick" [title]="'Model' | t">
-            <mc-icon name="sparkle" [size]="13" />
-            <span class="pv">{{ s.model?.label || ('Model' | t) }}</span>
-            <mc-icon name="chevronDown" [size]="12" />
-            <select #modelSel [attr.aria-label]="'Model' | t" (change)="onModel($event)">
-              <option value="" disabled [selected]="true">
-                {{ s.model?.label || ('Choose…' | t) }}
-              </option>
-              @for (m of models(); track m.value) {
-                <option [value]="m.value">{{ m.label }}</option>
-              }
-            </select>
-          </label>
-        } @else if (s.model) {
-          <button class="pick off" type="button" (click)="explain('model')">
-            <mc-icon name="sparkle" [size]="13" />
-            <span class="pv">{{ s.model.label }}</span>
-          </button>
+      <div
+        class="chips"
+        role="group"
+        [attr.aria-label]="
+          (part() === 'settings' ? 'Session settings' : 'Session settings and stats') | t
+        "
+      >
+        @if (part() !== 'settings') {
+          <mc-channel-badge [surface]="s.surface" [control]="s.control" [session]="s" />
         }
 
-        <!-- Permission mode -->
-        @if (s.control.setMode !== 'none' && s.live) {
-          <label
-            class="pick"
-            [class.danger]="s.permissionMode === 'bypassPermissions'"
-            [title]="
-              s.control.setMode === 'on-prompt'
-                ? ('Permission mode (applies with your next message)' | t)
-                : ('Permission mode' | t)
-            "
-          >
-            <mc-icon name="shield" [size]="13" />
-            <span class="pv">{{ mode(s.permissionMode) | t }}</span>
-            <mc-icon name="chevronDown" [size]="12" />
-            <select #modeSel [attr.aria-label]="'Permission mode' | t" (change)="onMode($event)">
-              <option value="" disabled [selected]="true">
-                {{ mode(s.permissionMode) | t }}
-              </option>
-              @for (m of modes; track m.value) {
-                <option [value]="m.value" [disabled]="m.dangerous && !ctx.canDangerous()">
-                  {{ m.label | t }} — {{ m.hint | t }}
+        @if (part() !== 'rest') {
+          <!-- Model -->
+          @if (s.control.setModel && s.live) {
+            <label class="pick" [title]="'Model' | t">
+              <mc-icon name="sparkle" [size]="13" />
+              <span class="pv">{{ s.model?.label || ('Model' | t) }}</span>
+              <mc-icon name="chevronDown" [size]="12" />
+              <select #modelSel [attr.aria-label]="'Model' | t" (change)="onModel($event)">
+                <option value="" disabled [selected]="true">
+                  {{ s.model?.label || ('Choose…' | t) }}
                 </option>
-              }
-            </select>
-          </label>
-        } @else {
-          <button
-            class="pick off"
-            type="button"
-            [class.danger]="s.permissionMode === 'bypassPermissions'"
-            (click)="explain('mode')"
-          >
-            <mc-icon name="shield" [size]="13" />
-            <span class="pv">{{ mode(s.permissionMode) | t }}</span>
-          </button>
-        }
+                @for (m of models(); track m.value) {
+                  <option [value]="m.value">{{ m.label }}</option>
+                }
+              </select>
+            </label>
+          } @else if (s.model) {
+            <button class="pick off" type="button" (click)="explain('model')">
+              <mc-icon name="sparkle" [size]="13" />
+              <span class="pv">{{ s.model.label }}</span>
+            </button>
+          }
 
-        <!-- Effort -->
-        @if (s.control.setEffort && s.live) {
-          <label
-            class="pick"
-            [title]="'Effort: {how}' | t: { how: effortWhy() || ('not reported' | t) }"
-          >
-            <mc-icon name="gauge" [size]="13" />
-            <span class="pv">{{
-              s.effort ? (effort(s.effort) | t) : noEffort() ? ('No effort' | t) : ('Effort' | t)
-            }}</span>
-            <mc-icon name="chevronDown" [size]="12" />
-            <select #effortSel [attr.aria-label]="'Effort' | t" (change)="onEffort($event)">
-              <option value="" disabled [selected]="true">
-                {{ (effort(s.effort) | t) || ('Choose…' | t) }}
-              </option>
-              @for (e of efforts(); track e) {
-                <option [value]="e">{{ effort(e) | t }}</option>
-              }
-            </select>
-          </label>
-        } @else if (s.effort) {
-          <button
-            class="pick off"
-            type="button"
-            [attr.aria-label]="'Effort: {how}' | t: { how: effortWhy() }"
-            (click)="explain('effort')"
-          >
-            <mc-icon name="gauge" [size]="13" />
-            <span class="pv">{{ effort(s.effort) | t }}</span>
-          </button>
-        }
+          <!-- Permission mode -->
+          @if (s.control.setMode !== 'none' && s.live) {
+            <label
+              class="pick"
+              [class.danger]="s.permissionMode === 'bypassPermissions'"
+              [title]="
+                s.control.setMode === 'on-prompt'
+                  ? ('Permission mode (applies with your next message)' | t)
+                  : ('Permission mode' | t)
+              "
+            >
+              <mc-icon name="shield" [size]="13" />
+              <span class="pv">{{ mode(s.permissionMode) | t }}</span>
+              <mc-icon name="chevronDown" [size]="12" />
+              <select #modeSel [attr.aria-label]="'Permission mode' | t" (change)="onMode($event)">
+                <option value="" disabled [selected]="true">
+                  {{ mode(s.permissionMode) | t }}
+                </option>
+                @for (m of modes; track m.value) {
+                  <option [value]="m.value" [disabled]="m.dangerous && !ctx.canDangerous()">
+                    {{ m.label | t }} — {{ m.hint | t }}
+                  </option>
+                }
+              </select>
+            </label>
+          } @else {
+            <button
+              class="pick off"
+              type="button"
+              [class.danger]="s.permissionMode === 'bypassPermissions'"
+              (click)="explain('mode')"
+            >
+              <mc-icon name="shield" [size]="13" />
+              <span class="pv">{{ mode(s.permissionMode) | t }}</span>
+            </button>
+          }
 
-        <!-- Ultracode: a switch where it can be changed, else how it's known
+          <!-- Effort -->
+          @if (s.control.setEffort && s.live) {
+            <label
+              class="pick"
+              [title]="'Effort: {how}' | t: { how: effortWhy() || ('not reported' | t) }"
+            >
+              <mc-icon name="gauge" [size]="13" />
+              <span class="pv">{{
+                s.effort ? (effort(s.effort) | t) : noEffort() ? ('No effort' | t) : ('Effort' | t)
+              }}</span>
+              <mc-icon name="chevronDown" [size]="12" />
+              <select #effortSel [attr.aria-label]="'Effort' | t" (change)="onEffort($event)">
+                <option value="" disabled [selected]="true">
+                  {{ (effort(s.effort) | t) || ('Choose…' | t) }}
+                </option>
+                @for (e of efforts(); track e) {
+                  <option [value]="e">{{ effort(e) | t }}</option>
+                }
+              </select>
+            </label>
+          } @else if (s.effort) {
+            <button
+              class="pick off"
+              type="button"
+              [attr.aria-label]="'Effort: {how}' | t: { how: effortWhy() }"
+              (click)="explain('effort')"
+            >
+              <mc-icon name="gauge" [size]="13" />
+              <span class="pv">{{ effort(s.effort) | t }}</span>
+            </button>
+          }
+
+          <!-- Ultracode: a switch where it can be changed, else how it's known
              (an unavailable request stays a chip, whose tap can withdraw it) -->
-        @if (ultracodeSwitch()) {
-          <button
-            class="pick"
-            type="button"
-            role="switch"
-            aria-label="Ultracode"
-            [title]="ultracodeTitle()"
-            [class.on]="s.ultracode === 'on'"
-            [attr.aria-checked]="s.ultracode === 'on'"
-            [disabled]="busy() === 'ultracode' || !ctx.canAct()"
-            (click)="toggleUltracode()"
-          >
-            <mc-icon name="workflow" [size]="13" />
-            <span class="pv">{{
-              s.ultracode === 'on' ? ('Ultracode on' | t) : ('Ultracode off' | t)
-            }}</span>
-          </button>
-        } @else if (s.ultracode) {
-          <button
-            class="pick"
-            type="button"
-            [class.off]="!ultracodeCancel()"
-            [class.on]="s.ultracode === 'on'"
-            [class.warn]="s.ultracode === 'unavailable'"
-            [title]="ultracodeTitle()"
-            [attr.aria-label]="ultracodeTitle()"
-            (click)="explain('ultracode')"
-          >
-            <mc-icon name="workflow" [size]="13" />
-            <span class="pv">{{ ultracodeChip(s.ultracode) }}</span>
-          </button>
-        } @else if (ultracodeUnknown()) {
-          <!-- Not known yet in a session running elsewhere (VS Code notes a
-               switch only with the next message): say so, and why. -->
-          <button
-            class="pick off"
-            type="button"
-            [title]="ultracodeUnknownTitle()"
-            [attr.aria-label]="ultracodeUnknownTitle()"
-            (click)="explain('ultracode')"
-          >
-            <mc-icon name="workflow" [size]="13" />
-            <span class="pv">Ultracode ?</span>
-          </button>
-        }
-
-        <!-- Thinking: a switch where it can be changed (a choice while the
-             setting is unknown), else how it's known -->
-        @if (thinkingSwitch()) {
-          @if (s.thinking) {
+          @if (ultracodeSwitch()) {
             <button
               class="pick"
               type="button"
               role="switch"
-              [attr.aria-label]="'Thinking' | t"
-              [class.on]="thinkingOn()"
-              [attr.aria-checked]="thinkingOn()"
-              [title]="thinkingChipTitle()"
-              [disabled]="thinkingLocked()"
-              (click)="toggleThinking()"
+              aria-label="Ultracode"
+              [title]="ultracodeTitle()"
+              [class.on]="s.ultracode === 'on'"
+              [attr.aria-checked]="s.ultracode === 'on'"
+              [disabled]="busy() === 'ultracode' || !ctx.canAct()"
+              (click)="toggleUltracode()"
             >
-              <mc-icon name="lightbulb" [size]="13" />
+              <mc-icon name="workflow" [size]="13" />
               <span class="pv">{{
-                thinkingOn() ? ('Thinking on' | t) : ('Thinking off' | t)
+                s.ultracode === 'on' ? ('Ultracode on' | t) : ('Ultracode off' | t)
               }}</span>
             </button>
-          } @else {
-            <label class="pick" [class.locked]="thinkingLocked()" [title]="thinkingDefaultTitle()">
-              <mc-icon name="lightbulb" [size]="13" />
-              <span class="pv">{{ 'Thinking default' | t }}</span>
-              <mc-icon name="chevronDown" [size]="12" />
-              <select
+          } @else if (s.ultracode) {
+            <button
+              class="pick"
+              type="button"
+              [class.off]="!ultracodeCancel()"
+              [class.on]="s.ultracode === 'on'"
+              [class.warn]="s.ultracode === 'unavailable'"
+              [title]="ultracodeTitle()"
+              [attr.aria-label]="ultracodeTitle()"
+              (click)="explain('ultracode')"
+            >
+              <mc-icon name="workflow" [size]="13" />
+              <span class="pv">{{ ultracodeChip(s.ultracode) }}</span>
+            </button>
+          } @else if (ultracodeUnknown()) {
+            <!-- Not known yet in a session running elsewhere (VS Code notes a
+               switch only with the next message): say so, and why. -->
+            <button
+              class="pick off"
+              type="button"
+              [title]="ultracodeUnknownTitle()"
+              [attr.aria-label]="ultracodeUnknownTitle()"
+              (click)="explain('ultracode')"
+            >
+              <mc-icon name="workflow" [size]="13" />
+              <span class="pv">Ultracode ?</span>
+            </button>
+          }
+        }
+
+        @if (part() !== 'settings') {
+          <!-- Thinking: a switch where it can be changed (a choice while the
+             setting is unknown), else how it's known -->
+          @if (thinkingSwitch()) {
+            @if (s.thinking) {
+              <button
+                class="pick"
+                type="button"
+                role="switch"
                 [attr.aria-label]="'Thinking' | t"
+                [class.on]="thinkingOn()"
+                [attr.aria-checked]="thinkingOn()"
+                [title]="thinkingChipTitle()"
                 [disabled]="thinkingLocked()"
-                (change)="onThinking($event)"
+                (click)="toggleThinking()"
               >
-                <option value="" disabled [selected]="true">
-                  {{ "Claude Code's default" | t }}
-                </option>
-                <option value="on">{{ 'On' | t }}</option>
-                <option value="off">{{ 'Off' | t }}</option>
-              </select>
-            </label>
+                <mc-icon name="lightbulb" [size]="13" />
+                <span class="pv">{{
+                  thinkingOn() ? ('Thinking on' | t) : ('Thinking off' | t)
+                }}</span>
+              </button>
+            } @else {
+              <label
+                class="pick"
+                [class.locked]="thinkingLocked()"
+                [title]="thinkingDefaultTitle()"
+              >
+                <mc-icon name="lightbulb" [size]="13" />
+                <span class="pv">{{ 'Thinking default' | t }}</span>
+                <mc-icon name="chevronDown" [size]="12" />
+                <select
+                  [attr.aria-label]="'Thinking' | t"
+                  [disabled]="thinkingLocked()"
+                  (change)="onThinking($event)"
+                >
+                  <option value="" disabled [selected]="true">
+                    {{ "Claude Code's default" | t }}
+                  </option>
+                  <option value="on">{{ 'On' | t }}</option>
+                  <option value="off">{{ 'Off' | t }}</option>
+                </select>
+              </label>
+            }
+          } @else if (thinkingChipText()) {
+            <button
+              class="pick off"
+              type="button"
+              [title]="thinkingChipTitle()"
+              [attr.aria-label]="thinkingChipTitle()"
+              (click)="explain('thinking')"
+            >
+              <mc-icon name="lightbulb" [size]="13" />
+              <span class="pv">{{ thinkingChipText() }}</span>
+            </button>
           }
-        } @else if (thinkingChipText()) {
-          <button
-            class="pick off"
-            type="button"
-            [title]="thinkingChipTitle()"
-            [attr.aria-label]="thinkingChipTitle()"
-            (click)="explain('thinking')"
-          >
-            <mc-icon name="lightbulb" [size]="13" />
-            <span class="pv">{{ thinkingChipText() }}</span>
-          </button>
-        }
 
-        @if (s.fast) {
-          <button
-            class="pick off"
-            type="button"
-            [title]="fastTitle()"
-            [attr.aria-label]="fastTitle()"
-            (click)="explain('fast')"
-          >
-            <mc-icon name="zap" [size]="13" />
-            <span class="pv">{{ 'Fast' | t }}</span>
-          </button>
-        }
-
-        @if (s.context) {
-          <mc-context-meter [context]="s.context" />
-        }
-        @if (s.costUsd !== undefined && s.costUsd !== null) {
-          <mc-chip><mc-cost [usd]="s.costUsd" [final]="!!s.costFinal" /></mc-chip>
-        }
-        @if (s.agents.running || s.agents.backgroundRunning || s.agents.workflowsRunning) {
-          <button class="pick" type="button" (click)="ctx.tab.set('agents')">
-            <mc-icon name="agents" [size]="13" />
-            <span class="pv">{{ agentsText() }}</span>
-          </button>
-        }
-        @if (s.todos; as t) {
-          @if (t.total) {
-            <mc-chip icon="check" [tone]="t.done === t.total ? 'green' : 'muted'">{{
-              '{done}/{total} todos' | t: { done: t.done, total: t.total }
-            }}</mc-chip>
+          @if (s.fast) {
+            <button
+              class="pick off"
+              type="button"
+              [title]="fastTitle()"
+              [attr.aria-label]="fastTitle()"
+              (click)="explain('fast')"
+            >
+              <mc-icon name="zap" [size]="13" />
+              <span class="pv">{{ 'Fast' | t }}</span>
+            </button>
           }
-        }
-        @if (s.gitBranch) {
-          <mc-chip icon="branch">{{ s.gitBranch }}</mc-chip>
-        }
-        @if (s.prLink) {
-          <a class="pick" [href]="s.prLink.url" target="_blank" rel="noopener noreferrer">
-            <mc-icon name="external" [size]="13" />
-            <span class="pv">PR #{{ s.prLink.number }}</span>
-          </a>
-        }
-        @if (s.queued) {
-          <mc-chip tone="blue" icon="clock">{{ '{n} queued' | t: { n: s.queued } }}</mc-chip>
-        }
-        @if (s.remoteControl) {
-          <mc-chip tone="accent" icon="globe">{{ 'Remote Control on' | t }}</mc-chip>
-        }
-        @if (s.lastError) {
-          <mc-chip tone="red" icon="alert">{{ s.lastError.kind }}</mc-chip>
+
+          @if (s.context) {
+            <mc-context-meter [context]="s.context" />
+          }
+          @if (s.costUsd !== undefined && s.costUsd !== null) {
+            <mc-chip><mc-cost [usd]="s.costUsd" [final]="!!s.costFinal" /></mc-chip>
+          }
+          @if (s.agents.running || s.agents.backgroundRunning || s.agents.workflowsRunning) {
+            <button class="pick" type="button" (click)="ctx.tab.set('agents')">
+              <mc-icon name="agents" [size]="13" />
+              <span class="pv">{{ agentsText() }}</span>
+            </button>
+          }
+          @if (s.todos; as t) {
+            @if (t.total) {
+              <mc-chip icon="check" [tone]="t.done === t.total ? 'green' : 'muted'">{{
+                '{done}/{total} todos' | t: { done: t.done, total: t.total }
+              }}</mc-chip>
+            }
+          }
+          @if (s.gitBranch) {
+            <mc-chip icon="branch">{{ s.gitBranch }}</mc-chip>
+          }
+          @if (s.prLink) {
+            <a class="pick" [href]="s.prLink.url" target="_blank" rel="noopener noreferrer">
+              <mc-icon name="external" [size]="13" />
+              <span class="pv">PR #{{ s.prLink.number }}</span>
+            </a>
+          }
+          @if (s.queued) {
+            <mc-chip tone="blue" icon="clock">{{ '{n} queued' | t: { n: s.queued } }}</mc-chip>
+          }
+          @if (s.remoteControl) {
+            <mc-chip tone="accent" icon="globe">{{ 'Remote Control on' | t }}</mc-chip>
+          }
+          @if (s.lastError) {
+            <mc-chip tone="red" icon="alert">{{ s.lastError.kind }}</mc-chip>
+          }
         }
       </div>
 
@@ -377,6 +404,10 @@ interface Why {
       }
       .chips::-webkit-scrollbar {
         display: none;
+      }
+      /* Above the message box: the dock's own gap spaces it. */
+      :host(.settings) .chips {
+        padding: 0 0.1rem;
       }
       .chips > * {
         flex: 0 0 auto;
@@ -461,6 +492,8 @@ interface Why {
   ],
 })
 export class SessionChipsComponent {
+  /** Which chips this row shows (`ChipsPart`). */
+  readonly part = input<ChipsPart>('all');
   protected readonly ctx = inject(SessionContext);
   private defaults = inject(DefaultsService);
   private notices = inject(NoticeService);
@@ -567,10 +600,12 @@ export class SessionChipsComponent {
 
   constructor() {
     void this.defaults.load();
-    // `/model`, `/effort`, `/mode` from the composer open the picker here.
+    // `/model`, `/effort`, `/mode` from the composer open the picker here —
+    // in the row that has the pickers (on the Chat tab, the one above the
+    // message box; the `rest` row leaves the request to it).
     effect(() => {
       const kind = this.ctx.openPicker();
-      if (!kind || kind === 'rename') return;
+      if (!kind || kind === 'rename' || this.part() === 'rest') return;
       untracked(() => {
         this.ctx.openPicker.set(null);
         this.openPicker(kind);
@@ -604,12 +639,19 @@ export class SessionChipsComponent {
     try {
       (el as HTMLSelectElement & { showPicker?: () => void }).showPicker?.();
     } catch {
+      const dock = this.part() === 'settings';
       this.notices.info(
         kind === 'mode'
-          ? tr('Pick a permission mode in the header.')
+          ? dock
+            ? tr('Pick a permission mode above the message box.')
+            : tr('Pick a permission mode in the header.')
           : kind === 'effort'
-            ? tr('Pick an effort level in the header.')
-            : tr('Pick a model in the header.'),
+            ? dock
+              ? tr('Pick an effort level above the message box.')
+              : tr('Pick an effort level in the header.')
+            : dock
+              ? tr('Pick a model above the message box.')
+              : tr('Pick a model in the header.'),
       );
     }
   }

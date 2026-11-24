@@ -120,6 +120,90 @@ describe('SessionChipsComponent', () => {
     expect(backend.bodyOf('POST /sessions/s1/ultracode')).toEqual({ enabled: true });
   });
 
+  describe('on the Chat tab, in two rows', () => {
+    const owned = () =>
+      session({
+        owned: true,
+        surface: 'mother-claude',
+        model: { id: 'claude-opus-4-7', label: 'Opus 4.7' },
+        permissionMode: 'default',
+        effort: 'high',
+        effortSource: 'applied',
+        ultracode: 'off',
+        ultracodeSource: 'applied',
+        thinking: { mode: 'adaptive', source: 'control' },
+        costUsd: 1.25,
+        control: ownedCaps(),
+      });
+    const renderPart = (part: 'settings' | 'rest') => {
+      const ctx = TestBed.inject(SessionContext);
+      const s = owned();
+      ctx.id.set(s.id);
+      ctx.detail.set(s);
+      const fixture = TestBed.createComponent(SessionChipsComponent);
+      fixture.componentRef.setInput('part', part);
+      fixture.detectChanges();
+      return { fixture, el: fixture.nativeElement as HTMLElement };
+    };
+    const shown = (el: HTMLElement) => ({
+      model: !!el.querySelector('select[aria-label="Model"]'),
+      mode: !!el.querySelector('select[aria-label="Permission mode"]'),
+      effort: !!el.querySelector('select[aria-label="Effort"]'),
+      ultracode: !!el.querySelector('[role="switch"][aria-label="Ultracode"]'),
+      thinking: !!el.querySelector('[role="switch"][aria-label="Thinking"]'),
+      channel: !!el.querySelector('mc-channel-badge'),
+      cost: !!el.querySelector('mc-cost'),
+    });
+
+    it('shows the model, permission mode, effort and ultracode above the message box', () => {
+      const { el } = renderPart('settings');
+      expect(shown(el)).toEqual({
+        model: true,
+        mode: true,
+        effort: true,
+        ultracode: true,
+        thinking: false,
+        channel: false,
+        cost: false,
+      });
+      expect(el.querySelector('.chips')?.getAttribute('aria-label')).toBe('Session settings');
+      expect(words(el.querySelector('select[aria-label="Model"]')?.closest('label'))).toContain(
+        'Opus 4.7',
+      );
+      expect(words(el.querySelector('[role="switch"][aria-label="Ultracode"]'))).toBe(
+        'Ultracode off',
+      );
+    });
+
+    it('keeps everything else in the row at the top, without the four', () => {
+      const { el } = renderPart('rest');
+      expect(shown(el)).toEqual({
+        model: false,
+        mode: false,
+        effort: false,
+        ultracode: false,
+        thinking: true,
+        channel: true,
+        cost: true,
+      });
+    });
+
+    it('opens a picker asked for from the composer in the row that has it', () => {
+      const ctx = TestBed.inject(SessionContext);
+      const rest = renderPart('rest');
+      ctx.openPicker.set('model');
+      rest.fixture.detectChanges();
+      TestBed.tick();
+      // The top row leaves it to the row above the message box…
+      expect(ctx.openPicker()).toBe('model');
+      const settings = renderPart('settings');
+      TestBed.tick();
+      // …which takes it.
+      expect(ctx.openPicker()).toBeNull();
+      expect(settings.el.querySelector('select[aria-label="Model"]')).not.toBeNull();
+    });
+  });
+
   it('lets an owned session choose thinking on or off while its setting is unknown', async () => {
     backend.routes.set('/sessions/s1/thinking', () => ({ status: 200, body: {} }));
     const { fixture, el } = render(ownedHaiku());
