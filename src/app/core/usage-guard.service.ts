@@ -2,7 +2,13 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { ApiService, describeError } from './api.service';
 import { RealtimeService } from './realtime.service';
-import { UsageGuardPatch, UsageGuardView, UsagePause } from './usage-guard';
+import {
+  PausedInfo,
+  UsageGuardPatch,
+  UsageGuardView,
+  UsagePause,
+  pausedSessions,
+} from './usage-guard';
 
 /**
  * The usage guard (Settings › Usage limits) for every screen that shows it:
@@ -26,6 +32,25 @@ export class UsageGuardService {
   readonly ended = computed<UsagePause[]>(() =>
     (this.view()?.pauses ?? []).filter((p) => !!p.ended),
   );
+  /** This computer's paused sessions by id (stopped before held, when two
+   * pauses hold one). */
+  readonly paused = computed<ReadonlyMap<string, PausedInfo>>(() => {
+    const out = new Map<string, PausedInfo>();
+    for (const p of this.active()) {
+      for (const info of pausedSessions(p)) {
+        const seen = out.get(info.session.id);
+        if (!seen || (seen.kind === 'held' && info.kind === 'stopped')) {
+          out.set(info.session.id, info);
+        }
+      }
+    }
+    return out;
+  });
+
+  /** How session `id` of this computer is paused (null: it is not). */
+  pausedFor(id: string): PausedInfo | null {
+    return this.paused().get(id) ?? null;
+  }
 
   private watchers = 0;
   private loading: Promise<void> | null = null;

@@ -1,10 +1,15 @@
 //! The usage guard (Settings › Usage limits, `claude::usage_guard`): its
 //! routes, and a plan window at the threshold pausing its account — once per
-//! reset, resumed by hand, never paused again before that reset. No session
-//! runs and nothing touches `~/.claude`, the Keychain or the user's ports.
+//! reset, resumed by hand, never paused again before that reset — and a
+//! session waiting on a scheduled run held, its run stopped when it fires.
+//! No session runs and nothing touches `~/.claude`, the Keychain or the
+//! user's ports.
 
 use std::net::SocketAddr;
 
+use mother_claude_lib::claude::model::{
+    ActivityKind, ControlChannel, SessionStatus, SessionSummary,
+};
 use mother_claude_lib::claude::usage::{self, StreamUpdate};
 use mother_claude_lib::claude::usage_guard::{self, Ended, SettingsPatch};
 use mother_claude_lib::claude::ClaudeHome;
@@ -216,4 +221,110 @@ async fn below_the_threshold_or_off_nothing_pauses() {
     five_hour_at(&st, 85.0, now() + HOUR);
     usage_guard::tick(&st).await;
     assert_eq!(usage_guard::active_count(&st), 1);
+}
+
+/// A session started elsewhere (VS Code), reached through the plugin's
+/// hooks, of the Default account.
+fn elsewhere(
+    id: &str,
+    status: SessionStatus,
+    kind: ActivityKind,
+    resumes_at: Option<i64>,
+) -> SessionSummary {
+    let mut s = SessionSummary {
+        id: id.into(),
+        name: "deploy watch".into(),
+        live: true,
+        status,
+        ..Default::default()
+    };
+    s.control.channel = ControlChannel::Hooks;
+    s.activity.kind = kind;
+    s.activity.resumes_at = resumes_at;
+    if kind == ActivityKind::Scheduled {
+        s.activity.detail = Some("Check the deploy".into());
+    }
+    s
+}
+
+async fn set_sessions(st: &AppState, sessions: Vec<SessionSummary>) {
+    st.snapshot.write().await.sessions = sessions;
+}
+
+/// The report: a session "Scheduled to resume" in VS Code went on when its
+/// wakeup fired although its account was paused. Now it is held while the
+/// pause lasts, its run is stopped when it starts a turn, and the resume
+/// tells it what stopped.
+#[tokio::test]
+async fn a_scheduled_run_elsewhere_is_held_and_stopped_when_it_fires() {
+    const ID: &str = "0b9f3c1e-2d4a-4f6b-8c7d-9e0f1a2b3c4d";
+    let st = state();
+    let run_at = now() + 60_000;
+    set_sessions(
+        &st,
+        vec![elsewhere(
+            ID,
+            SessionStatus::Background,
+            ActivityKind::Scheduled,
+            Some(run_at),
+        )],
+    )
+    .await;
+    five_hour_at(&st, 95.0, now() + HOUR);
+    usage_guard::tick(&st).await;
+    let v = usage_guard::view(&st);
+    assert_eq!(v.pauses.len(), 1);
+    let s = &v.pauses[0].sessions[0];
+    assert_eq!(s.id, ID);
+    assert!(s.held && !s.stopped && !s.released);
+    assert_eq!(
+        (s.run_at, s.run.as_deref()),
+        (Some(run_at), Some("Check the deploy"))
+    );
+    // The page reads it as `held`, `runAt`, `run`.
+    let json = serde_json::to_value(&v.pauses[0].sessions[0]).unwrap();
+    assert_eq!(
+        (json["held"].clone(), json["runAt"].clone()),
+        (json!(true), json!(run_at))
+    );
+
+    // The wakeup fires: the turn it starts is stopped through the hooks.
+    set_sessions(
+        &st,
+        vec![elsewhere(
+            ID,
+            SessionStatus::Working,
+            ActivityKind::Thinking,
+            None,
+        )],
+    )
+    .await;
+    usage_guard::tick(&st).await;
+    let v = usage_guard::view(&st);
+    let s = &v.pauses[0].sessions[0];
+    assert!(s.stopped && !s.held, "{s:?}");
+    assert_eq!(
+        s.doing,
+        vec![
+            "the turn its scheduled run “Check the deploy” started while it was paused".to_string()
+        ]
+    );
+    // Asked once, not again while the interrupt lands.
+    usage_guard::tick(&st).await;
+    assert_eq!(usage_guard::view(&st).pauses[0].sessions.len(), 1);
+
+    // A session elsewhere that was neither working nor scheduled: a turn
+    // typed there goes on.
+    const TYPED: &str = "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f";
+    set_sessions(
+        &st,
+        vec![
+            elsewhere(ID, SessionStatus::Idle, ActivityKind::Idle, None),
+            elsewhere(TYPED, SessionStatus::Working, ActivityKind::Tool, None),
+        ],
+    )
+    .await;
+    usage_guard::tick(&st).await;
+    let v = usage_guard::view(&st);
+    assert!(v.pauses[0].sessions.iter().all(|s| s.id != TYPED));
 }

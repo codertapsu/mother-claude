@@ -904,7 +904,14 @@ pub async fn spawn_as(state: &AppState, caller: Caller, req: SpawnRequest) -> Ap
         account_env,
         ..Default::default()
     };
-    state.control.spawn(state, opts).await.map_err(spawn_error)
+    let id = state
+        .control
+        .spawn(state, opts)
+        .await
+        .map_err(spawn_error)?;
+    // Someone started it: a usage pause leaves it alone.
+    crate::claude::usage_guard::note_started(state, &id);
+    Ok(id)
 }
 
 /// Continue session `id` as an owned session; returns the (possibly new) id.
@@ -1043,7 +1050,14 @@ pub async fn continue_as(
         account_env,
         ..Default::default()
     };
-    state.control.spawn(state, opts).await.map_err(spawn_error)
+    let id = state
+        .control
+        .spawn(state, opts)
+        .await
+        .map_err(spawn_error)?;
+    // Someone continued it: a usage pause leaves it alone.
+    crate::claude::usage_guard::note_started(state, &id);
+    Ok(id)
 }
 
 /// [`send`] for a caller: a message a caller without the dangerous right

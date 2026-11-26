@@ -529,3 +529,168 @@ fn a_session_two_limits_paused_resumes_with_the_last_one() {
     hand_over(&mut pauses, "up_done", &other);
     assert!(pauses[1].sessions.is_empty());
 }
+
+const MIN: i64 = 60_000;
+
+/// A live session of the Default account, `status` with activity `kind`.
+fn live(
+    id: &str,
+    owned: bool,
+    status: SessionStatus,
+    kind: ActivityKind,
+    resumes_at: Option<i64>,
+) -> SessionSummary {
+    let mut s = SessionSummary {
+        id: id.into(),
+        owned,
+        live: true,
+        status,
+        ..Default::default()
+    };
+    // Started elsewhere: reached through the plugin's hooks.
+    if !owned {
+        s.control.channel = ControlChannel::Hooks;
+    }
+    s.activity.kind = kind;
+    s.activity.resumes_at = resumes_at;
+    if kind == ActivityKind::Scheduled {
+        s.activity.detail = Some("Check the deploy".into());
+    }
+    s
+}
+
+#[test]
+fn a_scheduled_run_is_held_and_stopped_when_it_starts_a_turn() {
+    use ActivityKind::{Idle, Scheduled, Thinking, Tool};
+    use SessionStatus::{Background, Working};
+    let mut p = Pause {
+        id: "up_1".into(),
+        account: DEFAULT_ID.into(),
+        paused_at: NOW - HOUR,
+        resume_at: NOW + HOUR,
+        ..Default::default()
+    };
+    // Waiting on a wakeup due before the resume: held, with what runs.
+    let waiting = live("s1", false, Background, Scheduled, Some(NOW + 10 * MIN));
+    let hold = Watch::Hold {
+        at: Some(NOW + 10 * MIN),
+        run: Some("Check the deploy".into()),
+    };
+    assert_eq!(watch_one(&p, &waiting, NOW, None), hold);
+    // Due after the resume: it runs once work goes on anyway — unless the
+    // pause waits for someone.
+    let later = live("s9", false, Background, Scheduled, Some(NOW + 2 * HOUR));
+    assert_eq!(watch_one(&p, &later, NOW, None), Watch::Leave);
+    let waits = Pause {
+        hold: true,
+        ..p.clone()
+    };
+    assert!(matches!(
+        watch_one(&waits, &later, NOW, None),
+        Watch::Hold { .. }
+    ));
+    // A recurring job whose next run is unknown: held.
+    let cron = live("s8", false, Background, Scheduled, None);
+    assert!(matches!(
+        watch_one(&p, &cron, NOW, None),
+        Watch::Hold { at: None, .. }
+    ));
+    // Nothing reaches it (no hooks, no tmux pane): never shown as held.
+    let mut unreachable = live("s7", false, Background, Scheduled, Some(NOW + 10 * MIN));
+    unreachable.control.channel = ControlChannel::None;
+    assert_eq!(watch_one(&p, &unreachable, NOW, None), Watch::Leave);
+    // Noted once.
+    p.sessions.push(held_entry(
+        &waiting,
+        Some(NOW + 10 * MIN),
+        Some("Check the deploy".into()),
+    ));
+    assert_eq!(watch_one(&p, &waiting, NOW, None), Watch::Leave);
+
+    // The run starts a turn (a session started elsewhere too): stopped, also
+    // when it fires a little early.
+    let fired = live("s1", false, Working, Thinking, None);
+    assert_eq!(
+        watch_one(&p, &fired, NOW + 10 * MIN, None),
+        Watch::Stop { fired: true }
+    );
+    assert_eq!(
+        watch_one(&p, &fired, NOW + 8 * MIN, None),
+        Watch::Stop { fired: true }
+    );
+    // Typed there well before the run: someone's turn, which releases it.
+    assert_eq!(watch_one(&p, &fired, NOW, None), Watch::Release);
+    // Released: left alone, whatever starts its turns.
+    p.sessions[0].released = true;
+    assert_eq!(watch_one(&p, &fired, NOW + 10 * MIN, None), Watch::Leave);
+
+    // Mother Claude's own: any turn nobody sent it is stopped again...
+    let own = live("s2", true, Working, Tool, None);
+    assert_eq!(watch_one(&p, &own, NOW, None), Watch::Stop { fired: false });
+    // ...but not one someone started or continued since the pause began.
+    assert_eq!(watch_one(&p, &own, NOW, Some(NOW - MIN)), Watch::Leave);
+    assert_eq!(
+        watch_one(&p, &own, NOW, Some(NOW - 2 * HOUR)),
+        Watch::Stop { fired: false }
+    );
+    // Started elsewhere and not held: a turn typed there goes on.
+    let typed = live("s3", false, Working, Tool, None);
+    assert_eq!(watch_one(&p, &typed, NOW, None), Watch::Leave);
+    // Idle: nothing to do.
+    let idle = live("s4", true, SessionStatus::Idle, Idle, None);
+    assert_eq!(watch_one(&p, &idle, NOW, None), Watch::Leave);
+}
+
+#[test]
+fn a_stopped_run_is_recorded_once_and_no_longer_held() {
+    let waiting = live(
+        "s1",
+        false,
+        SessionStatus::Background,
+        ActivityKind::Scheduled,
+        Some(NOW),
+    );
+    let mut p = Pause {
+        id: "up_1".into(),
+        sessions: vec![held_entry(
+            &waiting,
+            Some(NOW),
+            Some("Check the deploy".into()),
+        )],
+        ..Default::default()
+    };
+    let turn = run_words(Some("Check the deploy"));
+    assert_eq!(
+        turn,
+        "the turn its scheduled run “Check the deploy” started while it was paused"
+    );
+    let stopped = PausedSession {
+        id: "s1".into(),
+        stopped: true,
+        doing: vec![turn.clone()],
+        model: Some("claude-opus-5-5".into()),
+        ..Default::default()
+    };
+    merge_stopped(&mut p, stopped.clone());
+    merge_stopped(&mut p, stopped);
+    let s = &p.sessions[0];
+    assert!(s.stopped && !s.held && !s.released);
+    assert_eq!(s.doing, vec![turn]);
+    assert_eq!(s.run.as_deref(), Some("Check the deploy"));
+    assert_eq!(s.model.as_deref(), Some("claude-opus-5-5"));
+    // It is told what stopped when the pause resumes.
+    let p = Pause {
+        pct: 91.0,
+        window: "five_hour".into(),
+        ..p
+    };
+    let text = resume_message(&p, &p.sessions[0]);
+    assert!(
+        text.contains("- the turn its scheduled run “Check the deploy” started"),
+        "{text}"
+    );
+    assert_eq!(
+        run_words(None),
+        "the turn a scheduled run (a wakeup or a cron job) started while it was paused"
+    );
+}

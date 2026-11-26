@@ -9,6 +9,7 @@ import { PendingRef, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import type { MachineTag } from '../core/remote-sessions.service';
 import { sessionLink } from '../core/session-links';
+import { UsageGuardService } from '../core/usage-guard.service';
 import { ViewportService } from '../core/viewport.service';
 import { AccountChipComponent } from './account-chip.component';
 import { ActivityLineComponent } from './activity-line.component';
@@ -21,6 +22,7 @@ import { PendingCardComponent } from './pending-card.component';
 import { effortText, fastText, thinkingChip, ultracodeText } from './session-settings';
 import { StatusPillComponent } from './status-pill.component';
 import { TimeAgoComponent } from './time-ago.component';
+import { pausedDetail, pausedLabel } from './usage-paused';
 import { Tone, effortShortLabel, modeLabel, pastClock, sessionName, shortPath } from './util';
 
 /** One part of the packed settings chip (the smallest screens). */
@@ -55,6 +57,11 @@ interface PackedPart {
  * the card is greyed, says since when, and offers no quick answers
  * (docs/PLAN-MACHINES.md §6.1). A session that moved to another computer
  * (`livesOn`) is shaded, with a chip saying where it lives now (§5.7).
+ *
+ * A session the usage guard holds (Settings › Usage limits) has an amber
+ * edge and leads its chips with *Paused until …* — ⏸ when its work was
+ * stopped, 🕑 when its scheduled run waits — whose tooltip says why and
+ * when it goes on.
  */
 @Component({
   selector: 'mc-session-card',
@@ -78,6 +85,7 @@ interface PackedPart {
     '[attr.data-selected]': "selectable() && selected() ? '' : null",
     '[class.offline]': 'offline()',
     '[class.away]': '!!livesText()',
+    '[class.paused]': '!!paused()',
     '[class.current]': 'current()',
     '[attr.data-nav-current]': "current() ? '' : null",
   },
@@ -114,6 +122,16 @@ interface PackedPart {
     }
 
     <div class="chips">
+      @if (paused(); as x) {
+        <mc-chip
+          class="pchip"
+          [icon]="x.kind === 'held' ? 'clock' : 'pause'"
+          tone="amber"
+          [attr.title]="pausedTitle()"
+          ><span class="visually-hidden">{{ pausedTitle() }} </span
+          ><span class="ptext" aria-hidden="true">{{ pausedText() }}</span></mc-chip
+        >
+      }
       @if (machine(); as m) {
         <mc-chip class="mchip" icon="monitor" [attr.title]="m.name">{{ m.name }}</mc-chip>
       }
@@ -254,6 +272,14 @@ interface PackedPart {
         border-color: var(--accent);
         background: color-mix(in srgb, var(--accent-soft) 45%, var(--panel));
       }
+      /* Held by the usage guard until its account's limit resets. */
+      :host(.paused) {
+        border-color: var(--amber-border);
+        box-shadow: inset 3px 0 0 var(--amber);
+      }
+      .pchip {
+        max-width: 14rem;
+      }
       /* Open beside the list. */
       :host(.current) {
         border-color: var(--accent);
@@ -366,6 +392,7 @@ export class SessionCardComponent {
   private clock = inject(NowService);
   private machines = inject(MachinesService);
   private listDetail = inject(ListDetailService);
+  private guard = inject(UsageGuardService);
   protected readonly viewport = inject(ViewportService);
   readonly session = input.required<SessionSummary>();
   /** Show a checkbox (Sessions › Select). */
@@ -377,6 +404,22 @@ export class SessionCardComponent {
   readonly toggled = output<void>();
 
   protected readonly name = computed(() => sessionName(this.session()));
+  /** How the usage guard holds it (this computer's sessions only: another
+   * computer pauses its own). */
+  protected readonly paused = computed(() => {
+    const s = this.session();
+    const x = this.machine() || s.machine ? null : this.guard.pausedFor(s.id);
+    // A scheduled run waits only while its process runs.
+    return x?.kind === 'held' && !s.live ? null : x;
+  });
+  protected readonly pausedText = computed(() => {
+    const x = this.paused();
+    return x ? pausedLabel(x, this.clock.now()) : '';
+  });
+  protected readonly pausedTitle = computed(() => {
+    const x = this.paused();
+    return x ? pausedDetail(x, this.clock.now()) : '';
+  });
   /** It lives on another computer now (its lease names one): where. */
   protected readonly livesText = computed(() => {
     const l = this.session().livesOn;

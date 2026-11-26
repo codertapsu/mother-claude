@@ -205,9 +205,10 @@ export const VI_TOPICS_B: Partial<Record<string, HelpTopicSource>> = {
         ],
         points: [
           'Khi giới hạn 5 giờ hoặc hằng tuần của một tài khoản chạm mức đó, các phiên đang làm việc của tài khoản dừng ở một điểm an toàn: phiên do Mother Claude chạy dừng ngay (cả các tác tử chạy nền của nó), phiên mở ở nơi khác dừng ở lần gọi công cụ kế tiếp. Giới hạn hằng tuần theo mô hình chỉ dừng các phiên dùng mô hình đó. Các cuộc trò chuyện của HTTP API được để yên: ứng dụng của chúng tự gửi từng yêu cầu.',
+          'Một phiên **Đã hẹn tiếp tục** (một lần đánh thức của `/loop` hoặc một công việc theo lịch) được giữ lại: nếu lần chạy của nó đến trong lúc tài khoản đang tạm dừng, lượt nó bắt đầu bị dừng ngay và sẽ chạy tiếp cùng các phiên khác.',
           'Việc mỗi phiên đang làm được lưu lại. Một phút sau khi giới hạn được đặt lại, mỗi phiên được nhắn tiếp tục đúng chỗ đã dừng, kể cả khi Mother Claude đã bị đóng trong lúc đó.',
-          'Một biểu ngữ phía trên mọi trang cho biết lúc chúng chạy tiếp. **Chạy tiếp ngay** cho chúng chạy lại ngay; **Đừng chạy tiếp** giữ chúng dừng đến khi bạn cho chạy.',
-          'Tin nhắn bạn gửi cho một phiên đang tạm dừng vẫn được gửi đi: sau đó phiên đó không bị dừng nữa. Trong lúc này, các nhóm không khởi động phiên vai trò nào trên tài khoản đó.',
+          'Một biểu ngữ phía trên mọi trang nêu tên các phiên đang tạm dừng (⏸ công việc đã dừng, 🕑 một lần chạy theo lịch đang chờ) và cho biết lúc chúng chạy tiếp. Trong danh sách, mỗi phiên hiện **Tạm dừng đến …**, và trang của nó cho biết lý do. **Chạy tiếp ngay** cho chúng chạy lại ngay; **Đừng chạy tiếp** giữ chúng dừng đến khi bạn cho chạy.',
+          'Tin nhắn bạn gửi cho một phiên đang tạm dừng vẫn được gửi đi: sau đó phiên đó không bị dừng nữa, một phiên bạn khởi động hoặc tiếp tục trong lúc này cũng vậy. Trong lúc này, các nhóm không khởi động phiên vai trò nào trên tài khoản đó.',
           'Tắt **Tự chạy tiếp sau khi giới hạn được đặt lại** để tự tay cho chạy tiếp, hoặc tắt **Cả các phiên mở ở nơi khác** để chỉ tạm dừng các phiên do Mother Claude chạy.',
         ],
         links: [{ label: 'Mở Cài đặt', path: '/settings' }],

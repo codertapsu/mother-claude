@@ -76,10 +76,28 @@ account's work before a plan window cuts it off mid-step:
   the limit's own error. What stopped (the turn, agents,
   workflows, the todos) is saved with the pause in
   `<app data>/usage-guard.json` (0600, atomic).
-- **Meanwhile.** Teams start nothing on the account (the rule above). An
-  owned session that starts a turn by itself (a wakeup, a cron job, a
-  finished background task) is stopped again; a session someone sends a
-  message is left alone from then on.
+- **Meanwhile.** Teams start nothing on the account (the rule above). Every
+  change to the session list is looked at within a second
+  (`usage_guard::watch_one`):
+  - a session *Scheduled to resume* (a `/loop` wakeup or a cron job, its
+    `activity.resumesAt` before the resume, or any while the pause waits for
+    someone) is **held**: its entry keeps the run's time and what runs;
+  - when a held session starts working from three minutes before its run on,
+    the turn is taken for that run and stopped at once — a session started
+    elsewhere too, through its hooks or tmux — and it resumes with the
+    others (the resume message names the run). A turn typed there before
+    that is someone's: it goes on and the session is left alone;
+  - an owned session that starts a turn by itself (also a finished
+    background task) is stopped again, any turn nobody sent it;
+  - a session someone sends a message, or starts or continues from Mother
+    Claude (`usage_guard::note_started`), is left alone from then on.
+  A session is asked to stop at most once a minute (an interrupt through the
+  hooks lands at its next tool call).
+- **Seeing it.** A banner above every page names the account, the limit,
+  when work resumes and the sessions held (⏸ stopped, 🕑 a scheduled run
+  waiting; five at most, the rest in Settings); each held session's card
+  shows *Paused until …* with an amber edge, and its page a line saying why,
+  with *Resume now*.
 - **Resuming.** A timer in Mother Claude — not in Claude — fires the buffer
   (60 s) after the reset, checks the window again (still full: it waits for
   the next reset), and sends each stopped session a message that names what

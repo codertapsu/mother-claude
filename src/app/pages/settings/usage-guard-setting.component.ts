@@ -6,11 +6,13 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import { tr } from '../../core/i18n/i18n';
 import { TPipe } from '../../core/i18n/t.pipe';
 import { NoticeService } from '../../core/notice.service';
 import { NowService } from '../../core/now.service';
+import { sessionLink } from '../../core/session-links';
 import {
   PausedSession,
   THRESHOLD_MAX,
@@ -20,6 +22,8 @@ import {
   windowText,
 } from '../../core/usage-guard';
 import { UsageGuardService } from '../../core/usage-guard.service';
+import { IconComponent } from '../../shared/icon.component';
+import { pausedWhat } from '../../shared/usage-paused';
 import { formatCountdown, pastClock, resetClock } from '../../shared/util';
 
 /**
@@ -31,7 +35,7 @@ import { formatCountdown, pastClock, resetClock } from '../../shared/util';
 @Component({
   selector: 'mc-usage-guard-setting',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TPipe],
+  imports: [IconComponent, RouterLink, TPipe],
   template: `
     @if (guard.view(); as v) {
       <div class="list">
@@ -109,11 +113,19 @@ import { formatCountdown, pastClock, resetClock } from '../../shared/util';
             <li class="pause">
               <span class="what">{{ line(p) }}</span>
               <span class="muted small">{{ when(p) }}</span>
-              @for (s of stopped(p); track s.id) {
-                <span class="small session"
-                  >{{ s.name
-                  }}{{ s.released ? ' · ' + ('you sent it a message: left alone' | t) : '' }}</span
-                >
+              @if (listed(p).length) {
+                <ul class="sessions">
+                  @for (s of listed(p); track s.id) {
+                    <li class="small">
+                      <mc-icon
+                        [name]="s.released ? 'check' : s.stopped ? 'pause' : 'clock'"
+                        [size]="13"
+                      />
+                      <a [routerLink]="link(s)">{{ s.name }}</a>
+                      <span class="muted"> · {{ state(p, s) }}</span>
+                    </li>
+                  }
+                </ul>
               }
               <span class="acts">
                 <button class="btn small" type="button" [disabled]="busy()" (click)="resume(p)">
@@ -193,6 +205,24 @@ import { formatCountdown, pastClock, resetClock } from '../../shared/util';
       .what {
         font-weight: 500;
       }
+      .sessions {
+        list-style: none;
+        margin: 0.15rem 0 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+      }
+      .sessions li {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 0 0.3rem;
+      }
+      .sessions mc-icon {
+        align-self: center;
+        color: var(--amber);
+      }
       .acts {
         display: flex;
         flex-wrap: wrap;
@@ -245,8 +275,20 @@ export class UsageGuardSettingComponent {
     }
   }
 
-  protected stopped(p: UsagePause): PausedSession[] {
-    return p.sessions.filter((s) => s.stopped);
+  /** The sessions it stopped or holds (stopped first), and those someone
+   * sent a message to since. */
+  protected listed(p: UsagePause): PausedSession[] {
+    const rank = (s: PausedSession) => (s.released ? 2 : s.stopped ? 0 : 1);
+    return p.sessions.filter((s) => s.stopped || s.held).sort((a, b) => rank(a) - rank(b));
+  }
+
+  protected state(p: UsagePause, s: PausedSession): string {
+    if (s.released) return tr('you sent it a message: left alone');
+    return pausedWhat({ pause: p, session: s, kind: s.stopped ? 'stopped' : 'held' }, this.now());
+  }
+
+  protected link(s: PausedSession): string[] {
+    return sessionLink(s.id);
   }
 
   protected failed(p: UsagePause): PausedSession[] {

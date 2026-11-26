@@ -50,6 +50,7 @@ import { runningTasks, switchMode } from '../../shared/switch-account';
 import { SwitchAccountSheetComponent } from '../../shared/switch-account-sheet.component';
 import { SwitchPendingComponent } from '../../shared/switch-pending.component';
 import { TimeAgoComponent } from '../../shared/time-ago.component';
+import { UsagePausedLineComponent } from '../../shared/usage-paused-line.component';
 import { sessionName } from '../../shared/util';
 import { SessionContext } from './session-context';
 
@@ -57,7 +58,9 @@ import { SessionContext } from './session-context';
  * The session page's sticky top row: back, name, status, the Claude
  * account (while there are several) and what it is doing right now (with
  * elapsed time), the connection state when it isn't Live, and a ⋮ menu in
- * four headed groups (docs/UI-REDESIGN.md §6.8):
+ * four headed groups (docs/UI-REDESIGN.md §6.8). Under it, a switch of
+ * account waiting for the turn's end, and a usage pause holding the
+ * session (`mc-usage-paused-line`). The menu's groups:
  *
  * - **Continue** — *Continue here* (as a new session while it runs where
  *   it is; a sheet with the launch options), *Bring back to this …*,
@@ -103,6 +106,7 @@ import { SessionContext } from './session-context';
     SwitchPendingComponent,
     TimeAgoComponent,
     TPipe,
+    UsagePausedLineComponent,
   ],
   template: `
     @if (ctx.session(); as s) {
@@ -174,6 +178,10 @@ import { SessionContext } from './session-context';
         </button>
       </div>
       <mc-switch-pending [session]="s" />
+      @if (!machine) {
+        <!-- Held near a plan limit (another computer pauses its own). -->
+        <mc-usage-paused-line [session]="s.id" />
+      }
 
       <mc-sheet [open]="menu()" [title]="name()" (closed)="menu.set(false)">
         <div class="menu">

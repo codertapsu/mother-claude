@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 
 import { SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
+import { UsageGuardService } from '../core/usage-guard.service';
 import { IconComponent, IconName } from './icon.component';
 import { resumeNote } from './util';
 
@@ -10,7 +11,8 @@ import { resumeNote } from './util';
  * a sentence on its page: "Claude picks this up when its background work
  * finishes — closing VS Code now stops it." / "Claude resumes this by
  * itself in 12m — …", so it isn't taken for done and closed. Says nothing
- * for any other session.
+ * for any other session, nor while the usage guard holds its scheduled run
+ * (the pause's own line says when it goes on).
  */
 @Component({
   selector: 'mc-resume-note',
@@ -58,12 +60,14 @@ import { resumeNote } from './util';
 })
 export class ResumeNoteComponent {
   private clock = inject(NowService);
+  private guard = inject(UsageGuardService);
   readonly session = input<SessionSummary | undefined>(undefined);
 
   protected readonly note = computed<{ icon: IconName; text: string } | null>(() => {
     const s = this.session();
     if (!s?.live || s.status !== 'background') return null;
     const scheduled = s.activity?.kind === 'scheduled';
+    if (scheduled && !s.machine && this.guard.pausedFor(s.id)?.kind === 'held') return null;
     // Only a countdown needs the ticking clock.
     const now = scheduled && s.activity?.resumesAt ? this.clock.now() : Date.now();
     const text = resumeNote(s, now);

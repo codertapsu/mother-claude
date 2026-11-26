@@ -2845,9 +2845,10 @@ const TOPICS: HelpTopicSource[] = [
         ],
         points: [
           'When the 5-hour or weekly limit of an account reaches it, that account’s working sessions stop at a safe point: Mother Claude’s own at once (their background agents too), sessions started elsewhere at their next tool call. A per-model weekly limit stops only the sessions on that model. Conversations of the HTTP API are left alone: their apps send each request themselves.',
+          'A session **Scheduled to resume** (a `/loop` wakeup or a scheduled job) is held: if its run comes while the account is paused, the turn it starts is stopped at once and goes on with the others.',
           'What each was doing is saved. A minute after the limit resets, each one is told to go on exactly where it left off, also after Mother Claude was closed in between.',
-          "A banner above every page says when they resume. **Resume now** starts them again at once; **Don't resume** keeps them stopped until you do.",
-          'A message you send a paused session goes through: it is left alone after that. Teams start no role session on that account meanwhile.',
+          "A banner above every page names the paused sessions (⏸ work stopped, 🕑 a scheduled run waiting) and says when they resume. In the list each one shows **Paused until …**, and its page says why. **Resume now** starts them again at once; **Don't resume** keeps them stopped until you do.",
+          'A message you send a paused session goes through: it is left alone after that, as is a session you start or continue meanwhile. Teams start no role session on that account meanwhile.',
           'Turn off **Resume by itself after the reset** to resume by hand, or **Also sessions started elsewhere** to pause only Mother Claude’s own sessions.',
         ],
         links: [{ label: 'Open Settings', path: '/settings' }],

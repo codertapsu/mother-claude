@@ -964,7 +964,8 @@ class FixtureBackend implements MockBackend {
   }
 
   /** The usage guard (`/usage-guard*`): its settings, and with
-   * `?mockguard=paused` one pause holding two sessions. */
+   * `?mockguard=paused` one pause that stopped two sessions and holds the
+   * scheduled run of a third (`s-watch`, a terminal `/loop`). */
   private guard: UsageGuardView = {
     settings: { ...DEFAULT_GUARD_SETTINGS },
     pauses:
@@ -987,6 +988,7 @@ class FixtureBackend implements MockBackend {
                   name: 'auth',
                   owned: true,
                   stopped: true,
+                  held: false,
                   doing: ['the turn it was working on'],
                   released: false,
                 },
@@ -995,7 +997,19 @@ class FixtureBackend implements MockBackend {
                   name: 'docs',
                   owned: false,
                   stopped: true,
+                  held: false,
                   doing: ['Agent “check the links”'],
+                  released: false,
+                },
+                {
+                  id: 's-watch',
+                  name: 'Watch the staging rollout',
+                  owned: false,
+                  stopped: false,
+                  held: true,
+                  runAt: Date.now() + 12 * 60_000,
+                  run: 'Check whether the staging rollout finished',
+                  doing: [],
                   released: false,
                 },
               ],

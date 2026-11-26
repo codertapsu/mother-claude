@@ -22,7 +22,7 @@ export interface UsageGuardSettings {
 
 export type UsageGuardPatch = Partial<UsageGuardSettings>;
 
-/** A session a pause stopped. */
+/** A session a pause stopped, holds or left alone. */
 export interface PausedSession {
   id: string;
   name: string;
@@ -30,6 +30,13 @@ export interface PausedSession {
   cwd?: string;
   /** A turn or background agents were stopped: it gets the resume message. */
   stopped: boolean;
+  /** It waits on a scheduled run (a /loop wakeup, a cron job) the pause
+   * holds: when the run starts a turn, the turn is stopped too. */
+  held: boolean;
+  /** When that run is due (absent: unknown, a recurring job). */
+  runAt?: number;
+  /** What runs then: the wakeup's reason or the job's schedule. */
+  run?: string;
   /** What stopped: the turn, agents, workflows. */
   doing: string[];
   /** Its todos then: [done, total]. */
@@ -130,6 +137,9 @@ export function normalizeUsageGuard(raw: unknown): UsageGuardView {
         owned: x['owned'] === true,
         ...(str(x['cwd']) ? { cwd: str(x['cwd']) } : {}),
         stopped: x['stopped'] === true,
+        held: x['held'] === true,
+        ...(typeof x['runAt'] === 'number' ? { runAt: x['runAt'] } : {}),
+        ...(str(x['run']) ? { run: str(x['run']) } : {}),
         doing: Array.isArray(x['doing'])
           ? (x['doing'] as unknown[]).filter((d): d is string => typeof d === 'string')
           : [],
@@ -157,7 +167,30 @@ export function windowText(key: string, label: string): string {
   return model ? tr('the weekly {model} limit', { model }) : tr('its limit');
 }
 
-/** How many sessions a pause stopped. */
-export function stoppedCount(p: UsagePause): number {
-  return p.sessions.filter((s) => s.stopped).length;
+/** How a session is paused: `stopped` (its work was stopped; it resumes
+ * after the reset), `held` (its scheduled run waits), or not at all (null:
+ * someone sent it a message, or it was resumed). */
+export type PausedKind = 'stopped' | 'held';
+
+export function pausedKind(s: PausedSession): PausedKind | null {
+  if (s.released || s.resumedAt) return null;
+  if (s.stopped) return 'stopped';
+  return s.held ? 'held' : null;
+}
+
+/** One paused session, with the pause that holds it. */
+export interface PausedInfo {
+  pause: UsagePause;
+  session: PausedSession;
+  kind: PausedKind;
+}
+
+/** The sessions pause `p` holds now: the stopped ones first. */
+export function pausedSessions(p: UsagePause): PausedInfo[] {
+  const out: PausedInfo[] = [];
+  for (const session of p.sessions) {
+    const kind = pausedKind(session);
+    if (kind) out.push({ pause: p, session, kind });
+  }
+  return out.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'stopped' ? -1 : 1));
 }

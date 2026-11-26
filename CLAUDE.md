@@ -329,8 +329,12 @@ in Mother Claude fires the buffer (60 s) after the reset and sends each one a
 resume message through `deliver_message` as the desktop (an owned session
 that ended meanwhile is continued with it). Once per reset; *Resume now*
 holds that window off until it resets; a message someone sends a paused
-session releases it; an owned session that starts a turn by itself while
-paused is stopped again; one two pauses hold resumes with the last of them;
+session (or a start or continue from Mother Claude) releases it; a session
+*Scheduled to resume* is held and the turn its run starts is stopped at once
+(also elsewhere: `watch_one`, woken by every session diff); an owned session
+that starts a turn by itself while paused is stopped again; one two pauses
+hold resumes with the last of them; held sessions show as *Paused until …*
+(banner, card, session page);
 the HTTP API's conversations are left alone (their client sends each turn);
 `capacity::admit` waits while its account (or the model it would run on) is
 paused. With the guard on, `claude::usage` reads while sessions work with no
