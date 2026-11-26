@@ -18,6 +18,7 @@ pub mod hooks;
 pub mod listeners;
 pub mod monitor;
 pub mod pairing;
+pub mod pins;
 pub mod push;
 pub mod ratelimit;
 pub mod remote;

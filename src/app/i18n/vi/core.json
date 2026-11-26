@@ -687,5 +687,11 @@
   "the turn it was working on": "lượt nó đang làm",
   "the turn its scheduled run started": "lượt do lần chạy theo lịch của nó bắt đầu",
   "agent “{name}”": "tác tử “{name}”",
-  "workflow “{name}”": "workflow “{name}”"
+  "workflow “{name}”": "workflow “{name}”",
+  "Pinned": "Đã ghim",
+  "Pin to the top": "Ghim lên đầu",
+  "Pin {name} to the top": "Ghim {name} lên đầu",
+  "Unpin {name}": "Bỏ ghim {name}",
+  "{name} is pinned to the top of Sessions.": "Đã ghim {name} lên đầu trang Phiên.",
+  "{name} is unpinned.": "Đã bỏ ghim {name}."
 }

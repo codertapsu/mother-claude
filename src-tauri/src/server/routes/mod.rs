@@ -19,6 +19,7 @@ pub mod disk;
 pub mod foreign;
 pub mod pairing;
 pub mod permissions;
+pub mod pins;
 pub mod plugins;
 pub mod push;
 pub mod remote;
@@ -202,6 +203,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/usage-guard/resume", post(usage::post_guard_resume))
         .route("/usage-guard/pauses/{id}", delete(usage::delete_guard_pause))
         .route("/usage-guard/pauses/{id}/hold", post(usage::post_guard_hold))
+        .route("/pins", get(pins::list))
+        .route("/pins/{id}", put(pins::pin).delete(pins::unpin))
         // ── capacity, routing, budgets (docs/ROUTING.md) ──
         .merge(crate::orchestration::capacity_api::router())
         .route("/inbox", get(data::inbox))

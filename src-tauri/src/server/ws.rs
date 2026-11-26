@@ -206,6 +206,9 @@ pub enum ServerEvent {
     /// `{t:"usageGuard"}` — refetch `GET /api/usage-guard`
     /// (`claude::usage_guard`).
     UsageGuard,
+    /// The pinned sessions changed (everyone): `{t:"pins"}` — refetch `GET
+    /// /api/pins` (`server::pins`).
+    Pins,
     /// A move of a session to or from another computer changed (everyone):
     /// `{t:"move", move}` with the move's whole record as `GET
     /// /api/moves/{id}` answers it (`machines::moves`, docs/PLAN-MACHINES.md
@@ -256,7 +259,8 @@ impl ServerEvent {
             | ServerEvent::Browser { .. }
             | ServerEvent::Jobs { .. }
             | ServerEvent::Permissions
-            | ServerEvent::UsageGuard => Audience::All,
+            | ServerEvent::UsageGuard
+            | ServerEvent::Pins => Audience::All,
             ServerEvent::Teams(_) | ServerEvent::Machines { .. } | ServerEvent::Move { .. } => {
                 Audience::All
             }

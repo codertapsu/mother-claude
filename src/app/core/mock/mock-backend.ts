@@ -64,6 +64,7 @@ import {
   THRESHOLD_MIN,
   type UsageGuardView,
 } from '../usage-guard';
+import type { Pin } from '../pins';
 import { urlParam } from '../platform';
 import { SessionFilters, sessionPasses } from '../../shared/session-search';
 
@@ -447,6 +448,9 @@ class FixtureBackend implements MockBackend {
     if (path === '/defaults') return json(this.fx.defaults);
     if (path === '/usage-guard' || path.startsWith('/usage-guard/')) {
       return this.usageGuard(path, method, body);
+    }
+    if (path === '/pins' || path.startsWith('/pins/')) {
+      return this.pinRoutes(path, method, q.get('machine') || undefined);
     }
     if (path === '/usage' || path.startsWith('/usage/')) {
       if (USAGE_MODE === 'none') {
@@ -1069,6 +1073,35 @@ class FixtureBackend implements MockBackend {
         pauses: this.guard.pauses.map((x) => (x === p ? { ...x, hold } : x)),
       };
       return changed();
+    }
+    return json({ error: { code: 'not_found', message: `No mock for ${method} ${path}` } }, 404);
+  }
+
+  /** Pinned sessions (`/pins*`): one pinned to start with (`s-watch`). */
+  private pinList: Pin[] = [{ id: 's-watch', at: Date.now() - 86_400_000 }];
+
+  private pinRoutes(path: string, method: string, machine: string | undefined): Response {
+    const view = () =>
+      json({
+        pins: this.pinList,
+        sessions: this.pinList
+          .filter((p) => !p.machine)
+          .map((p) => this.find(p.id))
+          .filter((s): s is SessionSummary => !!s),
+      });
+    if (path === '/pins' && method === 'GET') return view();
+    const m = /^\/pins\/([^/]+)$/.exec(path);
+    if (m && (method === 'PUT' || method === 'DELETE')) {
+      const id = decodeURIComponent(m[1]);
+      const same = (p: Pin) => p.id === id && p.machine === machine;
+      const had = this.pinList.some(same);
+      if (method === 'PUT' && !had) {
+        this.pinList = [...this.pinList, { id, ...(machine ? { machine } : {}), at: Date.now() }];
+      } else if (method === 'DELETE' && had) {
+        this.pinList = this.pinList.filter((p) => !same(p));
+      }
+      if (had !== (method === 'PUT')) this.broadcast({ t: 'pins' });
+      return view();
     }
     return json({ error: { code: 'not_found', message: `No mock for ${method} ${path}` } }, 404);
   }

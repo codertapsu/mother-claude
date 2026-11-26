@@ -151,6 +151,8 @@ pub struct Inner {
     /// Pausing work near a plan limit, and resuming it after the reset
     /// (`claude/usage_guard.rs`, Settings › Usage limits).
     pub usage_guard: crate::claude::usage_guard::UsageGuard,
+    /// The sessions pinned to the top of the list (`server/pins.rs`).
+    pub pins: crate::server::pins::Pins,
     /// The Claude accounts sessions can run under, and their secrets
     /// (`claude/accounts.rs`, docs/ACCOUNTS.md).
     pub accounts: AccountRegistry,
@@ -258,6 +260,7 @@ impl Inner {
             push: PushService::new(data_dir),
             usage: UsageStore::new(data_dir),
             usage_guard: crate::claude::usage_guard::UsageGuard::load(data_dir),
+            pins: crate::server::pins::Pins::load(data_dir),
             accounts,
             jobs,
             reveal: crate::claude::reveal::Revealer::default(),

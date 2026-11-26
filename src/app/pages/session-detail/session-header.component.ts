@@ -19,6 +19,7 @@ import { MachineContext } from '../../core/machine-context';
 import { accountLocation, anyTarget } from '../../core/move-data';
 import { StorageService } from '../../core/storage.service';
 import { NoticeService } from '../../core/notice.service';
+import { PinsService } from '../../core/pins.service';
 import { PushService } from '../../core/push.service';
 import { RealtimeService, connectionDetail, connectionLabel } from '../../core/realtime.service';
 import { computerNoun, tr } from '../../core/i18n/i18n';
@@ -66,7 +67,8 @@ import { SessionContext } from './session-context';
  *   it is; a sheet with the launch options), *Bring back to this …*,
  *   *Switch account…*, *Continue on another account…*, *Continue on
  *   another computer…*, *Keep a copy on…*;
- * - **Organize** — *Rename…*, *Move or copy…* it or its project to
+ * - **Organize** — *Pin to the top* (of Sessions) or *Unpin*, *Rename…*,
+ *   *Move or copy…* it or its project to
  *   another account or a storage, *Project settings…* (its project's
  *   settings sheet, docs/UI-REDESIGN.md §9), *Delete…*;
  * - **This session** — its notifications (a phone), *Terminal view*,
@@ -228,6 +230,10 @@ import { SessionContext } from './session-context';
 
           <!-- Its name and its data. -->
           <h2 class="group">{{ 'Organize' | t }}</h2>
+          <button class="item" type="button" [attr.aria-pressed]="pinned()" (click)="togglePin()">
+            <mc-icon name="pin" [size]="18" />
+            <span>{{ pinned() ? ('Unpin' | t) : ('Pin to the top' | t) }}</span>
+          </button>
           <button class="item" type="button" (click)="startRename()">
             <mc-icon name="edit" [size]="18" />
             <span>{{ 'Rename…' | t }}</span>
@@ -727,6 +733,11 @@ export class SessionHeaderComponent {
   protected readonly deleteStart = signal<DeleteStart | null>(null);
 
   protected readonly menu = signal(false);
+  private readonly pins = inject(PinsService);
+  /** Pinned to the top of Sessions. */
+  protected readonly pinned = computed(() =>
+    this.pins.isPinned(this.ctx.id(), this.machine?.id ?? null),
+  );
   /** The *Continue here* sheet is open. */
   protected readonly continuing = signal(false);
   /** Its launch options (model, effort, mode). */
@@ -922,6 +933,8 @@ export class SessionHeaderComponent {
   protected readonly keepCopy = signal(false);
 
   constructor() {
+    // Whether it is pinned (the menu says Pin or Unpin).
+    this.pins.ensureLoaded();
     // Where things can be moved to: the storages count too.
     if (!this.machine) void this.storage.ensureLoaded();
     // Who is paired, for the moves to another computer.
@@ -962,6 +975,12 @@ export class SessionHeaderComponent {
     if (this.machine) return;
     void this.storage.ensureLoaded();
     if (!this.push.prefs()) void this.push.loadPrefs();
+  }
+
+  /** Pin it to the top of Sessions, or unpin it. */
+  protected togglePin(): void {
+    this.menu.set(false);
+    void this.pins.toggle(this.ctx.id(), this.machine?.id ?? null, this.name());
   }
 
   startRename(): void {

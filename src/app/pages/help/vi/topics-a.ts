@@ -329,11 +329,17 @@ const TOPICS: HelpTopicSource[] = [
       'cài đặt dự án',
       'bên cạnh danh sách',
       'bàn phím',
+      'ghim',
+      'đã ghim',
     ],
     sections: [
       {
         heading: 'Danh sách được nhóm thế nào',
         terms: [
+          {
+            term: 'Đã ghim',
+            text: 'Các phiên bạn đã ghim, theo thứ tự bạn ghim, dù chúng đang làm gì — kể cả phiên đã kết thúc từ lâu. Chúng chỉ hiện ở đây.',
+          },
           {
             term: 'Cần bạn',
             text: 'Một yêu cầu cấp quyền, câu hỏi hoặc kế hoạch đang chờ bạn. Mục cũ nhất đứng đầu.',
@@ -354,6 +360,17 @@ const TOPICS: HelpTopicSource[] = [
           'Khi có một yêu cầu đơn giản đang chờ, bạn có thể trả lời ngay trên thẻ. Nếu không, nhấn **Xem xét**.',
           'Chạm vào tên phiên để mở trang của phiên.',
           'Khi có nhiều tài khoản Claude, một nhãn màu ghi tên tài khoản.',
+        ],
+      },
+      {
+        heading: 'Ghim các phiên bạn hay làm việc',
+        steps: [
+          'Nhấn vào ghim ở cuối hàng trên cùng của thẻ (khi dùng chuột, ghim hiện ra lúc bạn trỏ vào thẻ), hoặc mở phiên và chọn **⋮ › Ghim lên đầu**.',
+          'Phiên chuyển lên mục **Đã ghim** ở đầu trang **Phiên**. Nhấn ghim lần nữa, hoặc **⋮ › Bỏ ghim**, để đưa nó về chỗ cũ.',
+        ],
+        points: [
+          'Mother Claude giữ các ghim, nên chúng giống nhau trên máy tính và trên điện thoại của bạn.',
+          'Ô tìm kiếm và các bộ lọc cũng áp dụng cho phiên đã ghim.',
         ],
       },
       {

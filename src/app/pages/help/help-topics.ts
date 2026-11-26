@@ -328,11 +328,17 @@ const TOPICS: HelpTopicSource[] = [
       'project settings',
       'split view',
       'keyboard',
+      'pin',
+      'pinned',
     ],
     sections: [
       {
         heading: 'How the list is grouped',
         terms: [
+          {
+            term: 'Pinned',
+            text: 'The sessions you pinned, in the order you pinned them, whatever they are doing — also ones that ended long ago. They show only here.',
+          },
           {
             term: 'Needs you',
             text: 'A permission, question or plan waits for you. The oldest comes first.',
@@ -353,6 +359,17 @@ const TOPICS: HelpTopicSource[] = [
           'When one simple request waits, you can answer it on the card. Otherwise press **Review**.',
           "Tap the session's name to open its page.",
           'With more than one Claude account, a coloured chip names the account.',
+        ],
+      },
+      {
+        heading: 'Pin the sessions you work with',
+        steps: [
+          'Press the pin at the end of the card’s top row (with a mouse it shows when you point at the card), or open the session and choose **⋮ › Pin to the top**.',
+          'It moves to **Pinned** at the top of **Sessions**. Press the pin again, or **⋮ › Unpin**, to put it back.',
+        ],
+        points: [
+          'Pins are kept by Mother Claude, so they are the same on the desktop and on your phone.',
+          'Search and the filters apply to pinned sessions too.',
         ],
       },
       {

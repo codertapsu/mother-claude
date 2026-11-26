@@ -63,6 +63,7 @@ import {
   normalizeRule,
 } from './permission-rules';
 import { UsageGuardPatch, UsageGuardView, normalizeUsageGuard } from './usage-guard';
+import { PinsView, normalizePins } from './pins';
 import {
   CatalogView,
   PluginChange,
@@ -210,6 +211,7 @@ import {
  *   Guard     getUsageGuard() · setUsageGuardSettings(patch) ·
  *             resumeUsagePause(pause?) · holdUsagePause(id, hold) ·
  *             dismissUsagePause(id)
+ *   Pins      getPins() · pinSession(id, machine?) · unpinSession(id, machine?)
  *   Accounts  getAccounts() · addAccount(body) · updateAccount(id, patch) ·
  *             removeAccount(id) · setAccountDefaults(d) ·
  *             setCopyConsent(from, to, granted) · recheckAccount(id) ·
@@ -643,6 +645,28 @@ export class ApiService {
   async dismissUsagePause(id: string): Promise<UsageGuardView> {
     return normalizeUsageGuard(
       await this.req<unknown>(`/usage-guard/pauses/${enc(id)}`, { method: 'DELETE' }),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────── Pins
+
+  /** `GET /api/pins`: the pinned sessions, in the order they were pinned. */
+  async getPins(): Promise<PinsView> {
+    return normalizePins(await this.req<unknown>('/pins'));
+  }
+
+  /** `PUT /api/pins/{id}?machine=`: pin a session (another computer's with
+   * `machine`); pinned already: unchanged. */
+  async pinSession(id: string, machine?: string | null): Promise<PinsView> {
+    return normalizePins(
+      await this.req<unknown>(`/pins/${enc(id)}${machineQuery(machine)}`, { method: 'PUT' }),
+    );
+  }
+
+  /** `DELETE /api/pins/{id}?machine=`. */
+  async unpinSession(id: string, machine?: string | null): Promise<PinsView> {
+    return normalizePins(
+      await this.req<unknown>(`/pins/${enc(id)}${machineQuery(machine)}`, { method: 'DELETE' }),
     );
   }
 
@@ -2207,6 +2231,11 @@ export function describeError(e: unknown): DescribedError {
 
 function enc(v: string): string {
   return encodeURIComponent(v);
+}
+
+/** `?machine=<id>` for another computer's session, else nothing. */
+function machineQuery(machine?: string | null): string {
+  return machine ? `?machine=${enc(machine)}` : '';
 }
 
 /** An answer that should have been JSON of a known shape, and was not. */

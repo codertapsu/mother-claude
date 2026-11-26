@@ -68,6 +68,8 @@ const ICONS = {
   terminal: ['m4 17 6-6-6-6', 'M12 19h8'],
   stop: ['M6 6h12v12H6z'],
   pause: ['M6 4h4v16H6z', 'M14 4h4v16h-4z'],
+  // A push pin: its head, its shoulders and its needle.
+  pin: ['M9 3h6', 'M10 3l-1 7-3 3v2h12v-2l-3-3-1-7', 'M12 15v6'],
   refresh: ['M21 12a9 9 0 1 1-2.64-6.36L21 8', 'M21 3v5h-5'],
   copy: [
     'M11 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z',

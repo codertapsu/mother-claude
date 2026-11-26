@@ -8,6 +8,8 @@ import { MachinesService } from '../core/machines.service';
 import { PendingRef, SessionSummary } from '../core/models';
 import { NowService } from '../core/now.service';
 import type { MachineTag } from '../core/remote-sessions.service';
+import { pinKey } from '../core/pins';
+import { PinsService } from '../core/pins.service';
 import { sessionLink } from '../core/session-links';
 import { UsageGuardService } from '../core/usage-guard.service';
 import { ViewportService } from '../core/viewport.service';
@@ -62,6 +64,10 @@ interface PackedPart {
  * edge and leads its chips with *Paused until …* — ⏸ when its work was
  * stopped, 🕑 when its scheduled run waits — whose tooltip says why and
  * when it goes on.
+ *
+ * The pin at the end of the top row keeps the session at the top of
+ * Sessions (its *Pinned* group, `PinsService`); with a mouse it shows on
+ * hover, always once pinned.
  */
 @Component({
   selector: 'mc-session-card',
@@ -111,6 +117,20 @@ interface PackedPart {
         >{{ name() }}</a
       >
       <mc-time class="when" [ms]="s.lastActivityAt" />
+      <button
+        type="button"
+        class="pin"
+        [class.on]="pinned()"
+        [attr.aria-pressed]="pinned()"
+        [attr.aria-label]="
+          (pinned() ? 'Unpin {name}' : 'Pin {name} to the top') | t: { name: name() }
+        "
+        [title]="(pinned() ? 'Unpin' : 'Pin to the top') | t"
+        [disabled]="pinBusy()"
+        (click)="togglePin()"
+      >
+        <mc-icon name="pin" [size]="15" />
+      </button>
     </div>
 
     @if (offline()) {
@@ -346,6 +366,38 @@ interface PackedPart {
         color: var(--faint);
         white-space: nowrap;
       }
+      /* Pin to the top: a tap target of the full size, without growing the
+         row; with a mouse it shows on hover (always once pinned). */
+      .pin {
+        appearance: none;
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: var(--tap);
+        min-height: var(--tap);
+        margin: -0.75rem -0.75rem -0.75rem -0.45rem;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: var(--faint);
+        cursor: pointer;
+      }
+      .pin:hover {
+        color: var(--text);
+      }
+      .pin.on {
+        color: var(--accent-text);
+      }
+      @media (hover: hover) {
+        .pin:not(.on) {
+          opacity: 0;
+        }
+        :host(:hover) .pin,
+        .pin:focus-visible {
+          opacity: 1;
+        }
+      }
       .last {
         margin: 0;
         font-size: 0.85rem;
@@ -393,6 +445,7 @@ export class SessionCardComponent {
   private machines = inject(MachinesService);
   private listDetail = inject(ListDetailService);
   private guard = inject(UsageGuardService);
+  private pins = inject(PinsService);
   protected readonly viewport = inject(ViewportService);
   readonly session = input.required<SessionSummary>();
   /** Show a checkbox (Sessions › Select). */
@@ -404,6 +457,15 @@ export class SessionCardComponent {
   readonly toggled = output<void>();
 
   protected readonly name = computed(() => sessionName(this.session()));
+  /** The computer it runs on (null: this one), as its pin names it. */
+  private readonly onMachine = computed(() => this.machine()?.id ?? this.session().machine ?? null);
+  /** Pinned to the top of Sessions. */
+  protected readonly pinned = computed(() =>
+    this.pins.isPinned(this.session().id, this.onMachine()),
+  );
+  protected readonly pinBusy = computed(() =>
+    this.pins.busy().has(pinKey(this.session().id, this.onMachine())),
+  );
   /** How the usage guard holds it (this computer's sessions only: another
    * computer pauses its own). */
   protected readonly paused = computed(() => {
@@ -486,6 +548,10 @@ export class SessionCardComponent {
     return s.pending?.length === 1 ? { ...s.pending[0], sessionId: s.id } : null;
   });
   protected readonly path = computed(() => shortPath(this.session().cwd));
+
+  protected togglePin(): void {
+    void this.pins.toggle(this.session().id, this.onMachine(), this.name());
+  }
   protected readonly mode = computed(() => modeLabel(this.session().permissionMode));
   protected readonly showActivity = computed(() => {
     const s = this.session();

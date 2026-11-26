@@ -101,7 +101,7 @@ describe('SessionHeaderComponent', () => {
     openMenu(el);
     expect(groups(el)).toEqual([
       ['Continue', ['Continue here, as a new session']],
-      ['Organize', ['Rename…', 'Project settings…', 'Delete…']],
+      ['Organize', ['Pin to the top', 'Rename…', 'Project settings…', 'Delete…']],
       ['This session', ['Terminal view', 'Session info', 'claude --resume s1…']],
       ['Its process', ['Stop', 'Restart', 'Remove']],
     ]);

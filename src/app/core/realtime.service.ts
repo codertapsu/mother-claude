@@ -44,6 +44,7 @@ import type { MachinesFrame, RemoteFrame, RemoteSessionsView } from './machines'
 import { MoveFrame, normalizeMove } from './moves';
 import type { PermissionsFrame } from './permission-rules';
 import type { UsageGuardFrame } from './usage-guard';
+import type { PinsFrame } from './pins';
 import type { TeamsFrame } from './teams';
 import { TranscriptStore, TranscriptStoreOptions } from './transcript-store';
 import { computerNoun, tr } from './i18n/i18n';
@@ -381,6 +382,9 @@ export class RealtimeService {
   /** `{t:'usageGuard'}`: the usage guard's settings or pauses changed. */
   private readonly usageGuardS = new Subject<UsageGuardFrame>();
   readonly usageGuard$: Observable<UsageGuardFrame> = this.usageGuardS.asObservable();
+  /** `{t:'pins'}`: the pinned sessions changed. */
+  private readonly pinsS = new Subject<PinsFrame>();
+  readonly pins$: Observable<PinsFrame> = this.pinsS.asObservable();
   readonly refetch$: Observable<RefetchReason> = this.refetchS.asObservable();
   readonly pollTick$: Observable<void> = this.pollTickS.asObservable();
 
@@ -1094,6 +1098,9 @@ export class RealtimeService {
         break;
       case 'usageGuard':
         this.usageGuardS.next(frame);
+        break;
+      case 'pins':
+        this.pinsS.next(frame);
         break;
       case 'resync':
         this.resync();

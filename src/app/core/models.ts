@@ -1952,7 +1952,9 @@ export type ServerFrame =
   | import('./moves').MoveFrame
   // Permissions changed (`core/permission-rules.ts`).
   | import('./permission-rules').PermissionsFrame
-  | import('./usage-guard').UsageGuardFrame;
+  | import('./usage-guard').UsageGuardFrame
+  // The pinned sessions changed (`core/pins.ts`).
+  | import('./pins').PinsFrame;
 
 /** `machine` on `sub`/`unsub`: another computer's session (its id). */
 export type ClientFrame =

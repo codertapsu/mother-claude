@@ -11,6 +11,7 @@ import { TPipe } from '../../core/i18n/t.pipe';
 import { MachinesService } from '../../core/machines.service';
 import { JobView, SessionSummary } from '../../core/models';
 import { anyTarget } from '../../core/move-data';
+import { PinsService } from '../../core/pins.service';
 import { storageGet, storageSet } from '../../core/platform';
 import { RealtimeService } from '../../core/realtime.service';
 import { MachineTag, RemoteSessionsService } from '../../core/remote-sessions.service';
@@ -79,6 +80,11 @@ const HERE = 'here';
  * from where it is). Every project on disk is the *Projects* tab
  * (`/projects`).
  *
+ * Pinned sessions (`PinsService`, the pin on each card) lead the page in a
+ * *Pinned* group, in the order they were pinned, and show only there — also
+ * one no longer active lately, as the pins bring it; the search and
+ * filters apply to them as to the rest.
+ *
  * Other computers' sessions (docs/PLAN-MACHINES.md §6.1) join the same
  * groups with their computer's chip, and a *Computer* filter picks every
  * computer, this one or one other (`?machine=<id>` opens it so); an offline
@@ -113,6 +119,7 @@ export class SessionsComponent {
   private remote = inject(RemoteSessionsService);
   private machinesView = inject(MachinesService);
   private route = inject(ActivatedRoute);
+  private pins = inject(PinsService);
 
   protected readonly loaded = this.realtime.sessionsLoaded;
   protected readonly connection = this.realtime.connection;
@@ -261,11 +268,31 @@ export class SessionsComponent {
       .sort(byRecent);
   });
 
+  /** Pinned sessions the session list's frames no longer carry (this
+   * computer's, not active lately), as the pins bring them, filtered alike. */
+  private readonly pinnedElsewhere = computed(() => {
+    const m = this.machineInEffect();
+    if (m && m !== HERE) return [];
+    const known = new Set(this.everything().map(cardKey));
+    const f = this.filters();
+    return (this.pins.view()?.sessions ?? []).filter(
+      (s) => !known.has(cardKey(s)) && this.pins.isPinned(s.id) && sessionPasses(s, f),
+    );
+  });
+
   protected readonly groups = computed<Group[]>(() => {
-    const list = this.visible();
+    const pinnedAt = (s: SessionSummary) => this.pins.pinnedAt(s.id, s.machine) ?? 0;
+    const all = this.visible();
+    // Pinned ones lead, in the order they were pinned, and show only there.
+    const pinned = [
+      ...all.filter((s) => this.pins.isPinned(s.id, s.machine)),
+      ...this.pinnedElsewhere(),
+    ].sort((a, b) => pinnedAt(a) - pinnedAt(b));
+    const list = all.filter((s) => !this.pins.isPinned(s.id, s.machine));
     const needs = list.filter(needsYou);
     const rest = list.filter((s) => !needsYou(s));
     const groups: Group[] = [
+      { key: 'pinned', title: tr('Pinned'), items: pinned },
       {
         key: 'needs',
         title: tr('Needs you'),
@@ -316,7 +343,10 @@ export class SessionsComponent {
   protected readonly historyVisible = computed(() => {
     const inStore = new Set(this.all().map((s) => s.id));
     const f = this.historyFilters();
-    return this.history().filter((s) => !inStore.has(s.id) && sessionPasses(s, f));
+    // A pinned one shows in Pinned already.
+    return this.history().filter(
+      (s) => !inStore.has(s.id) && !this.pins.isPinned(s.id) && sessionPasses(s, f),
+    );
   });
 
   protected readonly surfaceLabel = surfaceLabel;
@@ -354,6 +384,7 @@ export class SessionsComponent {
 
   constructor() {
     void this.storage.ensureLoaded();
+    this.pins.ensureLoaded();
     // Earlier sessions are searched on the server: a new search or filter
     // reads them again, once the typing stops.
     effect(() => {
