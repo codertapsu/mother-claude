@@ -738,6 +738,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'A session still running elsewhere goes on here as a new session: you drive a copy with a new id, and the original keeps running where it is.',
           'An ended session resumes in place. Typing a message into it does the same: its button says **Resume**.',
+          'A session Mother Claude ran before it restarted (after an update, say) and that kept running can’t take messages from here. Below its conversation, **Continue here…** goes on with the same session: its old process stops first, with whatever it was still doing, and Claude is told what stopped with your next message.',
           'If the conversation started on another computer, you may be asked to choose its folder here first.',
         ],
         notes: [

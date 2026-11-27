@@ -73,7 +73,16 @@ a rotating key and an undocumented protocol).
   permissions for one launched without `--allow-dangerously-skip-permissions`
   (the CLI refuses that live) restarts it the same way under its own
   account, with the flag (`switch::restart_for_bypass`: between turns, never
-  while its background work runs, back as it was if the launch fails). The Agent SDK
+  while its background work runs, back as it was if the launch fails). A
+  process an *earlier run* of Mother Claude started (an update or a crash
+  left it running mid-turn or with background work; its pipes went with
+  that run) is known by `MOTHER_CLAUDE_OWNED=1` or our plugin folder in its
+  argv (`LaunchFlags::mother_claude`; on Windows the argv and that one
+  variable are read through `sysinfo`), and offered as
+  `ControlCaps::take_over`: *Continue here* stops its process tree and
+  resumes the same session in place with its argv's model, effort and mode
+  (`claude::takeover`, `POST /sessions/{id}/take-over`), the next message
+  told what stopped. The Agent SDK
   sidecar (Path A) stays behind `MOTHER_CLAUDE_SIDECAR=1`. Background jobs are
   addressed by their SHORT job id only.
 - **Foreign sessions** → monitoring (transcripts, pidfiles, hook events),

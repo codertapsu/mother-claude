@@ -289,6 +289,12 @@ pub struct ControlCaps {
     /// Thinking can be switched here (`POST /sessions/{id}/thinking`): a live
     /// owned Path B session.
     pub set_thinking: bool,
+    /// An earlier run of Mother Claude started this live process (before an
+    /// update or a restart): nothing reaches it now, but it can be taken
+    /// over in place (`POST /sessions/{id}/take-over`: the old process stops,
+    /// the same session goes on here). Absent when false.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub take_over: bool,
     /// Machine-readable limits with the action that lifts each one.
     pub limits: Vec<CapLimit>,
     /// Human-readable reasons/limits for the UI (the `text` of each limit;

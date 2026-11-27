@@ -25,7 +25,7 @@ import { PendingService } from '../../core/pending.service';
 import { storageGet, storageRemove, storageSet } from '../../core/platform';
 import { ViewportService } from '../../core/viewport.service';
 import { CapLimitsComponent } from '../../shared/cap-limits.component';
-import { capAttach, capWake, limitFor } from '../../shared/caps';
+import { capAttach, capLimits, capWake, limitFor } from '../../shared/caps';
 import { IconComponent } from '../../shared/icon.component';
 import { MAX_IMAGES, blobToBase64, prepareImage } from '../../shared/images';
 import { SheetComponent } from '../../shared/sheet.component';
@@ -289,9 +289,30 @@ export class ComposerComponent {
       this.ctx.isDesktop() &&
       s.live &&
       !s.owned &&
+      !s.control.takeOver &&
       s.control.channel === 'none' &&
       !limitFor(s.control, 'install-foreign-control')
     );
+  });
+  /** An earlier run of Mother Claude started it (before an update or a
+   * restart): it can be taken over here, the same session going on. */
+  protected readonly takeOver = computed(() => !!this.caps()?.takeOver && !this.machine);
+  /** Its limits, but the take-over's, which the line above says already. */
+  protected readonly blockedLimits = computed(() =>
+    capLimits(this.caps()).filter((l) => l.code !== 'take_over'),
+  );
+  /** The take-over's confirmation is showing. */
+  protected readonly confirmTakeOver = signal(false);
+  protected readonly takingOver = signal(false);
+  /** What stops with the old process: its turn, or its background work. */
+  protected readonly takeOverStops = computed(() => {
+    const s = this.session();
+    if (!s) return '';
+    if (s.status === 'working' || s.status === 'waiting' || s.status === 'starting') {
+      return tr('the turn it is working on');
+    }
+    if (s.status === 'background') return s.activity?.detail || tr('its background work');
+    return '';
   });
   /** A limit already offers Continue/Fork: don't add a second button. */
   protected readonly continueOffered = computed(
@@ -808,6 +829,18 @@ export class ComposerComponent {
   protected dismissExplainer(): void {
     storageSet(RELAY_EXPLAINED_KEY, '1');
     this.explainer.set(false);
+  }
+
+  /** Take the session over (confirmed): its old process stops, and the same
+   * session goes on here. */
+  protected async takeOverNow(): Promise<void> {
+    if (this.takingOver()) return;
+    this.takingOver.set(true);
+    try {
+      if (await this.ctx.takeOver()) this.confirmTakeOver.set(false);
+    } finally {
+      this.takingOver.set(false);
+    }
   }
 
   /** The message went out: take it out of the composer, keeping whatever

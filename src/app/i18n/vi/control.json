@@ -665,5 +665,14 @@
   "online": "trực tuyến",
   "Open Phone & devices": "Mở Điện thoại & thiết bị",
   "Phone & devices: {error}": "Điện thoại & thiết bị: {error}",
-  "Mother Claude › Phone & devices": "Mother Claude › Điện thoại & thiết bị"
+  "Mother Claude › Phone & devices": "Mother Claude › Điện thoại & thiết bị",
+  "Mother Claude ran this session before it restarted, so it can’t take messages from here anymore. Continue it here to go on with the same session.": "Mother Claude đã chạy phiên này trước khi khởi động lại, nên giờ phiên không nhận tin nhắn từ đây được nữa. Hãy tiếp tục nó ở đây để làm tiếp chính phiên này.",
+  "Continue here…": "Tiếp tục ở đây…",
+  "Continuing…": "Đang tiếp tục…",
+  "Its old process stops first, and with it: {what}. Then the same session goes on here, waiting for your message.": "Tiến trình cũ của nó sẽ dừng trước, kèm theo: {what}. Sau đó chính phiên này tiếp tục ở đây, chờ tin nhắn của bạn.",
+  "Its old process stops first. Then the same session goes on here, waiting for your message.": "Tiến trình cũ của nó sẽ dừng trước. Sau đó chính phiên này tiếp tục ở đây, chờ tin nhắn của bạn.",
+  "its background work": "việc chạy nền của nó",
+  "the turn it is working on": "lượt nó đang làm",
+  "{name} goes on here. Its old process stopped, and with it: {what}.": "{name} tiếp tục ở đây. Tiến trình cũ của nó đã dừng, kèm theo: {what}.",
+  "{name} goes on here.": "{name} tiếp tục ở đây."
 }

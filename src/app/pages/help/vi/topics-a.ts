@@ -741,6 +741,7 @@ const TOPICS: HelpTopicSource[] = [
         points: [
           'Phiên vẫn đang chạy ở nơi khác sẽ tiếp tục ở đây thành phiên mới: bạn điều khiển một bản sao với id mới, còn bản gốc vẫn tiếp tục chạy ở chỗ cũ.',
           'Phiên đã kết thúc sẽ tiếp tục ngay tại chỗ. Gõ tin nhắn vào phiên đó cũng có tác dụng như vậy: nút gửi của nó ghi **Tiếp tục**.',
+          'Một phiên Mother Claude đã chạy trước khi khởi động lại (chẳng hạn sau một bản cập nhật) mà vẫn còn chạy thì không nhận tin nhắn từ đây được. Bên dưới cuộc trò chuyện của nó, **Tiếp tục ở đây…** làm tiếp chính phiên đó: tiến trình cũ của nó dừng trước, kèm những gì nó còn đang làm, và Claude được báo điều gì đã dừng cùng tin nhắn tiếp theo của bạn.',
           'Nếu cuộc trò chuyện bắt đầu trên một máy tính khác, có thể bạn sẽ được yêu cầu chọn thư mục của nó trên máy này trước.',
         ],
         notes: [

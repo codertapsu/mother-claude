@@ -238,6 +238,10 @@ pub fn api_router() -> Router<AppState> {
             post(control::continue_session).layer(DefaultBodyLimit::max(IMAGE_BODY_MAX)),
         )
         .route(
+            "/sessions/{id}/take-over",
+            post(control::take_over).layer(DefaultBodyLimit::max(IMAGE_BODY_MAX)),
+        )
+        .route(
             "/sessions/{id}/account",
             post(control::switch_account).delete(control::cancel_switch),
         )

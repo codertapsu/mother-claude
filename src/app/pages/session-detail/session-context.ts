@@ -25,7 +25,7 @@ import { PendingService } from '../../core/pending.service';
 import { RealtimeService } from '../../core/realtime.service';
 import { SessionActionsService } from '../../core/session-actions.service';
 import { TranscriptStore } from '../../core/transcript-store';
-import { activityIsBusy, effortLabel } from '../../shared/util';
+import { activityIsBusy, effortLabel, sessionName } from '../../shared/util';
 
 export type SessionTab = 'chat' | 'agents' | 'changes' | 'info';
 export type PickerKind = 'model' | 'effort' | 'mode' | 'rename';
@@ -290,6 +290,31 @@ export class SessionContext {
   continueHere(body: ContinueBody = {}): Promise<string | null> {
     const s = this.session();
     return s ? this.actions.continueHere(s, body) : Promise.resolve(null);
+  }
+
+  /** A session an earlier run of Mother Claude started (`takeOver`): its
+   * old process stops, and the same session goes on here, waiting for a
+   * message. */
+  async takeOver(): Promise<boolean> {
+    const s = this.session();
+    if (!s) return false;
+    const name = sessionName(s);
+    try {
+      const r = await this.api.takeOverLeftOver(s.id);
+      this.notices.success(
+        r.stopped
+          ? tr('{name} goes on here. Its old process stopped, and with it: {what}.', {
+              name,
+              what: r.stopped,
+            })
+          : tr('{name} goes on here.', { name }),
+      );
+      await this.refreshDetail();
+      return true;
+    } catch (e) {
+      this.notices.error(e, undefined, tr('Continue here'));
+      return false;
+    }
   }
 
   async interrupt(): Promise<boolean> {

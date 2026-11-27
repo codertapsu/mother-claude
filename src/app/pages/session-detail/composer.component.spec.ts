@@ -96,6 +96,77 @@ describe('ComposerComponent', () => {
     expect(cmp.palette()).toBeNull();
   });
 
+  it('continues here the same session an earlier run of Mother Claude started', async () => {
+    const ctx = TestBed.inject(SessionContext);
+    let taken = false;
+    backend.routes.set('/sessions/s1/take-over', () => {
+      taken = true;
+      return {
+        status: 201,
+        body: { id: 's1', stopped: 'Wait in the background for the 8 new downloads' },
+      };
+    });
+    ctx.detail.set({
+      id: 's1',
+      name: 'claude-dubber',
+      live: true,
+      owned: false,
+      surface: 'sdk',
+      status: 'background',
+      activity: {
+        kind: 'background',
+        label: 'Background work',
+        detail: 'Wait in the background for the 8 new downloads',
+      },
+      pending: [],
+      control: {
+        channel: 'none',
+        message: 'none',
+        fork: true,
+        continueOwned: true,
+        takeOver: true,
+        limits: [
+          { code: 'take_over', text: 'Mother Claude ran this session before it restarted.' },
+          { code: 'continue_here', text: 'Or continue it here, as a new session.', action: 'fork' },
+        ],
+      } as unknown as ControlCaps,
+    } as unknown as SessionDetail);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const words = (e: Element | null) => (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    expect(words(el.querySelector('.why'))).toContain(
+      'Mother Claude ran this session before it restarted',
+    );
+    // Its limit is said once (the line above), not again below it.
+    expect(words(el)).not.toContain('Mother Claude ran this session before it restarted.');
+    expect(el.textContent).not.toContain('Set up Sessions started elsewhere');
+    const button = (label: string) =>
+      [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => words(b) === label);
+    // Nothing stops before it is confirmed, and the confirmation says what.
+    button('Continue here…')!.click();
+    fixture.detectChanges();
+    expect(taken).toBe(false);
+    expect(words(el.querySelector('.take-over'))).toContain(
+      'Its old process stops first, and with it: Wait in the background for the 8 new downloads.',
+    );
+    const notices = TestBed.inject(NoticeService);
+    const said: string[] = [];
+    const success = notices.success.bind(notices);
+    notices.success = (text: string, ...rest: unknown[]) => {
+      said.push(text);
+      return (success as (...a: unknown[]) => unknown)(text, ...rest) as never;
+    };
+    button('Continue here')!.click();
+    await flush();
+    fixture.detectChanges();
+    expect(taken).toBe(true);
+    expect(backend.calls).toContain('POST /sessions/s1/take-over');
+    expect(said[0]).toBe(
+      'claude-dubber goes on here. Its old process stopped, and with it: Wait in the background for the 8 new downloads.',
+    );
+    expect(el.querySelector('.take-over')).toBeNull();
+  });
+
   it('sends to a session that resumes by itself as to an idle one', () => {
     const ctx = TestBed.inject(SessionContext);
     const at = (status: string, kind: string) =>

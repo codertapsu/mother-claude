@@ -1070,7 +1070,11 @@ pub async fn send_as(
     text: &str,
     images: &[ImageInput],
 ) -> ApiResult<MessageReceipt> {
-    let receipt = send(state, id, text, images).await?;
+    // The first message after a take-over says what stopped with the old
+    // process (`claude::takeover`).
+    let noted = crate::claude::takeover::take_note(id)
+        .map(|what| crate::claude::takeover::first_message(text, Some(&what)));
+    let receipt = send(state, id, noted.as_deref().unwrap_or(text), images).await?;
     if !may_dangerous && receipt.delivery == Delivery::Queued {
         let mid = receipt.message_id.clone();
         state.control.update(id, move |l| {

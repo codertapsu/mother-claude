@@ -284,3 +284,23 @@ textarea:focus {
   margin-top: 0.15rem;
   color: var(--muted);
 }
+/* Taking over a session an earlier run of Mother Claude started: what
+   stops, then confirm. */
+.take-over {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--amber-border);
+  border-radius: var(--radius-sm);
+  background: var(--amber-soft);
+  font-size: 0.88rem;
+}
+.take-over p {
+  margin: 0;
+}
+.take-over .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}

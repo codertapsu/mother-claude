@@ -341,6 +341,23 @@ pub struct LaunchFlags {
     pub thinking: Option<LaunchThinking>,
     /// `--effort ultracode`, or an inline `--settings '{"ultracode":…}'`.
     pub ultracode: Option<bool>,
+    /// `--model X`.
+    pub model: Option<String>,
+    /// Mother Claude started this process ([`super::control::OWNED_ENV`] in
+    /// its environment, or its own plugin folder in `--plugin-dir`). With no
+    /// control handle on it now, an earlier run of Mother Claude did: its
+    /// pipes went with that run, and it can only be taken over
+    /// (`claude::takeover`).
+    pub mother_claude: bool,
+}
+
+/// Whether a `--plugin-dir` value is the plugin folder Mother Claude gives
+/// the sessions it runs (`<app data>/mcp-plugin/mother-claude`).
+pub fn is_owned_plugin_dir(dir: &str) -> bool {
+    let normalized = dir.trim_matches('"').replace('\\', "/");
+    normalized
+        .trim_end_matches('/')
+        .ends_with("/mcp-plugin/mother-claude")
 }
 
 /// The value of `--name X` / `--name=X` in split argv words (the last one
@@ -490,7 +507,23 @@ fn flags_from_words(words: &[&str], settings: Option<serde_json::Value>) -> Laun
     {
         flags.ultracode = Some(on);
     }
+    flags.model = flag_value(words, "--model")
+        .map(str::trim)
+        .filter(|m| !m.is_empty() && m.len() <= 120)
+        .map(str::to_string);
+    flags.mother_claude = flag_values(words, "--plugin-dir").any(is_owned_plugin_dir);
     flags
+}
+
+/// Every value of `--name X` / `--name=X` in split argv words.
+fn flag_values<'a>(words: &'a [&'a str], name: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+    words.iter().enumerate().filter_map(move |(i, w)| {
+        if *w == name {
+            words.get(i + 1).copied()
+        } else {
+            w.strip_prefix(name).and_then(|rest| rest.strip_prefix('='))
+        }
+    })
 }
 
 /// A process's argv with its argument boundaries: `KERN_PROCARGS2` on macOS,
@@ -509,6 +542,9 @@ pub fn process_argv(pid: u32) -> Option<Vec<String>> {
 pub struct ProcFacts {
     pub args: Option<Vec<String>>,
     pub token_sha256: Option<String>,
+    /// [`super::control::OWNED_ENV`]`=1` is in its environment: Mother Claude
+    /// started it (only that one variable's presence is looked at).
+    pub mother_claude: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -517,6 +553,7 @@ pub fn process_facts(pid: u32) -> ProcFacts {
         Some(buf) => ProcFacts {
             args: parse_procargs2(&buf),
             token_sha256: env_sha256_in_procargs2(&buf, OAUTH_TOKEN_ENV),
+            mother_claude: env_marker_in_procargs2(&buf),
         },
         None => ProcFacts::default(),
     }
@@ -524,22 +561,96 @@ pub fn process_facts(pid: u32) -> ProcFacts {
 
 #[cfg(target_os = "linux")]
 pub fn process_facts(pid: u32) -> ProcFacts {
-    let token_sha256 = std::fs::read(format!("/proc/{pid}/environ"))
-        .ok()
-        .and_then(|bytes| env_sha256_in(bytes.split(|b| *b == 0), OAUTH_TOKEN_ENV));
+    let environ = std::fs::read(format!("/proc/{pid}/environ")).ok();
     ProcFacts {
         args: process_argv(pid),
-        token_sha256,
+        token_sha256: environ
+            .as_ref()
+            .and_then(|bytes| env_sha256_in(bytes.split(|b| *b == 0), OAUTH_TOKEN_ENV)),
+        mother_claude: environ
+            .as_ref()
+            .is_some_and(|bytes| has_owned_marker(bytes.split(|b| *b == 0))),
     }
 }
 
-/// No environment read on other platforms (Windows: "unknown", §11.6).
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+/// Windows: the argv and the marker through `sysinfo` (the process's own
+/// command line and environment block); no token read there ("unknown",
+/// §11.6).
+#[cfg(windows)]
+pub fn process_facts(pid: u32) -> ProcFacts {
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+    let pid = Pid::from_u32(pid);
+    let Ok(mut sys) = System::new() else {
+        return ProcFacts::default();
+    };
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        ProcessRefreshKind::nothing()
+            .with_cmd(UpdateKind::Always)
+            .with_environ(UpdateKind::Always),
+    );
+    let Some(p) = sys.process(pid) else {
+        return ProcFacts::default();
+    };
+    let args: Vec<String> = p
+        .cmd()
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    // Only whether the marker is there: nothing else is kept.
+    let marker = format!("{}=1", super::control::OWNED_ENV);
+    let mother_claude = p.environ().iter().any(|v| v.as_os_str() == marker.as_str());
+    ProcFacts {
+        args: (!args.is_empty()).then_some(args),
+        token_sha256: None,
+        mother_claude,
+    }
+}
+
+/// No process read elsewhere.
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 pub fn process_facts(pid: u32) -> ProcFacts {
     ProcFacts {
         args: process_argv(pid),
         token_sha256: None,
+        mother_claude: false,
     }
+}
+
+/// Whether `NAME=value` strings hold [`super::control::OWNED_ENV`]`=1`.
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
+fn has_owned_marker<'a>(mut vars: impl Iterator<Item = &'a [u8]>) -> bool {
+    let wanted = format!("{}=1", super::control::OWNED_ENV);
+    vars.any(|v| v == wanted.as_bytes())
+}
+
+/// [`has_owned_marker`] in the environment of a `KERN_PROCARGS2` buffer.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn env_marker_in_procargs2(buf: &[u8]) -> bool {
+    let Some(argc) = buf
+        .get(..4)
+        .and_then(|b| b.try_into().ok())
+        .map(i32::from_ne_bytes)
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|n| *n <= 65_536)
+    else {
+        return false;
+    };
+    let rest = &buf[4..];
+    let Some(path_end) = rest.iter().position(|b| *b == 0) else {
+        return false;
+    };
+    let rest = &rest[path_end..];
+    let Some(first) = rest.iter().position(|b| *b != 0) else {
+        return false;
+    };
+    has_owned_marker(
+        rest[first..]
+            .split(|b| *b == 0)
+            .skip(argc)
+            .take_while(|v| !v.is_empty()),
+    )
 }
 
 /// The variable D8 looks for.
@@ -626,7 +737,14 @@ pub fn process_argv(pid: u32) -> Option<Vec<String>> {
     })
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+/// Windows: the command line `sysinfo` reads from the process, split as the
+/// process itself split it.
+#[cfg(windows)]
+pub fn process_argv(pid: u32) -> Option<Vec<String>> {
+    process_facts(pid).args
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 pub fn process_argv(_pid: u32) -> Option<Vec<String>> {
     None
 }
@@ -1133,11 +1251,12 @@ impl LiveRoster {
                 // when that cannot be read. The environment's token (D8) in
                 // the same read.
                 let facts = process_facts(pid);
-                let flags = facts
+                let mut flags = facts
                     .args
                     .map(|args| launch_flags_from_args(&args))
                     .or_else(|| ps_field(pid, "command").map(|c| launch_flags_from_argv(&c)))
                     .unwrap_or_default();
+                flags.mother_claude |= facts.mother_claude;
                 rec.token_sha256 = facts.token_sha256.clone();
                 new_argv.push((key, flags, facts.token_sha256));
             }
@@ -1503,6 +1622,66 @@ mod tests {
                 ..Default::default()
             }
         );
+    }
+
+    #[test]
+    fn mother_claudes_own_sessions_are_known_by_their_plugin_folder_or_marker() {
+        let args = |a: &[&str]| launch_flags_from_args(a);
+        let ours = args(&[
+            "claude",
+            "-p",
+            "--model",
+            "claude-opus-5-5",
+            "--plugin-dir",
+            r"C:\Users\me\AppData\Roaming\motherclaude\Mother Claude\data\mcp-plugin\mother-claude",
+        ]);
+        assert!(ours.mother_claude);
+        assert_eq!(ours.model.as_deref(), Some("claude-opus-5-5"));
+        assert!(
+            args(&[
+                "claude",
+                "--plugin-dir",
+                "/x/mcp-plugin/mother-claude/",
+                "--plugin-dir",
+                "/p"
+            ])
+            .mother_claude,
+            "any of several plugin folders"
+        );
+        assert!(
+            args(&[
+                "claude",
+                "--plugin-dir=/Users/me/Library/Application Support/x/mcp-plugin/mother-claude"
+            ])
+            .mother_claude
+        );
+        assert!(!args(&["claude", "--plugin-dir", "/my/plugins"]).mother_claude);
+        assert!(
+            !args(&[
+                "claude",
+                "-p",
+                "explain --plugin-dir /x/mcp-plugin/mother-claude"
+            ])
+            .mother_claude,
+            "a prompt's words are no flag"
+        );
+        assert!(
+            !args(&[
+                "claude",
+                "--",
+                "--plugin-dir",
+                "/x/mcp-plugin/mother-claude"
+            ])
+            .mother_claude
+        );
+        // The environment marker: exactly `MOTHER_CLAUDE_OWNED=1`.
+        assert!(has_owned_marker(
+            [b"PATH=/bin".as_slice(), b"MOTHER_CLAUDE_OWNED=1"].into_iter()
+        ));
+        assert!(!has_owned_marker(
+            [b"MOTHER_CLAUDE_OWNED=0".as_slice()].into_iter()
+        ));
+        assert!(!has_owned_marker(std::iter::empty()));
     }
 
     #[test]

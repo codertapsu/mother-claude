@@ -61,6 +61,10 @@ pub struct CapsInput {
     /// can run it, or it is requested and can be withdrawn
     /// ([`super::control::OwnedLive::ultracode_switchable`]).
     pub ultracode_switchable: bool,
+    /// An earlier run of Mother Claude started this live process: its pipes
+    /// went with that run, so nothing reaches it, but it can be taken over
+    /// in place (`claude::takeover`).
+    pub left_over: bool,
 }
 
 /// What the data layer (B2) knows about a session when it builds a summary.
@@ -142,9 +146,18 @@ pub fn input_with(state: &AppState, facts: &SessionFacts, extra: &ExtraFacts) ->
         .control
         .switch_facts(&facts.id)
         .unwrap_or((false, false));
+    // Started by Mother Claude, yet no handle here: an earlier run's.
+    let left_over = facts.live
+        && !facts.owned
+        && !facts.bridge_thread
+        && state
+            .live
+            .launch_flags(&facts.id)
+            .is_some_and(|f| f.mother_claude);
     CapsInput {
         sidecar,
         ultracode_switchable,
+        left_over,
         owned: facts.owned && !facts.bridge_thread,
         bridge_thread: facts.bridge_thread,
         claude_api: facts.bridge_thread && state.bridge.api.with(&facts.id, |_| ()).is_some(),
@@ -241,6 +254,7 @@ pub mod codes {
     pub const PTY_EXPERIMENTAL: &str = "pty_experimental";
     pub const NO_TRANSCRIPT: &str = "no_transcript";
     pub const OWNED_SETTINGS: &str = "owned_only_settings";
+    pub const TAKE_OVER: &str = "take_over";
 }
 
 /// Compute the capabilities for one session.
@@ -364,6 +378,23 @@ pub fn compute(input: &CapsInput) -> ControlCaps {
              text and keys from here need a device allowed dangerous actions.",
             None,
         ));
+    }
+
+    // Started by an earlier run of Mother Claude (before an update or a
+    // restart): its pipes went with that run and its hooks stay silent (an
+    // owned session's do), so nothing reaches it here — but it can be taken
+    // over: the old process stops, and the same session goes on here.
+    if input.left_over && continuable {
+        caps.take_over = true;
+        caps.limits.push(limit(
+            codes::TAKE_OVER,
+            "Mother Claude ran this session before it restarted, so it can't take messages \
+             from here anymore. Continue it here to go on with the same session: its old \
+             process stops first, with any background work it is running.",
+            None,
+        ));
+        caps.limits.push(continue_limit(true));
+        return finish(caps);
     }
 
     // Hooks not flowing although the plugin is installed: the session was
@@ -523,6 +554,60 @@ mod tests {
             .iter()
             .find(|l| l.code == code)
             .and_then(|l| l.action)
+    }
+
+    #[test]
+    fn a_session_an_earlier_run_started_can_be_taken_over() {
+        let c = compute(&CapsInput {
+            live: true,
+            left_over: true,
+            hooks_installed: true,
+            bypass: true,
+            ..Default::default()
+        });
+        assert!(c.take_over);
+        assert_eq!(
+            (c.channel, c.message),
+            (ControlChannel::None, MessageCap::None)
+        );
+        assert!(has(&c, codes::TAKE_OVER) && has(&c, codes::BYPASS));
+        assert!(
+            !has(&c, codes::HOOKS_NOT_LOADED),
+            "its hooks never report: no reload advice"
+        );
+        assert_eq!(action(&c, codes::CONTINUE_HERE), Some(LimitAction::Fork));
+        assert!(c.fork, "a copy stays possible");
+        // Ended, never prompted, or Mother Claude's own now: nothing to take.
+        for input in [
+            CapsInput {
+                left_over: true,
+                ..Default::default()
+            },
+            CapsInput {
+                live: true,
+                left_over: true,
+                transcript_missing: true,
+                ..Default::default()
+            },
+            CapsInput {
+                live: true,
+                owned: true,
+                left_over: true,
+                ..Default::default()
+            },
+        ] {
+            assert!(!compute(&input).take_over, "{input:?}");
+        }
+        // Absent from the JSON unless it is offered.
+        let plain = compute(&CapsInput {
+            live: true,
+            ..Default::default()
+        });
+        assert!(serde_json::to_value(&plain)
+            .unwrap()
+            .get("takeOver")
+            .is_none());
+        assert_eq!(serde_json::to_value(&c).unwrap()["takeOver"], json!(true));
     }
 
     #[test]

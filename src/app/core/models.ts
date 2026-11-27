@@ -142,6 +142,11 @@ export interface ControlCaps {
   /** Thinking can be switched on and off from here (live owned sessions).
    * Absent on older servers. */
   setThinking?: boolean;
+  /** An earlier run of Mother Claude started this live session (before an
+   * update or a restart): nothing reaches it now, but it can be taken over
+   * here — its old process stops, the same session goes on
+   * (`POST /sessions/{id}/take-over`). Absent from older servers. */
+  takeOver?: boolean;
   /** What doesn't work, why, and the fix. */
   limits: CapLimit[];
   /** @deprecated pre-amendment free-text notes; read via capLimits(). */

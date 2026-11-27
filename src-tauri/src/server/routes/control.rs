@@ -661,6 +661,50 @@ pub async fn continue_session(
         .into_response())
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TakeOverBody {
+    /// The first message once it goes on here (none: it waits for one).
+    pub prompt: Option<String>,
+    pub images: Vec<ImageInput>,
+}
+
+/// `POST /api/sessions/{id}/take-over {prompt?, images?}` → `201 {id,
+/// stopped?}`: a session an earlier run of Mother Claude started
+/// (`ControlCaps::take_over`) goes on here — its old process stops, with
+/// what it runs, and the same session resumes in place (`claude::takeover`).
+/// A session without permission prompts needs the dangerous right, as
+/// continuing it does. Audited (`session.take_over`); the desktop is told
+/// when a device did it.
+pub async fn take_over(
+    Authed(ctx): Authed,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<TakeOverBody>,
+) -> ApiResult<Response> {
+    crate::claude::ids::require_session_id(&id)?;
+    let mode = state.live.launch_flags(&id).and_then(|f| f.permission_mode);
+    if owned::is_dangerous_mode(mode.as_deref()) {
+        require_dangerous(&ctx, "Taking over a session without permission prompts")?;
+    }
+    let done =
+        crate::claude::takeover::take_over(&state, Caller::of(&ctx), &id, body.prompt, body.images)
+            .await?;
+    state
+        .devices
+        .audit
+        .record(crate::server::devices::audit::AuditEntry {
+            detail: Some(json!({ "session": done.id, "stoppedWork": done.stopped.is_some() })),
+            ..crate::server::devices::audit::AuditEntry::from_ctx(&ctx, "session.take_over")
+        });
+    crate::server::auth::note_device_action(&state, &ctx, "took a session over");
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "id": done.id, "stopped": done.stopped })),
+    )
+        .into_response())
+}
+
 /// `POST /api/sessions/{id}/account {account, when?}` (docs/ACCOUNTS.md
 /// §15.1): the session goes on under another account — `200 {id, account,
 /// moved, job?}` once it does, `202 {id, account, pending: true}` while it

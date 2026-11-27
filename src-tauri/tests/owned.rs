@@ -2489,3 +2489,125 @@ async fn an_owned_sessions_mcp_servers_reconnect_and_its_plugins_reload() {
     wait_turn_done(&f.st, &id).await;
     owned::kill(&f.st, &id).await.unwrap();
 }
+
+/// A session an earlier run of Mother Claude started — left running when an
+/// update replaced the app mid-turn — is known by Mother Claude's marker,
+/// and goes on here as the same session: its old process stops, the session
+/// resumes in place (`--resume`, never a fork) with the model, effort and
+/// mode it ran with, and its next message says what stopped.
+#[tokio::test]
+async fn a_session_an_earlier_run_left_running_goes_on_here_in_place() {
+    use mother_claude_lib::claude::model::MessageCap;
+    use mother_claude_lib::claude::{live, takeover};
+    const ID: &str = "4b1c7a2e-9d3f-4e8a-b6c5-2f1e0d9c8b7a";
+    let f = Fixture::new();
+    let home = f._home.path().to_path_buf();
+    let cwd = f.cwd();
+    // Its conversation.
+    let dir = home
+        .join("projects")
+        .join(mother_claude_lib::claude::encode_cwd(&cwd));
+    std::fs::create_dir_all(&dir).unwrap();
+    let user = json!({"type": "user", "sessionId": ID, "cwd": cwd, "uuid": "u-1",
+        "timestamp": "2026-11-26T09:00:00.000Z",
+        "message": {"role": "user", "content": "watch the downloads"}});
+    std::fs::write(dir.join(format!("{ID}.jsonl")), format!("{user}\n")).unwrap();
+    // The process the earlier run started, as Mother Claude starts one: its
+    // marker in the environment, its plugin folder in the argv.
+    let fake = std::env::var("MOTHER_CLAUDE_CLI").unwrap();
+    #[allow(clippy::disallowed_methods)]
+    let mut old = std::process::Command::new(&fake)
+        .args([
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--input-format",
+            "stream-json",
+            "--permission-mode",
+            "acceptEdits",
+            "--model",
+            "claude-opus-5-5",
+            "--effort",
+            "high",
+            "--resume",
+            ID,
+            "--plugin-dir",
+            "/tmp/an-earlier-run/mcp-plugin/mother-claude",
+        ])
+        .env("MOTHER_CLAUDE_OWNED", "1")
+        .current_dir(&cwd)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = old.id();
+    std::fs::create_dir_all(home.join("sessions")).unwrap();
+    std::fs::write(
+        home.join("sessions").join(format!("{pid}.json")),
+        json!({"pid": pid, "sessionId": ID, "cwd": cwd, "status": "busy",
+               "kind": "interactive", "entrypoint": "sdk-cli"})
+        .to_string(),
+    )
+    .unwrap();
+    // The index reads its conversation, the roster its process.
+    mother_claude_lib::server::monitor::refresh_once(&f.st).await;
+    let s = f.st.find_session(ID).await.expect("listed");
+    assert!(s.live && !s.owned, "{s:?}");
+    assert!(s.control.take_over, "{:?}", s.control);
+    assert_eq!(s.control.message, MessageCap::None, "nothing reaches it");
+
+    // Its parent went with the earlier run, so the system reaps it the
+    // moment it stops; here this test is its parent, and reaps it so.
+    let reaper = std::thread::spawn(move || old.wait());
+
+    // Continued here: the old process stops, the same session resumes.
+    let done = takeover::take_over(&f.st, MAC, ID, None, vec![])
+        .await
+        .unwrap_or_else(|e| panic!("{} {}", e.code, e.message));
+    assert_eq!(done.id, ID, "the same session");
+    assert_eq!(done.stopped.as_deref(), Some("the turn it was working on"));
+    assert!(reaper.join().unwrap().is_ok());
+    assert!(!live::pid_exists(pid), "the old process is gone");
+    assert!(owned::has_handle(&f.st, ID));
+
+    // In place, with what it ran with (the new process's first line; the
+    // old one's, if it got to write one, has the old pid).
+    let new_line = || {
+        f.log()
+            .into_iter()
+            .filter(|l| l["pid"].as_u64().is_some_and(|p| p != u64::from(pid)))
+            .find_map(|l| l.get("argv").cloned())
+            .map(|a| serde_json::from_value::<Vec<String>>(a).unwrap().join(" "))
+    };
+    wait_for("the new process", || new_line().is_some()).await;
+    let last = new_line().unwrap();
+    assert!(last.contains(&format!("--resume {ID}")), "{last}");
+    assert!(
+        !last.contains("--fork-session") && !last.contains("--session-id"),
+        "{last}"
+    );
+    for part in [
+        "--permission-mode acceptEdits",
+        "--model claude-opus-5-5",
+        "--effort high",
+    ] {
+        assert!(last.contains(part), "{part:?} missing from {last}");
+    }
+
+    // Its next message says what stopped, once.
+    owned::send_as(&f.st, true, ID, "go on", &[]).await.unwrap();
+    wait_for("the message", || {
+        f.received().iter().any(|m| {
+            let t = m.to_string();
+            t.contains("took this session over") && t.contains("the turn it was working on")
+        })
+    })
+    .await;
+    assert!(takeover::take_note(ID).is_none(), "said once");
+
+    // Nothing is left to take over.
+    let again = takeover::take_over(&f.st, MAC, ID, None, vec![]).await;
+    assert_eq!(again.unwrap_err().code, "already_owned");
+    owned::kill(&f.st, ID).await.unwrap();
+}

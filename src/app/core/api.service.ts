@@ -539,6 +539,16 @@ export class ApiService {
     return this.post(`/sessions/${enc(id)}/continue`, body);
   }
 
+  /** Continue here a session an earlier run of Mother Claude started
+   * (`control.takeOver`): its old process stops, and the same session goes
+   * on here (`201 {id, stopped?}`: what stopped with it). */
+  takeOverLeftOver(
+    id: string,
+    body: { prompt?: string } = {},
+  ): Promise<{ id: string; stopped?: string | null }> {
+    return this.post(`/sessions/${enc(id)}/take-over`, body);
+  }
+
   /** Switch a session's account (docs/ACCOUNTS.md §15.1): `200 {id,
    * account, moved}`, or `202 {pending: true}` while its turn runs. */
   switchSessionAccount(

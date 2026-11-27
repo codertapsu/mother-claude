@@ -11,13 +11,53 @@
       <p class="why">
         <mc-icon name="info" [size]="16" />
         <span>{{
-          s.live
-            ? ('You can watch this session from here, but not message it while it runs in {app}.'
-              | t: { app: surfaceName() })
-            : ('You can watch this session from here, but not message it.' | t)
+          takeOver()
+            ? ('Mother Claude ran this session before it restarted, so it can’t take messages from here anymore. Continue it here to go on with the same session.'
+              | t)
+            : s.live
+              ? ('You can watch this session from here, but not message it while it runs in {app}.'
+                | t: { app: surfaceName() })
+              : ('You can watch this session from here, but not message it.' | t)
         }}</span>
       </p>
-      <mc-cap-limits [session]="s" />
+      @if (takeOver()) {
+        @if (confirmTakeOver()) {
+          <div class="take-over" role="group" [attr.aria-label]="'Continue here' | t">
+            <p>
+              {{
+                takeOverStops()
+                  ? ('Its old process stops first, and with it: {what}. Then the same session goes on here, waiting for your message.'
+                    | t: { what: takeOverStops() })
+                  : ('Its old process stops first. Then the same session goes on here, waiting for your message.'
+                    | t)
+              }}
+            </p>
+            <div class="row">
+              <button
+                class="btn primary"
+                type="button"
+                [disabled]="takingOver()"
+                (click)="takeOverNow()"
+              >
+                {{ takingOver() ? ('Continuing…' | t) : ('Continue here' | t) }}
+              </button>
+              <button
+                class="btn ghost"
+                type="button"
+                [disabled]="takingOver()"
+                (click)="confirmTakeOver.set(false)"
+              >
+                {{ 'Cancel' | t }}
+              </button>
+            </div>
+          </div>
+        } @else {
+          <button class="btn primary" type="button" (click)="confirmTakeOver.set(true)">
+            <mc-icon name="play" [size]="15" /> {{ 'Continue here…' | t }}
+          </button>
+        }
+      }
+      <mc-cap-limits [session]="s" [limits]="blockedLimits()" />
       @if (installMissing()) {
         <a class="btn" routerLink="/elsewhere"
           ><mc-icon name="plug" [size]="15" /> {{ 'Set up Sessions started elsewhere' | t }}</a
